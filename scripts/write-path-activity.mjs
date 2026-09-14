@@ -279,6 +279,70 @@ async function main() {
   const dc = await (await call(`/api/daily-activity/calendar?month=${today.slice(0, 7)}&userId=${SEED.subA}`, SUB, 'GET')).json()
   ok('daily-activity filledDates are DATE-ONLY', dc.filledDates.every(d => DATE_ONLY.test(d)), dc.filledDates)
 
+  // ===== expenses/photo authorisation (Phase B) ============================
+  // R2 itself is NOT reachable here — no credentials. That is fine: every
+  // authorisation branch runs BEFORE the storage call, so "500 File storage is
+  // not configured" is the proof that a request got PAST authorisation, and any
+  // 403/404 is the proof that it did not.
+  section('expenses/photo — authorisation branches (R2 unreachable by design)')
+  const photoFile = '11111111-2222-4333-8444-555555555555.jpg'
+  const photoUrl = `/api/expenses/photo/${photoFile}`
+  const owned = await prisma.expenses.create({
+    data: { tenant_id: SEED.tenantA, user_id: SEED.subA, expense_date: new Date(today), category: 'Travel', amount: 5, photo_url: photoUrl },
+  })
+
+  ok('a malformed id -> 404 before anything else', (await call('/api/expenses/photo/..%2Fetc%2Fpasswd', SUB, 'GET')).status === 404)
+  ok('a non-uuid id -> 404', (await call('/api/expenses/photo/not-a-uuid.jpg', SUB, 'GET')).status === 404)
+  ok('a wrong extension -> 404', (await call(`/api/expenses/photo/11111111-2222-4333-8444-555555555555.gif`, SUB, 'GET')).status === 404)
+  ok('a well-formed id with no matching expense -> 404',
+    (await call('/api/expenses/photo/99999999-9999-4999-8999-999999999999.jpg', SUB, 'GET')).status === 404)
+
+  const asOwner = await call(photoUrl, SUB, 'GET')
+  ok('the OWNER gets past authorisation (500 = reached the R2 step)', asOwner.status === 500, asOwner.status)
+  ok('and the message names storage, not permissions', (await asOwner.json()).error === 'File storage is not configured.')
+
+  // adminA can see subA (seeded user_visibility), so scope=team must allow it.
+  const asManager = await call(photoUrl, MGR, 'GET')
+  ok('a manager who can SEE the owner also gets past authorisation', asManager.status === 500, asManager.status)
+
+  section('expenses/photo — a user who cannot see the owner is refused')
+  const outsider = await prisma.users.create({
+    data: {
+      tenant_id: SEED.tenantA, name: 'Scratch Outsider', email: 'outsider@example.invalid',
+      contact: '9000007777', password: '', profile: 'Standard', status: 'Active',
+      role_id: (await prisma.roles.findFirst({ where: { tenant_id: SEED.tenantA, name: 'Scratch Role' } })).id,
+    },
+  })
+  // 'Scratch Role' has data_scope 'all' from the seed, so narrow it to 'own' for
+  // this assertion — otherwise the test would prove nothing about scoping.
+  await prisma.role_permissions.updateMany({
+    where: { tenant_id: SEED.tenantA, profile: 'Scratch Role', section: 'expenses' },
+    data: { data_scope: 'own' },
+  })
+  await prisma.role_permissions.upsert({
+    where: { tenant_id_profile_section: { tenant_id: SEED.tenantA, profile: 'Scratch Role', section: 'expenses' } },
+    create: { tenant_id: SEED.tenantA, profile: 'Scratch Role', section: 'expenses', can_view: true, can_create: false, can_edit: false, can_delete: false, data_scope: 'own' },
+    update: { data_scope: 'own' },
+  })
+  const outsiderToken = await mint({ phone: '9000007777', userId: outsider.id, name: 'Scratch Outsider', role: 'Scratch Role', tenantId: SEED.tenantA, cv: 1 })
+  const asOutsider = await call(photoUrl, outsiderToken, 'GET')
+  ok("scope=own + another user's expense -> 403, never the signed url", asOutsider.status === 403, asOutsider.status)
+
+  section('expenses/photo — cross-tenant photo ids resolve to nothing')
+  const expB = await prisma.expenses.create({
+    data: { tenant_id: SEED.tenantB, user_id: (await prisma.users.findFirst({ where: { tenant_id: SEED.tenantB } }))?.id ?? SEED.subA, expense_date: new Date(today), category: 'Travel', amount: 1, photo_url: '/api/expenses/photo/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg' },
+  }).catch(() => null)
+  if (expB) {
+    const xTenant = await call('/api/expenses/photo/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg', SUB, 'GET')
+    ok('a tenant A session cannot reach a tenant B photo -> 404', xTenant.status === 404, xTenant.status)
+  } else console.log('  SKIP  cross-tenant photo id (tenant B has no users to own an expense)')
+
+  // Clean up BOTH fixtures. The tenant-B row exists only to prove a tenant A
+  // session cannot reach it; leaving it behind would (correctly) trip the
+  // isolation assertion below.
+  await prisma.expenses.deleteMany({ where: { id: owned.id } })
+  if (expB) await prisma.expenses.deleteMany({ where: { id: expB.id } })
+
   // ===== isolation =========================================================
   section('tenant B untouched')
   ok('tenant B product name never changed',

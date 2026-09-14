@@ -68,37 +68,30 @@ async function main() {
   // Wipe in FK-safe order. Only ever the two scratch tenants.
   const tenants = [SEED.tenantA, SEED.tenantB]
   const wipe = { tenant_id: { in: tenants } }
-  // Children that reference users / remarks must go before the parents.
-  await prisma.remark_reads.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.contextual_remarks.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.point_events.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.point_config_history.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.point_config.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.tenant_point_settings.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.weekly_plan_audit_logs.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.weekly_plan_items.deleteMany({ where: { tenant_id: { in: tenants } } })
-  await prisma.weekly_plans.deleteMany({ where: wipe })
-  await prisma.notifications.deleteMany({ where: wipe })
-  await prisma.user_visibility.deleteMany({ where: wipe })
-  await prisma.order_items.deleteMany({ where: { orders: { tenant_id: { in: tenants } } } })
-  await prisma.orders.deleteMany({ where: wipe })
-  await prisma.products.deleteMany({ where: wipe })
-  await prisma.product_subcategories.deleteMany({ where: wipe })
-  await prisma.product_categories.deleteMany({ where: wipe })
-  await prisma.business_partners.deleteMany({ where: wipe })
-  await prisma.villages.deleteMany({ where: wipe })
-  await prisma.talukas.deleteMany({ where: wipe })
-  await prisma.districts.deleteMany({ where: wipe })
-  await prisma.states.deleteMany({ where: wipe })
-  await prisma.role_permissions.deleteMany({ where: wipe })
-  await prisma.users.deleteMany({ where: wipe })
-  await prisma.roles.deleteMany({ where: wipe })
-  await prisma.designations.deleteMany({ where: wipe })
-  await prisma.departments.deleteMany({ where: wipe })
-  await prisma.expense_categories.deleteMany({ where: wipe })
-  await prisma.lead_types.deleteMany({ where: wipe })
-  await prisma.lead_stages.deleteMany({ where: wipe })
-  await prisma.lead_temperatures.deleteMany({ where: wipe })
+  // Full dependency-ordered wipe: children before parents, every tenant-scoped
+  // table listed once. Patching this list one FK error at a time (which is how
+  // it grew) leaves the next test suite to rediscover the same problem, so it is
+  // enumerated in full instead.
+  const order = [
+    // leaf tables that point at remarks / users / plans
+    'remark_reads', 'contextual_remarks',
+    'point_events', 'point_config_history', 'point_config', 'tenant_point_settings',
+    'weekly_plan_audit_logs', 'weekly_plan_items', 'weekly_plans',
+    'notifications', 'user_visibility',
+    // orders.visit_id -> daily_visits, so orders must precede it
+    'order_items', 'orders', 'daily_visits', 'attendance', 'expenses',
+    // reference data owned by the tenant
+    'expense_categories', 'lead_types', 'lead_stages', 'lead_temperatures',
+    'products', 'product_subcategories', 'product_categories',
+    'business_partners', 'user_territory_mappings',
+    'villages', 'talukas', 'districts', 'states',
+    // users references departments/designations/roles, so it goes BEFORE them
+    'users', 'designations', 'departments', 'roles', 'role_permissions',
+  ]
+  for (const table of order) {
+    await prisma[table].deleteMany({ where: wipe })
+  }
+
   await prisma.tenants.deleteMany({ where: { id: { in: tenants } } })
 
   await prisma.tenants.createMany({

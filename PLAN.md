@@ -1,9 +1,20 @@
 # PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
-**Status:** IN PROGRESS — Phase A done; auth (5 routes) and the location/product masters (18)
-converted; local write-path harness built; remaining masters, then weekly-plans, in flight.
-Server side is parked at a checkpoint (`uuid-ossp`, least-privilege role). RDS holds no schema
-and no data yet.
+**Status:** IN PROGRESS — **113 of 114 API routes converted to Prisma.** Phase A, and Batches
+1–6 complete and committed. Gates green: smoke 344/344 across seven suites · tenant-scope audit
+clean on all seven · write-path 355/355 on the local scratch DB · lint 0 · build 0 with
+`DATABASE_URL` unset.
+
+**The only file still importing Supabase is `src/app/api/expenses/upload/route.ts`** (Phase B).
+
+Remaining work: **Phase B** (R2 + rewrite `expenses/upload` + the new photo route) · the **RDS
+re-pull and diff** (§6.1) · the **§9 teardown**, which is behind the final checkpoint.
+
+Blocked on the owner: `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (runtime values only — the
+Phase B *code* does not need them), and RDS being loaded. Server side is parked at a checkpoint
+(`uuid-ossp`, least-privilege role); RDS holds no schema and no data yet.
+
+**Six pre-existing production bugs** found and deliberately NOT fixed — see §13.
 **Audience:** a fresh Claude Code session with no memory of the discussion that produced this file.
 Read this whole document before touching code.
 
@@ -586,6 +597,24 @@ include: { users: { select: { id: true, name: true } } }
 supplied is a *pre-existing* bug. Prisma catches it at compile time; PostgreSQL caught it at
 runtime. Preserve the behaviour with an explicit cast and a comment, record it in section 13, and
 do **not** fix it here — see 13.3 (designations) and 13.4 (product import).
+
+**A `Date` is wrong anywhere it is used as an IDENTITY, not just in a response.** `serialize()`
+fixes what goes over the wire; it does nothing for server-side logic. Every one of these is
+silent — no throw, no error, plausible-looking output:
+
+| Misuse | What actually happens | Seen in |
+|---|---|---|
+| `new Set(rows.map(r => r.some_date))` | Dates are objects, so the Set holds **one member per ROW, not per DAY** — it dedupes nothing. It then serialises as full ISO, which no date-only consumer matches. Two stacked failures. | `daily-activity/calendar`, `expenses/calendar` |
+| `grid[row.week_start_date]` as an object KEY | Stringifies to `"Mon Sep 14 2026 …"`, matches no key, so every cell stays blank. | `weekly-plans/summary` |
+| `row.visit_date === "2026-09-14"` | `Date === string` is **always false** — every bucket reads zero and looks like a quiet week. | `dashboard/manager` |
+| `today <= row.week_start_date` | Coerces the Date via `toString()`, so the comparison is meaningless rather than wrong-by-a-day. | `weekly-plans/[id]/submit` |
+| `row.created_at.localeCompare(...)` / `.slice(0, 10)` | Throws `TypeError` — the LOUD case, and the only one you get told about. | `conversations`, `daily-activity/[id]` |
+
+**Rule:** if a date column is used as a Set member, an object key, or either side of `===`, `<`,
+`>` or `localeCompare`, convert it FIRST — `dateOnlyString()` for `@db.Date`, `.toISOString()`
+for `timestamptz` — and convert once, at the point the rows are read. Half-converting is worse
+than not converting: comparing a normalised string against a raw Date reintroduces the bug at a
+different line.
 
 **A missing foreign key STRENGTHENS the case for an explicit tenant filter.** When ids come from
 a real FK column, the database itself guarantees the parent is in-tenant and a `tenant_id` filter
