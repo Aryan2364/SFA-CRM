@@ -1,0 +1,60 @@
+# Builds the SFA CRM Docker image and pushes it to the GitHub Container
+# Registry (GHCR). Runs on every push to main, and can be triggered by hand
+# from the Actions tab ("Run workflow").
+#
+# Image produced:
+#   ghcr.io/aryan2364/sfacrm:latest   (+ a tag for the exact commit)
+#
+# GHCR login uses the automatic GITHUB_TOKEN — no secret to configure for that.
+#
+# No repository secrets are required: the build needs none, and all runtime
+# config lives in .env.production on the server.
+name: Build & push image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+# GHCR paths must be lowercase. Owner "Aryan2364" -> "aryan2364".
+env:
+  IMAGE_BASE: ghcr.io/aryan2364
+
+# Allow this workflow to push packages (images) using GITHUB_TOKEN.
+permissions:
+  contents: read
+  packages: write
+
+# If you push twice quickly, cancel the older run.
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push sfacrm
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}/sfacrm:latest
+            ${{ env.IMAGE_BASE }}/sfacrm:${{ github.sha }}
+          # Speed up repeat builds by caching layers in GitHub Actions.
+          cache-from: type=gha,scope=sfacrm
+          cache-to: type=gha,mode=max,scope=sfacrm

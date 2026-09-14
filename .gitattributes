@@ -1,0 +1,7 @@
+# Shell scripts and container files must keep LF endings — a CRLF deploy.sh
+# fails on Linux with a confusing "bad interpreter: no such file" error.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+.dockerignore   text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf

@@ -1,0 +1,27 @@
+# Runs the PRE-BUILT image from GHCR. This is the file you use ON THE SERVER.
+# It does NOT build anything — it pulls the image GitHub Actions already built.
+#
+# Usage on the server:
+#   docker compose -f docker-compose.deploy.yml pull
+#   docker compose -f docker-compose.deploy.yml up -d
+# or just: ./deploy.sh
+#
+# Requires a .env.production file next to this one (see .env.production.example).
+services:
+  sfacrm:
+    image: ghcr.io/aryan2364/sfacrm:latest
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      TZ: Asia/Kolkata
+    ports:
+      # host:container — 3400 on the box, proxied by nginx/Caddy to the domain.
+      - "3400:3000"
+    restart: unless-stopped
+    networks:
+      - sfacrm_prod
+
+networks:
+  sfacrm_prod:
+    driver: bridge
