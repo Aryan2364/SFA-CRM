@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 
 const ALL_SECTIONS = [
@@ -17,26 +17,27 @@ export async function GET(req: NextRequest) {
   if (user.role !== 'Administrator') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const profile = req.nextUrl.searchParams.get('profile') ?? ''
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const { data, error } = await supabase
-    .from('role_permissions')
-    .select('section, can_view, can_create, can_edit, can_delete, data_scope')
-    .eq('tenant_id', tid)
-    .eq('profile', profile)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  try {
+  const data = await prisma.role_permissions.findMany({
+    where: { tenant_id: tid, profile },
+    select: { section: true, can_view: true, can_create: true, can_edit: true, can_delete: true, data_scope: true },
+  })
 
   const result: Record<string, { view: boolean; create: boolean; edit: boolean; delete: boolean; data_scope: string }> = {}
   for (const s of ALL_SECTIONS) {
-    const row = (data ?? []).find(r => r.section === s)
+    const row = data.find(r => r.section === s)
     result[s] = row
       ? { view: row.can_view, create: row.can_create ?? false, edit: row.can_edit, delete: row.can_delete, data_scope: row.data_scope ?? 'own' }
       : { view: false, create: false, edit: false, delete: false, data_scope: 'own' }
   }
 
+  // Booleans and strings only — nothing to serialise.
   return NextResponse.json(result)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function PUT(req: NextRequest) {
@@ -44,14 +45,23 @@ export async function PUT(req: NextRequest) {
   if (user.role !== 'Administrator') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { profile, section, can_view, can_create, can_edit, can_delete, data_scope } = await req.json()
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const { error } = await supabase.from('role_permissions').upsert(
-    { tenant_id: tid, profile, section, can_view, can_create: can_create ?? false, can_edit, can_delete, data_scope: data_scope ?? 'own' },
-    { onConflict: 'tenant_id,profile,section' }
-  )
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  try {
+    // onConflict 'tenant_id,profile,section' is the real
+    // @@unique([tenant_id, profile, section]) — the same key checkPermission()
+    // and getDataScope() read through, so permissions keep resolving identically.
+    const values = {
+      can_view, can_create: can_create ?? false, can_edit, can_delete,
+      data_scope: data_scope ?? 'own',
+    }
+    await prisma.role_permissions.upsert({
+      where: { tenant_id_profile_section: { tenant_id: tid, profile, section } },
+      create: { tenant_id: tid, profile, section, ...values },
+      update: values,
+    })
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { canView } from '@/lib/visibility'
@@ -15,31 +15,40 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'contextType and contextId are required' }, { status: 400 })
   }
 
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('contextual_remarks')
-    .select('*, users!author_user_id(id, name)')
-    .eq('tenant_id', getTenantId())
-    .eq('context_type', contextType)
-    .eq('context_id', contextId)
-    .order('created_at')
+  try {
+    // `users!author_user_id(id, name)` arrived under the key `users`, and the
+    // introspected relation field is also `users`, so no rename is needed here
+    // (unlike conversations, which aliased it to `author`).
+    const rows = await prisma.contextual_remarks.findMany({
+      where: {
+        tenant_id: getTenantId(),
+        context_type: contextType,
+        context_id: contextId,
+      },
+      include: { users: { select: { id: true, name: true } } },
+      orderBy: { created_at: 'asc' },
+    })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Get read status for current user
+    const remarkIds = rows.map(r => r.id)
+    let readSet = new Set<string>()
+    if (remarkIds.length > 0) {
+      const reads = await prisma.remark_reads.findMany({
+        // tenant_id added, unlike the pre-migration query. Both remark_id and
+        // user_id are FK-enforced and the ids come from a tenant-scoped query,
+        // so this cannot change results — same precedent as the dealers lookup.
+        where: { tenant_id: getTenantId(), user_id: user.userId ?? undefined, remark_id: { in: remarkIds } },
+        select: { remark_id: true },
+      })
+      readSet = new Set(reads.map(r => r.remark_id))
+    }
 
-  // Get read status for current user
-  const remarkIds = (data ?? []).map(r => r.id)
-  let readSet = new Set<string>()
-  if (remarkIds.length > 0) {
-    const { data: reads } = await supabase
-      .from('remark_reads')
-      .select('remark_id')
-      .eq('user_id', user.userId)
-      .in('remark_id', remarkIds)
-    readSet = new Set((reads ?? []).map(r => r.remark_id))
+    const data = serialize(rows, 'contextual_remarks') as Record<string, unknown>[]
+    const enriched = data.map(r => ({ ...r, is_read: readSet.has(r.id as string) }))
+    return NextResponse.json(enriched)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
-
-  const enriched = (data ?? []).map(r => ({ ...r, is_read: readSet.has(r.id) }))
-  return NextResponse.json(enriched)
 }
 
 export async function POST(req: NextRequest) {
@@ -51,45 +60,52 @@ export async function POST(req: NextRequest) {
   }
 
   const tenantId = getTenantId()
-  const supabase = createServerSupabase()
 
-  // Check visibility: if commenting on someone else's data, viewer must have access
-  let contextOwnerId: string | null = null
-  if (context_type === 'meeting') {
-    const { data: visit } = await supabase.from('daily_visits').select('user_id').eq('id', context_id).single()
-    contextOwnerId = visit?.user_id ?? null
-  } else if (context_type === 'expense') {
-    const { data: expense } = await supabase.from('expenses').select('user_id').eq('id', context_id).single()
-    contextOwnerId = expense?.user_id ?? null
-  } else if (context_type === 'weekly_plan_day') {
-    const { data: item } = await supabase.from('weekly_plan_items').select('weekly_plan_id').eq('id', context_id).single()
-    if (item) {
-      const { data: plan } = await supabase.from('weekly_plans').select('user_id').eq('id', item.weekly_plan_id).single()
+  let remark
+  try {
+    // Check visibility: if commenting on someone else's data, viewer must have access
+    let contextOwnerId: string | null = null
+    if (context_type === 'meeting') {
+      const visit = await prisma.daily_visits.findUnique({ where: { id: context_id }, select: { user_id: true } })
+      contextOwnerId = visit?.user_id ?? null
+    } else if (context_type === 'expense') {
+      const expense = await prisma.expenses.findUnique({ where: { id: context_id }, select: { user_id: true } })
+      contextOwnerId = expense?.user_id ?? null
+    } else if (context_type === 'weekly_plan_day') {
+      const item = await prisma.weekly_plan_items.findUnique({ where: { id: context_id }, select: { weekly_plan_id: true } })
+      if (item) {
+        const plan = await prisma.weekly_plans.findUnique({ where: { id: item.weekly_plan_id }, select: { user_id: true } })
+        contextOwnerId = plan?.user_id ?? null
+      }
+    } else if (context_type === 'weekly_plan') {
+      const plan = await prisma.weekly_plans.findUnique({ where: { id: context_id }, select: { user_id: true } })
       contextOwnerId = plan?.user_id ?? null
     }
-  } else if (context_type === 'weekly_plan') {
-    const { data: plan } = await supabase.from('weekly_plans').select('user_id').eq('id', context_id).single()
-    contextOwnerId = plan?.user_id ?? null
-  }
-  if (contextOwnerId && contextOwnerId !== user.userId) {
-    const allowed = await canView(user.userId!, contextOwnerId, supabase, tenantId)
-    if (!allowed) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
-  }
+    if (contextOwnerId && contextOwnerId !== user.userId) {
+      const allowed = await canView(user.userId!, contextOwnerId, null, tenantId)
+      if (!allowed) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    }
 
-  const { data: remark, error } = await supabase
-    .from('contextual_remarks')
-    .insert({
-      tenant_id: tenantId,
-      context_type,
-      context_id,
-      parent_remark_id: parent_remark_id ?? null,
-      author_user_id: user.userId,
-      body: body.trim(),
+    const created = await prisma.contextual_remarks.create({
+      data: {
+        tenant_id: tenantId,
+        context_type,
+        context_id,
+        parent_remark_id: parent_remark_id ?? null,
+        // author_user_id is NOT NULL while SessionUser.userId is nullable. A null
+        // hit the not-null constraint under Supabase and produced a 500; the cast
+        // keeps that path identical rather than inventing a new guard. Only a
+        // SuperAdmin has a null userId, and middleware already blocks SuperAdmin
+        // from tenant routes, so it is unreachable in practice.
+        author_user_id: user.userId as string,
+        body: body.trim(),
+      },
+      include: { users: { select: { id: true, name: true } } },
     })
-    .select('*, users!author_user_id(id, name)')
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    remark = serialize(created, 'contextual_remarks') as Record<string, unknown>
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 
   // Auto-create notification: find the other party
   // Determine context owner (visit user or expense user) to notify
@@ -100,7 +116,7 @@ export async function POST(req: NextRequest) {
     let message = ''
 
     if (context_type === 'meeting') {
-      const { data: visit } = await supabase.from('daily_visits').select('user_id, visit_date').eq('id', context_id).single()
+      const visit = await prisma.daily_visits.findUnique({ where: { id: context_id }, select: { user_id: true, visit_date: true } })
       if (visit && visit.user_id !== user.userId) {
         // Manager commenting on subordinate's meeting → notify subordinate
         recipientId = visit.user_id
@@ -109,7 +125,7 @@ export async function POST(req: NextRequest) {
         message = `New remark on your meeting from ${user.name}`
       } else if (visit && visit.user_id === user.userId) {
         // Subordinate commenting on own meeting → notify manager, redirect to review page
-        const { data: me } = await supabase.from('users').select('manager_user_id').eq('id', user.userId).single()
+        const me = await prisma.users.findUnique({ where: { id: user.userId ?? '' }, select: { manager_user_id: true } })
         if (me?.manager_user_id) {
           recipientId = me.manager_user_id
           redirectPath = `/review/${user.userId}?tab=activity&remarks=${context_id}`
@@ -118,7 +134,7 @@ export async function POST(req: NextRequest) {
         }
       }
     } else if (context_type === 'expense') {
-      const { data: expense } = await supabase.from('expenses').select('user_id, expense_date').eq('id', context_id).single()
+      const expense = await prisma.expenses.findUnique({ where: { id: context_id }, select: { user_id: true, expense_date: true } })
       if (expense && expense.user_id !== user.userId) {
         // Manager commenting on subordinate's expense → notify subordinate
         recipientId = expense.user_id
@@ -127,7 +143,7 @@ export async function POST(req: NextRequest) {
         message = `New remark on your expense from ${user.name}`
       } else if (expense && expense.user_id === user.userId) {
         // Subordinate commenting on own expense → notify manager, redirect to review page
-        const { data: me } = await supabase.from('users').select('manager_user_id').eq('id', user.userId).single()
+        const me = await prisma.users.findUnique({ where: { id: user.userId ?? '' }, select: { manager_user_id: true } })
         if (me?.manager_user_id) {
           recipientId = me.manager_user_id
           redirectPath = `/review/${user.userId}?tab=expenses&remarks=${context_id}`
@@ -136,16 +152,16 @@ export async function POST(req: NextRequest) {
         }
       }
     } else if (context_type === 'weekly_plan_day') {
-      const { data: item } = await supabase.from('weekly_plan_items').select('weekly_plan_id, plan_date').eq('id', context_id).single()
+      const item = await prisma.weekly_plan_items.findUnique({ where: { id: context_id }, select: { weekly_plan_id: true, plan_date: true } })
       if (item) {
-        const { data: plan } = await supabase.from('weekly_plans').select('user_id').eq('id', item.weekly_plan_id).single()
+        const plan = await prisma.weekly_plans.findUnique({ where: { id: item.weekly_plan_id }, select: { user_id: true } })
         if (plan && plan.user_id !== user.userId) {
           recipientId = plan.user_id
           redirectPath = `/weekly-plan?remarks=${context_id}`
           section = 'weekly_plan'
           message = `New remark on your weekly plan from ${user.name}`
         } else if (plan && plan.user_id === user.userId) {
-          const { data: me } = await supabase.from('users').select('manager_user_id').eq('id', user.userId).single()
+          const me = await prisma.users.findUnique({ where: { id: user.userId ?? '' }, select: { manager_user_id: true } })
           if (me?.manager_user_id) {
             recipientId = me.manager_user_id
             redirectPath = `/weekly-plan?remarks=${context_id}`
@@ -156,7 +172,7 @@ export async function POST(req: NextRequest) {
       }
     } else if (context_type === 'weekly_plan') {
       // context_id is the weekly_plan.id
-      const { data: plan } = await supabase.from('weekly_plans').select('user_id, week_start_date').eq('id', context_id).single()
+      const plan = await prisma.weekly_plans.findUnique({ where: { id: context_id }, select: { user_id: true, week_start_date: true } })
       if (plan && plan.user_id !== user.userId) {
         // Manager commenting on subordinate's plan → notify subordinate
         recipientId = plan.user_id
@@ -165,7 +181,7 @@ export async function POST(req: NextRequest) {
         message = `New remark on your weekly plan from ${user.name}`
       } else if (plan && plan.user_id === user.userId) {
         // Subordinate commenting → notify manager
-        const { data: me } = await supabase.from('users').select('manager_user_id').eq('id', user.userId).single()
+        const me = await prisma.users.findUnique({ where: { id: user.userId ?? '' }, select: { manager_user_id: true } })
         if (me?.manager_user_id) {
           recipientId = me.manager_user_id
           redirectPath = `/review/${user.userId}?tab=plans`
@@ -176,16 +192,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (recipientId) {
-      await supabase.from('notifications').insert({
-        tenant_id: tenantId,
-        recipient_id: recipientId,
-        actor_id: user.userId,
-        section,
-        context_type,
-        context_id,
-        remark_id: remark.id,
-        redirect_path: redirectPath,
-        message,
+      await prisma.notifications.create({
+        data: {
+          tenant_id: tenantId,
+          recipient_id: recipientId,
+          actor_id: user.userId,
+          section,
+          context_type,
+          context_id,
+          remark_id: remark.id as string,
+          redirect_path: redirectPath,
+          message,
+        },
       })
     }
   } catch {

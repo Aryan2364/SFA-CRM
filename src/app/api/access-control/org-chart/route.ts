@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -9,24 +9,28 @@ export async function GET() {
   const user = await requireUser()
   if (user.role !== 'Administrator') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const supabase = createServerSupabase()
   const tenantId = getTenantId()
 
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, name, profile, manager_user_id, designations(name)')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'Active')
-    .order('name')
+  try {
+    const data = await prisma.users.findMany({
+      where: { tenant_id: tenantId, status: 'Active' },
+      select: {
+        id: true, name: true, profile: true, manager_user_id: true,
+        designations: { select: { name: true } },
+      },
+      orderBy: { name: 'asc' },
+    })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const result = data.map(u => ({
+      id: u.id,
+      name: u.name,
+      role: u.designations?.name ?? u.profile ?? '',
+      manager_user_id: u.manager_user_id ?? null,
+    }))
 
-  const result = (data ?? []).map(u => ({
-    id: u.id,
-    name: u.name,
-    role: ((u.designations as unknown) as { name: string } | null)?.name ?? u.profile ?? '',
-    manager_user_id: u.manager_user_id ?? null,
-  }))
-
-  return NextResponse.json(result)
+    // Strings and nulls only — nothing to serialise.
+    return NextResponse.json(result)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

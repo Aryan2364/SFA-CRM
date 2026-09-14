@@ -907,3 +907,27 @@ Fixing it is a product decision: either reject those rows into `skipped` with a 
 (consistent with how unknown categories are already handled), or give the columns defaults.
 Both change observable behaviour, so neither belongs in this migration.
 
+
+### 13.5 Deleting a role: the guard and the constraint disagree
+
+Found by the Batch 5 write-path harness. Pre-existing; the Prisma conversion preserves it exactly.
+
+`DELETE /api/settings/roles/[id]` blocks deletion when users are still assigned, but it counts
+them by **profile string**:
+
+```
+prisma.users.count({ where: { tenant_id, profile: existing.name } })
+```
+
+The constraint that actually prevents the delete is the **`users.role_id` foreign key**. Those
+two do not have to agree: a user can carry `role_id` pointing at the role while `profile` holds a
+different string (exactly what happens to a user whose profile was never migrated to the role
+name). Such a user slips past the guard, the delete reaches the database, and the FK raises —
+so the caller gets a raw **500** instead of the intended `"Cannot delete role: N user(s) still
+assigned to it"` **400**.
+
+Behaviour is unchanged by this migration and the harness asserts both paths so the gap stays
+visible. Fixing it means deciding which field is authoritative — most likely counting
+`role_id` as well as `profile` — which is a product decision about the role model, not a
+migration task.
+

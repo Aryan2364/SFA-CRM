@@ -15,7 +15,8 @@
     "scratch:seed": "node scripts/seed-scratch.mjs",
     "dev:scratch": "next dev -p 3012",
     "test:write": "node scripts/seed-scratch.mjs && node scripts/write-path-tests.mjs",
-    "test:write:plans": "node scripts/seed-scratch.mjs && node scripts/write-path-weekly-plans.mjs"
+    "test:write:plans": "node scripts/seed-scratch.mjs && node scripts/write-path-weekly-plans.mjs",
+    "test:write:ops": "node scripts/seed-scratch.mjs && node scripts/write-path-weekly-plans.mjs && node scripts/write-path-ops.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

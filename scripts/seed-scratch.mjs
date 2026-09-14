@@ -68,6 +68,13 @@ async function main() {
   // Wipe in FK-safe order. Only ever the two scratch tenants.
   const tenants = [SEED.tenantA, SEED.tenantB]
   const wipe = { tenant_id: { in: tenants } }
+  // Children that reference users / remarks must go before the parents.
+  await prisma.remark_reads.deleteMany({ where: { tenant_id: { in: tenants } } })
+  await prisma.contextual_remarks.deleteMany({ where: { tenant_id: { in: tenants } } })
+  await prisma.point_events.deleteMany({ where: { tenant_id: { in: tenants } } })
+  await prisma.point_config_history.deleteMany({ where: { tenant_id: { in: tenants } } })
+  await prisma.point_config.deleteMany({ where: { tenant_id: { in: tenants } } })
+  await prisma.tenant_point_settings.deleteMany({ where: { tenant_id: { in: tenants } } })
   await prisma.weekly_plan_audit_logs.deleteMany({ where: { tenant_id: { in: tenants } } })
   await prisma.weekly_plan_items.deleteMany({ where: { tenant_id: { in: tenants } } })
   await prisma.weekly_plans.deleteMany({ where: wipe })

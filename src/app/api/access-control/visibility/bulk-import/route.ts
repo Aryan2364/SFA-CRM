@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -7,16 +7,15 @@ export async function POST() {
   const user = await requireUser()
   if (user.role !== 'Administrator') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const supabase = createServerSupabase()
   const tenantId = getTenantId()
 
-  const { data: users, error } = await supabase
-    .from('users')
-    .select('id, manager_user_id')
-    .eq('tenant_id', tenantId)
+  try {
+  const users = await prisma.users.findMany({
+    where: { tenant_id: tenantId },
+    select: { id: true, manager_user_id: true },
+  })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!users?.length) return NextResponse.json({ inserted: 0 })
+  if (!users.length) return NextResponse.json({ inserted: 0 })
 
   // Build manager lookup map
   const managerMap: Record<string, string | null> = {}
@@ -44,10 +43,15 @@ export async function POST() {
 
   if (!rows.length) return NextResponse.json({ inserted: 0 })
 
-  const { error: insertError } = await supabase
-    .from('user_visibility')
-    .upsert(rows, { onConflict: 'viewer_user_id,target_user_id', ignoreDuplicates: true })
+  // ignoreDuplicates: true -> skipDuplicates, against
+  // @@unique([viewer_user_id, target_user_id]).
+  await prisma.user_visibility.createMany({ data: rows, skipDuplicates: true })
 
-  if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
+  // NOTE: `inserted` counts the rows OFFERED, not the rows actually written —
+  // duplicates are skipped. That was true before too (the upsert returned no
+  // count), so the response is unchanged.
   return NextResponse.json({ inserted: rows.length })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

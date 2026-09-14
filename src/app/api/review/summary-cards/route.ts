@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { getVisibleUserIds } from '@/lib/visibility'
@@ -8,21 +8,19 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const manager = await requireUser()
-  const supabase = createServerSupabase()
   const tenantId = getTenantId()
   const today = new Date().toISOString().split('T')[0]
 
-  const subIds = await getVisibleUserIds(manager.userId!, supabase, tenantId)
+  const subIds = await getVisibleUserIds(manager.userId!, null, tenantId)
   if (subIds.length === 0) return NextResponse.json([])
 
-  const { data: subs } = await supabase
-    .from('users')
-    .select('id, name')
-    .in('id', subIds)
-    .eq('tenant_id', tenantId)
-    .eq('status', 'Active')
+  try {
+  const subs = await prisma.users.findMany({
+    where: { id: { in: subIds }, tenant_id: tenantId, status: 'Active' },
+    select: { id: true, name: true },
+  })
 
-  if (!subs || subs.length === 0) return NextResponse.json([])
+  if (subs.length === 0) return NextResponse.json([])
 
   const activeSubIds = subs.map(s => s.id)
 
@@ -38,40 +36,34 @@ export async function GET() {
   const weekStart = monday.toISOString().split('T')[0]
   const weekEnd = sunday.toISOString().split('T')[0]
 
-  // Get this week's plans for all subordinates
-  const { data: plans } = await supabase
-    .from('weekly_plans')
-    .select('id, user_id, status')
-    .eq('tenant_id', tenantId)
-    .in('user_id', activeSubIds)
-    .eq('week_start_date', weekStart)
-
-  // Get today's visit counts
-  const { data: visits } = await supabase
-    .from('daily_visits')
-    .select('user_id, status')
-    .eq('tenant_id', tenantId)
-    .in('user_id', activeSubIds)
-    .eq('visit_date', today)
-
-  // Get today's expense totals
-  const { data: expenses } = await supabase
-    .from('expenses')
-    .select('user_id, amount')
-    .eq('tenant_id', tenantId)
-    .in('user_id', activeSubIds)
-    .eq('expense_date', today)
+  // All three date columns are @db.Date, so the "YYYY-MM-DD" strings become Dates.
+  const [plans, visits, expenses] = await Promise.all([
+    prisma.weekly_plans.findMany({
+      where: { tenant_id: tenantId, user_id: { in: activeSubIds }, week_start_date: new Date(weekStart) },
+      select: { id: true, user_id: true, status: true },
+    }),
+    prisma.daily_visits.findMany({
+      where: { tenant_id: tenantId, user_id: { in: activeSubIds }, visit_date: new Date(today) },
+      select: { user_id: true, status: true },
+    }),
+    prisma.expenses.findMany({
+      where: { tenant_id: tenantId, user_id: { in: activeSubIds }, expense_date: new Date(today) },
+      select: { user_id: true, amount: true },
+    }),
+  ])
 
   const planMap: Record<string, { id: string; status: string }> = {}
-  for (const p of plans ?? []) planMap[p.user_id] = { id: p.id, status: p.status }
+  for (const p of plans) planMap[p.user_id] = { id: p.id, status: p.status }
 
   const visitMap: Record<string, number> = {}
-  for (const v of visits ?? []) {
+  for (const v of visits) {
     if (v.status === 'Completed') visitMap[v.user_id] = (visitMap[v.user_id] ?? 0) + 1
   }
 
+  // amount is NUMERIC -> Decimal. Number() coerces it correctly, and the totals
+  // leave this route as plain numbers.
   const expenseMap: Record<string, number> = {}
-  for (const e of expenses ?? []) {
+  for (const e of expenses) {
     expenseMap[e.user_id] = (expenseMap[e.user_id] ?? 0) + Number(e.amount)
   }
 
@@ -85,5 +77,10 @@ export async function GET() {
     week_end: weekEnd,
   }))
 
+  // weekStart/weekEnd are already "YYYY-MM-DD" strings built in JS; everything
+  // else is a string or a number.
   return NextResponse.json(cards)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

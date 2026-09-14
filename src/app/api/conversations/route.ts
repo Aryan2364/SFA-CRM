@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -14,20 +14,35 @@ export async function GET(req: NextRequest) {
   const dateTo = params.get('dateTo') ?? ''
   const status = params.get('status') ?? 'all'
 
-  const supabase = createServerSupabase()
   const tenantId = getTenantId()
 
-  // Get all remarks where current user is author or in same context
-  let query = supabase
-    .from('contextual_remarks')
-    .select('id, context_type, context_id, author_user_id, body, created_at, updated_at, author:users!author_user_id(id, name)')
-    .eq('tenant_id', tenantId)
-    .order('created_at', { ascending: false })
+  try {
+  // `author:users!author_user_id(id, name)` is an ALIASED embed. Fetch through
+  // the real relation field and expose it as `author` — the only key this route
+  // and the client ever saw.
+  const remarkRows = await prisma.contextual_remarks.findMany({
+    where: {
+      tenant_id: tenantId,
+      ...(filterUserId ? { author_user_id: filterUserId } : {}),
+    },
+    select: {
+      id: true, context_type: true, context_id: true, author_user_id: true,
+      body: true, created_at: true, updated_at: true,
+      users: { select: { id: true, name: true } },
+    },
+    orderBy: { created_at: 'desc' },
+  })
 
-  if (filterUserId) query = query.eq('author_user_id', filterUserId)
-
-  const { data: remarks, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // created_at is compared with `>` below and fed into localeCompare() at the
+  // bottom. Supabase returned ISO strings; Prisma returns Date objects, so
+  // normalise ONCE here. Mixing the two would compare a Date against a string
+  // and silently order by "Mon Sep 14 2026 ..." (PLAN.md 5.1).
+  const remarks = remarkRows.map(r => ({
+    ...r,
+    created_at: r.created_at.toISOString(),
+    updated_at: r.updated_at ? r.updated_at.toISOString() : null,
+    author: r.users,
+  }))
 
   // Group by (context_type, context_id)
   const groups: Record<string, {
@@ -40,7 +55,7 @@ export async function GET(req: NextRequest) {
     updated_at: string
   }> = {}
 
-  for (const r of remarks ?? []) {
+  for (const r of remarks) {
     const key = `${r.context_type}::${r.context_id}`
     if (!groups[key]) {
       groups[key] = {
@@ -48,7 +63,7 @@ export async function GET(req: NextRequest) {
         context_id: r.context_id,
         last_remark: r.id,
         last_body: r.body,
-        last_author: ((r.author as unknown) as { name: string } | null)?.name ?? '',
+        last_author: r.author?.name ?? '',
         count: 1,
         updated_at: r.created_at,
       }
@@ -57,7 +72,7 @@ export async function GET(req: NextRequest) {
       if (r.created_at > groups[key].updated_at) {
         groups[key].updated_at = r.created_at
         groups[key].last_body = r.body
-        groups[key].last_author = ((r.author as unknown) as { name: string } | null)?.name ?? ''
+        groups[key].last_author = r.author?.name ?? ''
       }
     }
   }
@@ -69,28 +84,36 @@ export async function GET(req: NextRequest) {
 
   const ownerMap: Record<string, string> = {}
   if (meetingIds.length > 0) {
-    const { data: visits } = await supabase.from('daily_visits').select('id, user_id').in('id', meetingIds)
-    for (const v of visits ?? []) ownerMap[v.id] = v.user_id
+    const visits = await prisma.daily_visits.findMany({
+      where: { tenant_id: tenantId, id: { in: meetingIds } },
+      select: { id: true, user_id: true },
+    })
+    for (const v of visits) ownerMap[v.id] = v.user_id
   }
   if (expenseIds.length > 0) {
-    const { data: exps } = await supabase.from('expenses').select('id, user_id').in('id', expenseIds)
-    for (const e of exps ?? []) ownerMap[e.id] = e.user_id
+    const exps = await prisma.expenses.findMany({
+      where: { tenant_id: tenantId, id: { in: expenseIds } },
+      select: { id: true, user_id: true },
+    })
+    for (const e of exps) ownerMap[e.id] = e.user_id
   }
 
   // Get unread counts per context for current user
-  const remarkIds = (remarks ?? []).map(r => r.id)
+  const remarkIds = remarks.map(r => r.id)
   let readSet = new Set<string>()
   if (remarkIds.length > 0) {
-    const { data: reads } = await supabase
-      .from('remark_reads')
-      .select('remark_id')
-      .eq('user_id', user.userId)
-      .in('remark_id', remarkIds)
-    readSet = new Set((reads ?? []).map(r => r.remark_id))
+    const reads = await prisma.remark_reads.findMany({
+      // tenant_id added, unlike the pre-migration query. Both remark_id and
+      // user_id are FK-enforced and the ids come from a tenant-scoped query, so
+      // this cannot change results — same precedent as the dealers lookup.
+      where: { tenant_id: tenantId, user_id: user.userId ?? undefined, remark_id: { in: remarkIds } },
+      select: { remark_id: true },
+    })
+    readSet = new Set(reads.map(r => r.remark_id))
   }
 
   const unreadByContext: Record<string, number> = {}
-  for (const r of remarks ?? []) {
+  for (const r of remarks) {
     if (!readSet.has(r.id)) {
       const key = `${r.context_type}::${r.context_id}`
       unreadByContext[key] = (unreadByContext[key] ?? 0) + 1
@@ -118,7 +141,14 @@ export async function GET(req: NextRequest) {
     conversations = conversations.filter(c => types.includes(c.context_type))
   }
 
+  // updated_at is the ISO string normalised above, so localeCompare behaves
+  // exactly as before — this is conversations/route.ts:121, PLAN.md 5.1 in its
+  // crash form.
   conversations.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
 
+  // Every field here is already a string or a number.
   return NextResponse.json(conversations)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

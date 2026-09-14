@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 
 export const dynamic = 'force-dynamic'
@@ -9,18 +9,19 @@ export async function GET() {
   const user = await requireUser()
   if (user.role !== 'Administrator') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const { data, error } = await supabase
-    .from('roles')
-    .select('id, name, is_system, created_at')
-    .eq('tenant_id', tid)
-    .order('is_system', { ascending: false })
-    .order('name')
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+  try {
+    const data = await prisma.roles.findMany({
+      where: { tenant_id: tid },
+      select: { id: true, name: true, is_system: true, created_at: true },
+      // Two .order() calls become an ORDERED array — is_system desc first, then name.
+      orderBy: [{ is_system: 'desc' }, { name: 'asc' }],
+    })
+    return NextResponse.json(serialize(data, 'roles'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -30,39 +31,40 @@ export async function POST(req: NextRequest) {
   const { name } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const { data, error } = await supabase
-    .from('roles')
-    .insert({ tenant_id: tid, name: name.trim(), is_system: false })
-    .select()
-    .single()
+  try {
+    const data = await prisma.roles.create({
+      data: { tenant_id: tid, name: name.trim(), is_system: false },
+    })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Seed empty permissions for all 22 sections for this new role
+    const ALL_SECTIONS = [
+      'states', 'districts', 'talukas', 'villages', 'territory_mapping',
+      'dealers', 'distributors', 'institutions',
+      'product_categories', 'product_subcategories', 'products',
+      'departments', 'designations', 'expense_categories',
+      'lead_types', 'lead_stages', 'lead_temperatures',
+      'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
+    ]
+    // ignoreDuplicates: true -> skipDuplicates, against the real
+    // @@unique([tenant_id, profile, section]).
+    await prisma.role_permissions.createMany({
+      data: ALL_SECTIONS.map(s => ({
+        tenant_id: tid,
+        profile: name.trim(),
+        section: s,
+        can_view: false,
+        can_create: false,
+        can_edit: false,
+        can_delete: false,
+        data_scope: 'own',
+      })),
+      skipDuplicates: true,
+    })
 
-  // Seed empty permissions for all 22 sections for this new role
-  const ALL_SECTIONS = [
-    'states', 'districts', 'talukas', 'villages', 'territory_mapping',
-    'dealers', 'distributors', 'institutions',
-    'product_categories', 'product_subcategories', 'products',
-    'departments', 'designations', 'expense_categories',
-    'lead_types', 'lead_stages', 'lead_temperatures',
-    'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
-  ]
-  await supabase.from('role_permissions').upsert(
-    ALL_SECTIONS.map(s => ({
-      tenant_id: tid,
-      profile: name.trim(),
-      section: s,
-      can_view: false,
-      can_create: false,
-      can_edit: false,
-      can_delete: false,
-      data_scope: 'own',
-    })),
-    { onConflict: 'tenant_id,profile,section', ignoreDuplicates: true }
-  )
-
-  return NextResponse.json(data, { status: 201 })
+    return NextResponse.json(serialize(data, 'roles'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
