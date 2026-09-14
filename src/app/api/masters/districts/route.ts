@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -9,15 +9,23 @@ export async function GET(req: NextRequest) {
   // business-partner forms). Managing the master still requires edit permission below.
   await requireUser()
   const q = req.nextUrl.searchParams.get('q') ?? ''
-  const stateId = req.nextUrl.searchParams.get('stateId')
-  const supabase = createServerSupabase()
+  const state_id = req.nextUrl.searchParams.get('stateId')
   const tid = getTenantId()
-  let query = supabase.from('districts').select('*, states(name)').eq('tenant_id', tid).order('name')
-  if (q) query = query.ilike('name', `%${q}%`)
-  if (stateId) query = query.eq('state_id', stateId)
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const data = await prisma.districts.findMany({
+      where: {
+        tenant_id: tid,
+        // .ilike('name', `%q%`) -> case-insensitive contains.
+        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+        ...(state_id ? { state_id } : {}),
+      },
+      include: { states: { select: { name: true } } },
+      orderBy: { name: 'asc' },
+    })
+    return NextResponse.json(serialize(data, 'districts'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -26,9 +34,16 @@ export async function POST(req: NextRequest) {
   const { name, state_id } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   if (!state_id) return NextResponse.json({ error: 'State is required' }, { status: 400 })
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('districts').insert({ name: name.trim(), state_id, tenant_id: getTenantId() }).select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+  try {
+    const data = await prisma.districts.create({
+      data: {
+        name: name.trim(),
+        state_id: state_id,
+        tenant_id: getTenantId(),
+      },
+    })
+    return NextResponse.json(serialize(data, 'districts'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

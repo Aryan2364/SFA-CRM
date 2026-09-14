@@ -228,3 +228,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   const proto = Object.getPrototypeOf(value)
   return proto === Object.prototype || proto === null
 }
+
+// ---------------------------------------------------------------------------
+// Error shaping (PLAN.md §5.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Supabase returned failures as a value, and routes answered with
+ * `{ error: error.message }`. Prisma throws instead, so converted routes catch
+ * and run the thrown value through this to keep the same response body.
+ */
+export function dbErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}

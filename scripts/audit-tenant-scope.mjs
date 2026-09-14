@@ -47,6 +47,26 @@ const BATCH_FILES = {
     'src/app/api/auth/forgot-password/route.ts',
     'src/app/api/auth/reset-password/route.ts',
   ],
+  'masters-location-product': [
+    'src/app/api/masters/states/route.ts',
+    'src/app/api/masters/states/[id]/route.ts',
+    'src/app/api/masters/districts/route.ts',
+    'src/app/api/masters/districts/[id]/route.ts',
+    'src/app/api/masters/talukas/route.ts',
+    'src/app/api/masters/talukas/[id]/route.ts',
+    'src/app/api/masters/villages/route.ts',
+    'src/app/api/masters/villages/[id]/route.ts',
+    'src/app/api/masters/product-categories/route.ts',
+    'src/app/api/masters/product-categories/[id]/route.ts',
+    'src/app/api/masters/product-subcategories/route.ts',
+    'src/app/api/masters/product-subcategories/[id]/route.ts',
+    'src/app/api/masters/products/route.ts',
+    'src/app/api/masters/products/[id]/route.ts',
+    'src/app/api/masters/distributors/route.ts',
+    'src/app/api/masters/distributors/[id]/route.ts',
+    'src/app/api/masters/dealers/route.ts',
+    'src/app/api/masters/dealers/[id]/route.ts',
+  ],
 }
 
 const allowlist = JSON.parse(fs.readFileSync('scripts/tenant-scope-allowlist.json', 'utf8')).allow
@@ -124,7 +144,10 @@ if (!fs.existsSync(logPath)) {
       if (!touches) continue
       const hasTenant = /"tenant_id"/.test(q)
       if (hasTenant) continue
-      const match = allowlist.find(a => a.table === table && new RegExp(a.queryPattern).test(q))
+      const match = allowlist.find(a => {
+        const tables = a.tables ?? [a.table]
+        return tables.includes(table) && new RegExp(a.queryPattern.replace(/__TABLE__/g, table)).test(q)
+      })
       const key = `${table}::${q.slice(0, 160)}`
       if (seen.has(key)) continue
       seen.set(key, true)

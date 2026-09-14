@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -9,15 +9,23 @@ export async function GET(req: NextRequest) {
   // business-partner forms). Managing the master still requires edit permission below.
   await requireUser()
   const q = req.nextUrl.searchParams.get('q') ?? ''
-  const districtId = req.nextUrl.searchParams.get('districtId')
-  const supabase = createServerSupabase()
+  const district_id = req.nextUrl.searchParams.get('districtId')
   const tid = getTenantId()
-  let query = supabase.from('talukas').select('*, districts(name)').eq('tenant_id', tid).order('name')
-  if (q) query = query.ilike('name', `%${q}%`)
-  if (districtId) query = query.eq('district_id', districtId)
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const data = await prisma.talukas.findMany({
+      where: {
+        tenant_id: tid,
+        // .ilike('name', `%q%`) -> case-insensitive contains.
+        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+        ...(district_id ? { district_id } : {}),
+      },
+      include: { districts: { select: { name: true } } },
+      orderBy: { name: 'asc' },
+    })
+    return NextResponse.json(serialize(data, 'talukas'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -26,9 +34,16 @@ export async function POST(req: NextRequest) {
   const { name, district_id } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   if (!district_id) return NextResponse.json({ error: 'District is required' }, { status: 400 })
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('talukas').insert({ name: name.trim(), district_id, tenant_id: getTenantId() }).select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+  try {
+    const data = await prisma.talukas.create({
+      data: {
+        name: name.trim(),
+        district_id: district_id,
+        tenant_id: getTenantId(),
+      },
+    })
+    return NextResponse.json(serialize(data, 'talukas'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

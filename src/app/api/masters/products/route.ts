@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -9,16 +9,27 @@ export async function GET(req: NextRequest) {
   if (!await checkPermission(user, 'products', 'view')) return forbidden()
   const q = req.nextUrl.searchParams.get('q') ?? ''
   const categoryId = req.nextUrl.searchParams.get('categoryId')
-  const supabase = createServerSupabase()
   const tid = getTenantId()
-  let query = supabase.from('products')
-    .select('*, product_categories(name), product_subcategories(name)')
-    .eq('tenant_id', tid).order('name')
-  if (q) query = query.ilike('name', `%${q}%`)
-  if (categoryId) query = query.eq('category_id', categoryId)
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const data = await prisma.products.findMany({
+      where: {
+        tenant_id: tid,
+        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+        ...(categoryId ? { category_id: categoryId } : {}),
+      },
+      include: {
+        product_categories: { select: { name: true } },
+        product_subcategories: { select: { name: true } },
+      },
+      orderBy: { name: 'asc' },
+    })
+    // `price` is NUMERIC. Prisma returns a Decimal whose toJSON() is a STRING,
+    // so without serialize() the client would silently start receiving
+    // "1234.50" where it used to receive 1234.5 (PLAN.md §5.1).
+    return NextResponse.json(serialize(data, 'products'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -30,15 +41,29 @@ export async function POST(req: NextRequest) {
   if (!subcategory_id) return NextResponse.json({ error: 'Subcategory is required' }, { status: 400 })
   if (price == null || isNaN(Number(price))) return NextResponse.json({ error: 'Valid price is required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
-  const { data: sub } = await supabase
-    .from('product_subcategories').select('category_id').eq('id', subcategory_id).single()
-  if (!sub || sub.category_id !== category_id) {
-    return NextResponse.json({ error: 'Subcategory does not belong to selected category' }, { status: 400 })
-  }
+  try {
+    // Unchanged semantics: the previous .single() left `sub` null when the
+    // subcategory did not exist, and the !sub branch produced this same 400.
+    const sub = await prisma.product_subcategories.findUnique({
+      where: { id: subcategory_id },
+      select: { category_id: true },
+    })
+    if (!sub || sub.category_id !== category_id) {
+      return NextResponse.json({ error: 'Subcategory does not belong to selected category' }, { status: 400 })
+    }
 
-  const { data, error } = await supabase
-    .from('products').insert({ name: name.trim(), category_id, subcategory_id, price: Number(price), sku: sku || null, tenant_id: getTenantId() }).select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+    const data = await prisma.products.create({
+      data: {
+        name: name.trim(),
+        category_id,
+        subcategory_id,
+        price: Number(price),
+        sku: sku || null,
+        tenant_id: getTenantId(),
+      },
+    })
+    return NextResponse.json(serialize(data, 'products'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

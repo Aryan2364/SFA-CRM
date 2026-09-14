@@ -436,17 +436,71 @@ authorised.
 
 ### 8.1 Batches (114 routes total)
 
-| # | Batch | Routes | Notes |
-|---|---|---|---|
-| 1 | `auth` | 5 | Do first. Login, session, password reset. Depends on Phase A libs. |
-| 2 | `masters` — location & product | ~20 | states, districts, talukas, villages, product-categories, product-subcategories, products, distributors, dealers |
-| 3 | `masters` — org, users, leads | ~23 | departments, designations, roles, users, institutions, lead-types, lead-stages, lead-temperatures, territory-mapping, expense-categories, import. **Heaviest embeds live here** (`users` with departments/designations/roles/manager). |
-| 4 | `weekly-plans` | 17 | 12+ state-transition endpoints (submit -> approve/reject/suggest). Verify every transition, and `weekly_plan_audit_logs` writes. |
-| 5 | `leads` + `business-partners` + `orders` | 9 | `orders` uses `order_items(*)`, `order_items(count)`, and the `users!orders_user_id_fkey` hint — the trickiest embeds in the codebase. |
-| 6 | `daily-activity` + `attendance` + `expenses` | 10 | Do **after** Phase B. `daily-activity/[id]/route.ts:25` has the `.slice(0,10)` date trap. |
-| 7 | `points` + `review` + `dashboard` + `notifications` + `remarks` + `conversations` | 16 | `conversations/route.ts:121` has the `localeCompare` date trap. Dashboard has aggregate counts. |
-| 8 | `access-control` + `settings` | 7 | Touches `role_permissions` — re-verify permissions still resolve identically after. |
-| 9 | `superadmin` + teardown | 7 + cleanup | See section 9. |
+**Batches are sized by RISK, not by route count.** 108 routes / 6,427 lines remain, averaging 59
+lines. The `masters` group is highly repetitive — `departments`, `designations`, `lead-types`,
+`lead-temperatures`, `expense-categories` are 23–38 line near-clones of one shape. Uniform,
+low-risk routes go in large batches; genuinely tricky ones stay small.
+
+| # | Batch | Routes | Risk | Checkpoint? |
+|---|---|---|---|---|
+| 1 | `auth` | 5 | high | **DONE** |
+| 2 | **All `masters`** (location, product, org, users, leads, territory, import) | 43 | low–med | no — proceed straight on |
+| 3 | `weekly-plans` | 17 | **HIGH** | **STOP and report** |
+| 4 | `orders` + `leads` + `business-partners` + `daily-activity` + `attendance` + `expenses` | 19 | med–high | no |
+| 5 | `points` + `review` + `dashboard` + `remarks` + `conversations` + `notifications` + `access-control` + `settings` | 23 | med | no |
+| 6 | `superadmin` + teardown | 7 + cleanup | med | **STOP** — see section 9 |
+
+**Batch notes**
+- **2 — masters:** establish the canonical CRUD conversion on 2–3 representative routes, then
+  apply it mechanically to the clones. Commit in 2–3 logical commits, not 43. Heaviest embeds
+  are here (`users` with departments/designations/roles/manager). This is also where
+  `count`/`head` pagination totals get exercised in anger — assert the TOTAL, not just that rows
+  came back. Verify cardinality at each level of states → districts → talukas → villages.
+- **3 — weekly-plans:** the one genuinely hard batch. 12+ state transitions
+  (submit → approve/reject/suggest), plus `weekly_plan_audit_logs` writes and the `day_notes`
+  Json column. Exercise **every** transition. Stop and report after this one.
+- **4:** `orders` has the trickiest embeds in the codebase — `order_items(*)`,
+  `order_items(count)`, and the `users!orders_user_id_fkey` FK hint. Do this batch **after**
+  Phase B (R2). `daily-activity/[id]/route.ts:25` has the `.slice(0,10)` date trap.
+- **5:** `conversations/route.ts:121` has the `localeCompare` date trap. Dashboard has aggregate
+  counts. `access-control` touches `role_permissions` — re-verify permissions resolve
+  identically after.
+
+### 8.4 Supabase → Prisma conversion cheatsheet
+
+Decide these once here, not per route. This is the entire surface the codebase uses (section 3).
+
+| Supabase | Prisma |
+|---|---|
+| `.select('*').eq('tenant_id', tid)` | `findMany({ where: { tenant_id: tid } })` |
+| `.eq('c', v)` | `where: { c: v }` |
+| `.neq('c', v)` | `where: { c: { not: v } }` |
+| `.in('c', arr)` | `where: { c: { in: arr } }` |
+| `.gte/.lte/.gt/.lt` | `where: { c: { gte: v } }` etc. |
+| `.ilike('c', '%q%')` | `where: { c: { contains: q, mode: 'insensitive' } }` |
+| `.or('a.ilike.%q%,b.ilike.%q%')` | `where: { OR: [{ a: { contains: q, mode: 'insensitive' } }, …] }` — `mode` per clause |
+| `.is('c', null)` | `where: { c: null }` |
+| `.order('c', { ascending: false })` | `orderBy: { c: 'desc' }` |
+| `.select('*', { count: 'exact', head: true })` | `count({ where })` |
+| rows **and** total | `$transaction([findMany(…), count(…)])` — one round trip |
+| `departments(name)` (to-one) | `include: { departments: { select: { name: true } } }` → **object** |
+| `order_items(*)` (to-many) | `include: { order_items: true }` → **array** |
+| `order_items(count)` | `include: { _count: { select: { order_items: true } } }` |
+| `users!orders_user_id_fkey(name)` | the named relation field on the model; no hint syntax needed |
+| `manager:manager_user_id(id, name)` | `include: { manager: { select: { id: true, name: true } } }` |
+
+**Judgement calls — apply consistently, do not re-deliberate per route:**
+- `.single()` → `findFirst` (or `findUnique` **only** where a real unique constraint exists).
+  Supabase returned an *error* on 0 rows; Prisma returns `null`. **Read the call site and
+  preserve its branch** — many routes 404 on that error.
+- `.maybeSingle()` → `findFirst`; `null` is the expected 0-row result.
+- `.upsert()` → `prisma.t.upsert({ where: <unique target>, create, update })`. **Requires a real
+  unique constraint.** If none exists, do `findFirst` + branch — do not invent a constraint.
+- **Errors-as-values (§5.4):** wrap every call so the route returns the same status and JSON
+  shape it returns today. Prisma throws where Supabase returned `{ error }`.
+- **Serialisation (§5.1):** apply `serialize()` to any response carrying Date/Decimal. Where a
+  route returns only strings/booleans/numbers, **skip it and assert that with a JSON round-trip**
+  rather than adding it reflexively.
 
 ### 8.2 Tenant-scope audit — build this in Batch 1, run every batch
 
@@ -458,6 +512,22 @@ authorised.
       `.eq('tenant_id', tid)` has a Prisma counterpart. Do this per batch while the diff is small.
 - [ ] Any table intentionally not tenant-scoped (e.g. `tenants`) goes on an explicit allowlist
       **with a written reason**.
+
+#### Prisma's to-one relation fetch has no `tenant_id` — adjudicated, not a regression
+
+The runtime audit surfaces statements that appear nowhere in the source, e.g.
+`SELECT … FROM "roles" WHERE "id" IN (…)` with no `tenant_id`. That is how Prisma resolves
+`roles: { select: { name: true } }`. It is **safe and not a regression**: it follows an FK
+already present on the parent row, no request input reaches it, and PostgREST resolved the old
+`roles(name)` embed identically.
+
+The residual assumption is **referential integrity** — a `users.role_id` pointing at another
+tenant's role would be followed. **Verified against live: 39 FK pairs where both sides are
+tenant-scoped, ZERO cross-tenant references.** So the assumption holds for all current data.
+
+**Follow-up (out of scope here):** nothing at the database level *enforces* this — it is a
+write-path property. A composite FK including `tenant_id` would make it structural. Record it;
+do not implement it during the migration.
 
 ### 8.3 Smoke tests — build in Batch 1, extend every batch
 
@@ -485,6 +555,9 @@ authorised.
       Prisma + RDS + R2. `CLAUDE.md`'s "Two Supabase clients" section is now wrong.
 - [ ] `supabase/migrations.sql` — decide and state: keep as historical record, or replace with
       Prisma migrations. If keeping, note in the file that it is no longer the source of truth.
+- [ ] **`PRISMA_QUERY_LOG` must NEVER be set in production.** It appends raw query text to disk
+      without bound. Inert unless set — keep it out of `.env.production` and out of
+      `.env.production.example`, and state it in the deploy checklist.
 - [ ] CI green, image builds and publishes to `ghcr.io/aryan2364/sfacrm`
 - [ ] Leave `@vercel/analytics` alone — unrelated, not part of this scope
 
