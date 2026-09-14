@@ -1,5 +1,10 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import {
+  DATE_ONLY_FIELDS,
+  DATE_ONLY_FIELD_NAMES,
+  AMBIGUOUS_DATE_FIELD_NAMES,
+} from './generated/date-only-fields'
 
 /**
  * Prisma client singleton + the JSON serialisation helper every API route uses.
@@ -13,17 +18,26 @@ import { PrismaPg } from '@prisma/adapter-pg'
 // ---------------------------------------------------------------------------
 
 /**
- * Pool size. NOTE: we use the `@prisma/adapter-pg` driver adapter (same as v2e),
- * which routes queries through node-postgres. node-postgres does NOT understand
- * Prisma's `?connection_limit=` URL parameter — left alone it would be silently
- * ignored and the pool would default to 10 regardless of what the URL says. So
- * we parse it out of the URL ourselves and feed it to the pg Pool as `max`.
+ * Pool size (PLAN.md §6.2). The database is `db.t4g.micro` — 1 GB RAM — and is
+ * SHARED BY FOUR APPLICATIONS. The binding constraint is memory, not the
+ * ~112 max_connections: each Postgres backend costs ~5–10 MB, so 4 apps × 10
+ * would be ~320 MB of backend memory on a box that also wants ~256 MB of
+ * shared_buffers plus work_mem and the OS. 4 × 5 = 20 leaves real headroom.
+ * Do not raise this without raising the instance class.
  *
- * RDS max_connections ~= DBInstanceClassMemory/9531392 (~85 on db.t3.micro).
- * Instance class is still an open question (PLAN.md §10 Q1), so the default is
- * the conservative 10 the plan mandates.
+ * The instance is also burstable: sustained load drains CPU credits and
+ * throttles all four applications together, so CPU credit balance is the metric
+ * to watch, not connection count.
+ *
+ * NOTE: we use the `@prisma/adapter-pg` driver adapter (same as v2e), which
+ * routes queries through node-postgres. node-postgres does NOT understand
+ * Prisma's `?connection_limit=` URL parameter — it is a query-engine parameter,
+ * so left alone it would be silently ignored. We parse it out of the URL and
+ * feed it to the pg Pool as `max`. A value in the URL therefore OVERRIDES the
+ * default below: keep `.env.production` at `connection_limit=5`, or omit the
+ * parameter entirely and inherit this default.
  */
-const DEFAULT_POOL_MAX = 10
+const DEFAULT_POOL_MAX = 5
 
 function buildAdapter(): PrismaPg {
   const rawUrl = process.env.DATABASE_URL
@@ -92,67 +106,93 @@ export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
  * them and the UI renders both directly:
  *   - `timestamptz` -> full ISO string  ("2026-09-14T10:20:30.123Z")
  *   - `date`        -> date-only string ("2026-09-14")
- * At runtime both are plain `Date`, so date-only columns are identified by field
- * name. Verified against prisma/schema.prisma: these eight are the only `@db.Date`
- * columns, and no `@db.Timestamptz` column shares a name with any of them — so
- * keying on the name is unambiguous. Re-check this list if the schema changes.
+ *
+ * Detection is keyed on MODEL + FIELD, from a map generated out of
+ * prisma/schema.prisma (src/lib/generated/date-only-fields.ts). Note that the
+ * runtime DMMF cannot answer this on its own: `Prisma.dmmf` omits `nativeType`,
+ * so `@db.Date` and `@db.Timestamptz` both appear as plain `DateTime`. DMMF is
+ * still used for what it does carry reliably — relation structure — so nested
+ * `include`/`select` payloads are walked with the correct model at each level.
+ *
+ * Pass the model when you have it. Without it, detection falls back to the bare
+ * field name, which is safe only while no name is date-only on one model and a
+ * timestamp on another; the generated AMBIGUOUS set makes that condition throw
+ * loudly instead of degrading silently.
  */
-const DATE_ONLY_FIELDS: ReadonlySet<string> = new Set([
-  'expense_date',
-  'next_follow_up_date',
-  'order_date',
-  'payment_due_date',
-  'plan_date',
-  'visit_date',
-  'week_end_date',
-  'week_start_date',
-])
+
+/** model -> (relation field -> related model), built once from the DMMF. */
+const RELATION_TARGETS: ReadonlyMap<string, ReadonlyMap<string, string>> = (() => {
+  const outer = new Map<string, Map<string, string>>()
+  for (const model of Prisma.dmmf.datamodel.models) {
+    const inner = new Map<string, string>()
+    for (const field of model.fields) {
+      if (field.kind === 'object') inner.set(field.name, field.type)
+    }
+    outer.set(model.name, inner)
+  }
+  return outer
+})()
 
 function isDecimal(value: unknown): value is Prisma.Decimal {
   return value instanceof Prisma.Decimal
 }
 
-/** A `Date` at UTC, rendered as the calendar date PostgREST would have sent. */
+/** A `Date` rendered as the calendar date PostgREST would have sent. */
 function toDateOnly(value: Date): string {
   return value.toISOString().slice(0, 10)
 }
 
-/**
- * Deep-convert a Prisma result for JSON output. Returns `unknown`-typed data by
- * design: the conversion changes types (Date -> string, Decimal -> number) and
- * pretending otherwise would let the old types leak into route code.
- */
-export function serialize<T>(value: T): unknown {
-  return convert(value, undefined)
+function isDateOnly(model: string | undefined, field: string | undefined): boolean {
+  if (!field) return false
+  if (model) return DATE_ONLY_FIELDS.has(`${model}.${field}`)
+  if (AMBIGUOUS_DATE_FIELD_NAMES.has(field)) {
+    throw new Error(
+      `serialize(): field "${field}" is date-only on one model and a timestamp on ` +
+      `another. Pass the model name — serialize(rows, 'model_name') — so the ` +
+      `correct shape can be chosen.`
+    )
+  }
+  return DATE_ONLY_FIELD_NAMES.has(field)
 }
 
-function convert(value: unknown, fieldName: string | undefined): unknown {
+/**
+ * Deep-convert a Prisma result for JSON output. Returns `unknown` by design: the
+ * conversion changes types (Date -> string, Decimal -> number) and pretending
+ * otherwise would let the pre-conversion types leak into route code.
+ *
+ * @param model the Prisma model the row(s) came from, e.g. 'expenses'. Optional,
+ *              but supply it: it makes date detection exact and lets nested
+ *              relations be resolved through the DMMF.
+ */
+export function serialize<T>(value: T, model?: Prisma.ModelName): unknown {
+  return convert(value, model, undefined)
+}
+
+function convert(value: unknown, model: string | undefined, fieldName: string | undefined): unknown {
   if (value === null || value === undefined) return value
 
   if (value instanceof Date) {
-    return fieldName && DATE_ONLY_FIELDS.has(fieldName)
-      ? toDateOnly(value)
-      : value.toISOString()
+    return isDateOnly(model, fieldName) ? toDateOnly(value) : value.toISOString()
   }
 
-  // Decimal -> number. PostgREST sent numerics as JSON numbers, and the UI does
-  // arithmetic on them directly; leaving a Decimal object here produces silently
-  // wrong totals rather than an error (PLAN.md §5.1).
+  // Decimal -> number. PostgREST sent numerics as JSON numbers and the UI does
+  // arithmetic on them directly; leaving a Decimal here produces silently wrong
+  // totals rather than an error (PLAN.md §5.1).
   if (isDecimal(value)) return value.toNumber()
 
   if (typeof value === 'bigint') return Number(value)
 
-  if (Array.isArray(value)) {
-    // Array elements inherit the field name so `plan_dates: Date[]` still works.
-    return value.map(item => convert(item, fieldName))
-  }
+  // Array elements inherit their parent's model and field context.
+  if (Array.isArray(value)) return value.map(item => convert(item, model, fieldName))
 
   // Only recurse into plain objects. Anything else (Buffer, custom class) is
   // passed through untouched rather than being silently flattened.
   if (isPlainObject(value)) {
+    const relations = model ? RELATION_TARGETS.get(model) : undefined
     const out: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(value)) {
-      out[key] = convert(item, key)
+      // If this key is a relation, the nested rows belong to the related model.
+      out[key] = convert(item, relations?.get(key), key)
     }
     return out
   }

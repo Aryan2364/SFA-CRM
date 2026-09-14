@@ -13,7 +13,7 @@ model business_partners {
   type                    String
   name                    String
   distributor_id          String?             @db.Uuid
-  phone                   String?
+  mobile_1                String?
   address                 String?
   description             String?
   state_id                String?             @db.Uuid
@@ -25,9 +25,16 @@ model business_partners {
   is_active               Boolean             @default(true)
   created_at              DateTime            @default(now()) @db.Timestamptz(6)
   updated_at              DateTime            @default(now()) @db.Timestamptz(6)
+  mobile_2                String?
+  contact_person_name     String?
+  pincode                 String?
+  gst_number              String?
+  sub_type                String?
   stage                   String              @default("Existing")
   temperature             String?
   next_follow_up_date     DateTime?           @db.Date
+  created_by_user_id      String?             @db.Uuid
+  users                   users?              @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction)
   business_partners       business_partners?  @relation("business_partnersTobusiness_partners", fields: [distributor_id], references: [id], onUpdate: NoAction)
   other_business_partners business_partners[] @relation("business_partnersTobusiness_partners")
   districts               districts?          @relation(fields: [district_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -78,31 +85,11 @@ model daily_visits {
   notes         String?
   created_at    DateTime  @default(now()) @db.Timestamptz(6)
   updated_at    DateTime  @default(now()) @db.Timestamptz(6)
+  end_latitude  Decimal?  @db.Decimal(10, 7)
+  end_longitude Decimal?  @db.Decimal(10, 7)
+  end_address   String?
   users         users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   orders        orders?
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model dealers {
-  id             String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id      String        @db.Uuid
-  distributor_id String?       @db.Uuid
-  name           String
-  state_id       String        @db.Uuid
-  district_id    String        @db.Uuid
-  taluka_id      String        @db.Uuid
-  village_id     String?       @db.Uuid
-  latitude       Decimal?      @db.Decimal(10, 7)
-  longitude      Decimal?      @db.Decimal(10, 7)
-  is_active      Boolean       @default(true)
-  created_at     DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime      @default(now()) @db.Timestamptz(6)
-  distributors   distributors? @relation(fields: [distributor_id], references: [id], onUpdate: NoAction)
-  districts      districts     @relation(fields: [district_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  states         states        @relation(fields: [state_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  talukas        talukas       @relation(fields: [taluka_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  villages       villages?     @relation(fields: [village_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -131,31 +118,6 @@ model designations {
   users         users[]
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model distributors {
-  id          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id   String     @db.Uuid
-  name        String
-  phone       String?
-  email       String?
-  address     String?
-  state_id    String?    @db.Uuid
-  district_id String?    @db.Uuid
-  taluka_id   String?    @db.Uuid
-  village_id  String?    @db.Uuid
-  latitude    Decimal?   @db.Decimal(10, 7)
-  longitude   Decimal?   @db.Decimal(10, 7)
-  is_active   Boolean    @default(true)
-  created_at  DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
-  dealers     dealers[]
-  districts   districts? @relation(fields: [district_id], references: [id], onUpdate: NoAction)
-  states      states?    @relation(fields: [state_id], references: [id], onUpdate: NoAction)
-  talukas     talukas?   @relation(fields: [taluka_id], references: [id], onUpdate: NoAction)
-  villages    villages?  @relation(fields: [village_id], references: [id], onUpdate: NoAction)
-}
-
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model districts {
@@ -167,10 +129,7 @@ model districts {
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
   business_partners business_partners[]
-  dealers           dealers[]
-  distributors      distributors[]
   states            states              @relation(fields: [state_id], references: [id], onUpdate: NoAction)
-  institutions      institutions[]
   talukas           talukas[]
 }
 
@@ -188,29 +147,6 @@ model expenses {
   updated_at   DateTime @default(now()) @db.Timestamptz(6)
   photo_url    String?
   users        users    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model institutions {
-  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id   String     @db.Uuid
-  name        String
-  phone       String?
-  address     String?
-  description String?
-  state_id    String?    @db.Uuid
-  district_id String?    @db.Uuid
-  taluka_id   String?    @db.Uuid
-  village_id  String?    @db.Uuid
-  latitude    Decimal?   @db.Decimal(10, 7)
-  longitude   Decimal?   @db.Decimal(10, 7)
-  is_active   Boolean    @default(true)
-  created_at  DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
-  districts   districts? @relation(fields: [district_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  states      states?    @relation(fields: [state_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  talukas     talukas?   @relation(fields: [taluka_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  villages    villages?  @relation(fields: [village_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model lead_stages {
@@ -239,20 +175,6 @@ model lead_types {
   sort_order Int      @default(0)
   is_active  Boolean  @default(true)
   created_at DateTime @default(now()) @db.Timestamptz(6)
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model levels {
-  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id  String   @db.Uuid
-  level_no   Int
-  name       String
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @db.Timestamptz(6)
-  users      users[]
-
-  @@unique([tenant_id, level_no], map: "levels_tenant_level_no")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -298,14 +220,19 @@ model orders {
   id           String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id    String        @db.Uuid
   user_id      String        @db.Uuid
-  visit_id     String        @unique @db.Uuid
+  visit_id     String?       @unique @db.Uuid
   order_date   DateTime      @db.Date
   total_amount Decimal       @default(0) @db.Decimal(12, 2)
   created_at   DateTime      @default(now()) @db.Timestamptz(6)
   updated_at   DateTime      @default(now()) @db.Timestamptz(6)
+  order_source String        @default("meeting")
+  entity_type  String?
+  entity_id    String?       @db.Uuid
+  entity_name  String?
+  status       String        @default("Confirmed")
   order_items  order_items[]
   users        users         @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  daily_visits daily_visits  @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  daily_visits daily_visits? @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -403,10 +330,7 @@ model states {
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
   business_partners business_partners[]
-  dealers           dealers[]
-  distributors      distributors[]
   districts         districts[]
-  institutions      institutions[]
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -420,59 +344,24 @@ model talukas {
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
   business_partners business_partners[]
-  dealers           dealers[]
-  distributors      distributors[]
-  institutions      institutions[]
   districts         districts           @relation(fields: [district_id], references: [id], onUpdate: NoAction)
   villages          villages[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model tenants {
-  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name             String
   email            String?
   phone            String?
   address          String?
   gstin            String?
-  license_count    Int               @default(10)
-  payment_status   String            @default("Active")
-  payment_due_date DateTime?         @db.Date
-  is_active        Boolean           @default(true)
-  created_at       DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
-  user_login_logs  user_login_logs[]
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model user_audit_logs {
-  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id            String   @db.Uuid
-  target_user_id       String   @db.Uuid
-  target_user_name     String
-  action               String
-  performed_by_user_id String?  @db.Uuid
-  performed_by_name    String   @default("")
-  metadata             Json     @default("{}")
-  created_at           DateTime @default(now()) @db.Timestamptz(6)
-
-  @@index([tenant_id, target_user_id, created_at(sort: Desc)], map: "idx_ual_target_user")
-  @@index([tenant_id, created_at(sort: Desc)], map: "idx_ual_tenant_time")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model user_login_logs {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id    String   @db.Uuid
-  user_id      String   @db.Uuid
-  logged_in_at DateTime @default(now()) @db.Timestamptz(6)
-  ip_address   String?
-  user_agent   String?
-  tenants      tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users        users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([tenant_id, logged_in_at(sort: Desc)], map: "idx_ull_tenant_time")
-  @@index([tenant_id, user_id, logged_in_at(sort: Desc)], map: "idx_ull_tenant_user_time")
+  license_count    Int       @default(10)
+  payment_status   String    @default("Active")
+  payment_due_date DateTime? @db.Date
+  is_active        Boolean   @default(true)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -513,18 +402,20 @@ model users {
   name                                                  String
   email                                                 String
   contact                                               String
-  password                                              String                    @default("")
   department_id                                         String?                   @db.Uuid
   designation_id                                        String?                   @db.Uuid
-  level_id                                              String                    @db.Uuid
   profile                                               String                    @default("Standard")
   manager_user_id                                       String?                   @db.Uuid
   status                                                String                    @default("Active")
   created_at                                            DateTime                  @default(now()) @db.Timestamptz(6)
   updated_at                                            DateTime                  @default(now()) @db.Timestamptz(6)
+  password                                              String                    @default("")
   password_reset_token                                  String?
   password_reset_expires                                DateTime?                 @db.Timestamptz(6)
   role_id                                               String?                   @db.Uuid
+  credentials_version                                   Int                       @default(1)
+  attendance                                            attendance[]
+  business_partners                                     business_partners[]
   contextual_remarks                                    contextual_remarks[]
   daily_visits                                          daily_visits[]
   expenses                                              expenses[]
@@ -532,13 +423,11 @@ model users {
   notifications_notifications_recipient_idTousers       notifications[]           @relation("notifications_recipient_idTousers")
   orders                                                orders[]
   remark_reads                                          remark_reads[]
-  user_login_logs                                       user_login_logs[]
   user_territory_mappings                               user_territory_mappings[]
   user_visibility_user_visibility_target_user_idTousers user_visibility[]         @relation("user_visibility_target_user_idTousers")
   user_visibility_user_visibility_viewer_user_idTousers user_visibility[]         @relation("user_visibility_viewer_user_idTousers")
   departments                                           departments?              @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   designations                                          designations?             @relation(fields: [designation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  levels                                                levels                    @relation(fields: [level_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users                                                 users?                    @relation("usersTousers", fields: [manager_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   other_users                                           users[]                   @relation("usersTousers")
   roles                                                 roles?                    @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -560,9 +449,6 @@ model villages {
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
   business_partners business_partners[]
-  dealers           dealers[]
-  distributors      distributors[]
-  institutions      institutions[]
   talukas           talukas             @relation(fields: [taluka_id], references: [id], onUpdate: NoAction)
 }
 
@@ -618,10 +504,96 @@ model weekly_plans {
   manager_comment                              String?
   created_at                                   DateTime                 @default(now()) @db.Timestamptz(6)
   updated_at                                   DateTime                 @default(now()) @db.Timestamptz(6)
+  reopen_requested                             Boolean                  @default(false)
+  reopen_request_message                       String?
+  day_notes                                    Json?                    @default("{}")
+  week_goal                                    String?
   weekly_plan_audit_logs                       weekly_plan_audit_logs[]
   weekly_plan_items                            weekly_plan_items[]
   users_weekly_plans_current_manager_idTousers users?                   @relation("weekly_plans_current_manager_idTousers", fields: [current_manager_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users_weekly_plans_user_idTousers            users                    @relation("weekly_plans_user_idTousers", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenant_id, user_id, week_start_date])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model attendance {
+  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String    @db.Uuid
+  user_id             String    @db.Uuid
+  date                DateTime  @db.Date
+  check_in_time       DateTime? @db.Timestamptz(6)
+  check_in_latitude   Float?
+  check_in_longitude  Float?
+  check_in_address    String?
+  check_out_time      DateTime? @db.Timestamptz(6)
+  check_out_latitude  Float?
+  check_out_longitude Float?
+  check_out_address   String?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  users               users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, user_id, date])
+}
+
+model expense_categories {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model point_config {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id          String    @db.Uuid
+  action_type        String
+  label              String
+  points             Int       @default(0)
+  cap_per_day        Int?
+  is_active          Boolean   @default(true)
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_by_user_id String?   @db.Uuid
+
+  @@unique([tenant_id, action_type])
+}
+
+model point_config_history {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id          String    @db.Uuid
+  action_type        String
+  label              String
+  old_points         Int?
+  new_points         Int
+  old_cap_per_day    Int?
+  new_cap_per_day    Int?
+  old_is_active      Boolean?
+  new_is_active      Boolean
+  changed_by_user_id String?   @db.Uuid
+  changed_by_name    String?
+  changed_at         DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model point_events {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  user_id     String    @db.Uuid
+  action_type String
+  points      Int
+  ref_type    String?
+  ref_id      String?
+  description String?
+  earned_at   DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, earned_at(sort: Desc)], map: "idx_point_events_tenant")
+  @@index([tenant_id, user_id, earned_at(sort: Desc)], map: "idx_point_events_user")
+}
+
+model tenant_point_settings {
+  tenant_id          String    @id @db.Uuid
+  reset_period       String    @default("monthly")
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_by_user_id String?   @db.Uuid
 }

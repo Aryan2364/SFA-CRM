@@ -93,15 +93,37 @@ order_items(count)                   nested count aggregate
 order_items(*)                       to-many, full rows
 ```
 
-**Database:** 35 tables, all UUID PKs with `uuid_generate_v4()` defaults, all carrying
-`tenant_id`. Schema lives in `supabase/migrations.sql`.
+**Database:** live Supabase is **PostgreSQL 17.6**, 35 tables in `public`, all UUID PKs with
+`uuid_generate_v4()` defaults, all carrying `tenant_id`.
+Extensions present: `uuid-ossp`, `pgcrypto`, `pg_stat_statements`, `plpgsql`, `supabase_vault`
+(the last is Supabase-only and is not needed on RDS).
 
-Tables: `states, districts, talukas, villages, distributors, dealers, product_categories,
-product_subcategories, products, departments, designations, levels, users, daily_visits,
-user_territory_mappings, weekly_plans, weekly_plan_items, weekly_plan_audit_logs, expenses,
-orders, order_items, contextual_remarks, remark_reads, notifications, user_visibility,
-role_permissions, institutions, business_partners, tenants, lead_types, lead_stages,
-lead_temperatures, roles, user_login_logs, user_audit_logs`
+> ### `supabase/migrations.sql` IS OBSOLETE — DO NOT INTROSPECT IT
+> Verified against live on 2026-09-14. It is 35 tables, live is 35 tables, but only **29 are
+> shared**. It is wrong in both directions:
+>
+> **In LIVE, absent from migrations.sql:**
+> `attendance`, `expense_categories`, `point_config`, `point_config_history`, `point_events`,
+> `tenant_point_settings`
+>
+> **In migrations.sql, absent from LIVE (legacy, do not model):**
+> `dealers`, `distributors`, `institutions`, `levels`, `user_audit_logs`, `user_login_logs`
+>
+> The phantoms are explained: `masters/dealers`, `masters/distributors` and
+> `masters/institutions` all query `from('business_partners')`. Those three tables were
+> consolidated into `business_partners`; `migrations.sql` predates that change.
+> Column-level drift is confirmed too — its `role_permissions.section` CHECK allows 5 values
+> while live data holds **23 distinct values**.
+>
+> **The code is consistent with LIVE.** Introspect the live database, never this file.
+
+**Live tables (the real 35):** `attendance, business_partners, contextual_remarks,
+daily_visits, departments, designations, districts, expense_categories, expenses, lead_stages,
+lead_temperatures, lead_types, notifications, order_items, orders, point_config,
+point_config_history, point_events, product_categories, product_subcategories, products,
+remark_reads, role_permissions, roles, states, talukas, tenant_point_settings, tenants,
+user_territory_mappings, user_visibility, users, villages, weekly_plan_audit_logs,
+weekly_plan_items, weekly_plans`
 
 **RLS:** `migrations.sql` has 31 x `ENABLE ROW LEVEL SECURITY` and **0 x `CREATE POLICY`**.
 Everything ran through the service-role key, which bypasses RLS, so RLS was doing nothing.
@@ -155,8 +177,26 @@ These are the things that fail **quietly**. Most of the project's risk is concen
 Supabase returns JSON over HTTP: timestamps arrive as **ISO strings**, decimals as **numbers**.
 Prisma returns **`Date` objects** and **`Decimal` objects**. Exactly backwards.
 
-The schema has **100 timestamp/date columns and 15 numeric/decimal columns**, and the code
-relies on the string behaviour in real places:
+Counts below are measured against **live PostgreSQL**, not `migrations.sql` (an earlier draft
+of this plan said "100 timestamp / 15 numeric" — those came from grepping the obsolete SQL file
+and were overcounted; these are the real figures):
+
+- **61** `timestamp with time zone` columns, across **13** distinct column names
+- **9** `date` (date-only) columns, **9** distinct names
+- **11** `numeric` / `bigint` columns
+
+The two date shapes matter: PostgREST serialised `timestamptz` as a full ISO string and `date`
+as `"YYYY-MM-DD"`, and the UI renders both raw. A serialiser that returns full ISO for a
+date-only column silently appends `T00:00:00.000Z` everywhere — no error, just wrong.
+
+**Verified live: there are ZERO name collisions** between the 9 date-only names and the 13
+timestamp names. So keying date-only detection off column *name* is safe as of this writing.
+It is still fragile by construction — one future `plan_date timestamptz` breaks it silently —
+so prefer keying on **model + field** via `Prisma.dmmf.datamodel.models[].fields[]`, which
+carries the real native type and removes the assumption entirely. If you keep name-keying,
+re-run the collision check after every `db pull`.
+
+The code relies on the string behaviour in real places:
 
 ```
 src/app/(protected)/review/[userId]/page.tsx:257   a.plan_date.localeCompare(...)
@@ -234,11 +274,16 @@ opens a connection during build will hang or bake stale data into the image.
 
 - [ ] Single shared instance, cached on `globalThis` in dev so Next.js hot-reload does not leak
       connections until RDS refuses new ones.
-- [ ] Set `connection_limit` in `DATABASE_URL` sized to the RDS instance.
-      RDS `max_connections` ~= `DBInstanceClassMemory/9531392` — roughly **85 on db.t3.micro**,
-      **~150 on db.t3.small**. Budget for other clients and any future second container.
-      **Start at 10–15 unless the instance size says otherwise.** Instance size is an OPEN
-      QUESTION (section 10) — do not guess silently; if unanswered, use 10 and flag it.
+- [ ] **Pool size: `max: 5`.** Confirmed instance is **`db.t4g.micro`** (1 GB RAM,
+      ~112 `max_connections`) and it is **shared by 4 applications**, sfacrm being one.
+      The binding constraint is RAM, not connection count: each Postgres backend costs
+      ~5–10 MB, so 4 apps × 10 would be ~320 MB of backend memory on a 1 GB box that also
+      wants ~256 MB `shared_buffers` plus `work_mem` and OS. 4 × 5 = 20 connections leaves
+      real headroom. Do not raise this without raising the instance class.
+      Note `connection_limit` in the URL is **ignored** under the `@prisma/adapter-pg` driver
+      adapter (it is a query-engine parameter); it must be passed to the `pg` Pool as `max`.
+      `db.t4g.micro` is burstable — sustained load drains CPU credits and throttles **all four**
+      apps together. Treat CPU credit balance as the metric to watch, not connection count.
 - [ ] Add the shared date/decimal serialisation helper here (5.1).
 
 ### 6.3 Core lib conversion — must precede all route batches
@@ -389,31 +434,100 @@ authorised.
 
 ## 10. Open questions — get answers before the phase that needs them
 
-| # | Question | Blocks | Owner |
-|---|---|---|---|
-| 1 | **RDS instance size / class?** | 6.2 connection pool cap | User |
-| 2 | **Is the RDS schema loaded yet** — empty, partial, or full? | 6.1 `db pull` source | Server agent |
-| 3 | **Is there production data to copy** from Supabase, or start clean? | Phase E | Server agent |
-| 4 | **Has `CREATE EXTENSION "uuid-ossp"` been run on RDS?** Needs `rds_superuser`. Every table depends on `uuid_generate_v4()` defaults. | 6.1 | Server agent |
-| 5 | **Confirm RLS is NOT enabled on RDS** (or the app role is `BYPASSRLS`). 31 tables, 0 policies means RLS on returns zero rows for every query. | All | Server agent |
-| 6 | Are RDS automated backups on, with a sensible retention window? (Supabase's backup UI is going away.) | Sign-off | User |
+| # | Question | Blocks | Owner | Status |
+|---|---|---|---|---|
+| 1 | **RDS instance size / class?** | 6.2 connection pool cap | User | **ANSWERED: `db.t4g.micro`** (1 GB RAM, ~112 `max_connections`). Pool `max: 10` is correct — keep it. Small box; first thing to outgrow. |
+| 2 | **Is the RDS schema loaded yet** — empty, partial, or full? | 6.1 `db pull` source | Server agent | **OPEN** — RDS confirmed to hold no *data*; whether DDL is loaded is unconfirmed. Not blocking (pull from Supabase). |
+| 3 | **Is there production data to copy** from Supabase, or start clean? | Phase E | User | **ANSWERED: YES — sfacrm starts with a full copy of live Supabase production data.** Phase E is fully in scope, including the expense-photo copy. See the fork warning in section 11. |
+| 4 | **Has `CREATE EXTENSION "uuid-ossp"` been run on RDS?** Needs `rds_superuser`. | 6.1 | Server agent | **OPEN for RDS.** Confirmed present on live Supabase — RDS needs it too |
+| 5 | **Confirm RLS is NOT enabled on RDS** (or the app role is `BYPASSRLS`). 0 policies means RLS on returns zero rows for every query. | All | Server agent | **OPEN** |
+| 6 | Are RDS automated backups on, with a sensible retention window? | Sign-off | User | **OPEN** |
+| 7 | ~~Do `point_config` / `point_events` / `point_config_history` exist?~~ | `points.ts` | — | **ANSWERED: yes, all three exist with live data.** The points feature is live, not dead. Also `tenant_point_settings`. |
 
-If #2 is "empty", proceed by pulling the schema from Supabase and re-pull against RDS before
-sign-off (6.1). Do not block the whole project on it.
+**A live Supabase connection string is available** — ask the user for it; it is not stored in
+the repo and must never be committed. Verified working against
+`db.zanbhyaeggnzmheeospz.supabase.co:5432`, user `postgres`, database `postgres`, SSL required.
+This unblocks `prisma db pull`, `points.ts`, and end-to-end login verification **now** —
+question 2 no longer blocks Phase A. Re-pull against RDS before sign-off and diff the two
+schemas, as 6.1 requires.
 
 ---
 
 ## 11. Phase E — Data migration (server agent, not this repo)
 
-Listed here so it is not forgotten; execution is on the server side.
+**CONFIRMED IN SCOPE:** sfacrm starts with a full copy of live Supabase production data.
+Execution is on the server side.
+
+### Measured size of the migration (verified against live)
+
+| | |
+|---|---|
+| Total rows, all 35 tables | **4,698** — small, a single dump/restore is fine |
+| Largest tables | `daily_visits` 1,112 · `point_events` 1,034 · `business_partners` 586 · `weekly_plan_items` 446 |
+| Empty tables | `point_config_history` only |
+| **Tenants** | **5 real customers** — Makhana, Nuetech Solar Systems, RCB, Sama, Social Chutney |
+| Users | 22 |
+| Expense photos to move | **128 objects, 140.9 MB** |
+| Broken photo references | **0 — all 128 verified reachable** |
+| Photo distribution | 127 under tenant `00000000-…-0001`, 1 under `08bfa9da-…` |
+
+Source URL shape (public bucket):
+`https://<ref>.supabase.co/storage/v1/object/public/expense-photos/receipts/<ts>-<rand>.<ext>`
+
+> ### ⚠️ THIS IS A FORK, NOT A MOVE — confirm intent before cutover
+> Live Supabase serves **5 real tenants**. The moment RDS is loaded, sfacrm and the existing
+> Vercel/Supabase app hold two independent copies. Every write after that point lands in one
+> and not the other, silently, with no error and no reconciliation path.
+>
+> Decide explicitly and record the answer here:
+> - **Replacement** — the Vercel app is retired at cutover. Then plan a freeze window, or take
+>   a final delta sync, or rows written during the copy are lost.
+> - **Parallel run** — both stay live. Then the two datasets diverge from minute one, and five
+>   customers' data is affected. If this is the intent, say which system is authoritative.
+
+### Verified RDS facts (server-side read-only pass)
+
+- RDS is **PostgreSQL 17.9** on `db.t4g.micro` (aarch64/Graviton). Source is 17.6 — target is
+  newer, so a 17.6 dump restores cleanly. No version-aware flags or schema/data split needed.
+- `max_connections = 79` (not ~112 as earlier estimated), minus 3 superuser + 4 RDS reserved
+  = **~72 usable**, shared across **seven** application databases, not four.
+- `shared_buffers` ~180 MB, `work_mem` 4 MB, cache hit 99.99–100%, zero deadlocks.
+- **No connection caps exist anywhere** — `datconnlimit = -1` on every database,
+  `rolconnlimit = -1`, and no client-side cap in any of the six other apps. Any one app can
+  consume all ~72 and starve the rest.
+- ⚠️ **Every app authenticates as `postgres`, the RDS master user.** There is no per-app role.
+  All seven databases are owned by it, and it holds CREATEDB/CREATEROLE and `rds_superuser`
+  membership. **Any app can read or drop any other app's database.** See the escalation note
+  below.
+
+> ### ⚠️ pg_dump VERSION TRAP — will fail mid-freeze-window if ignored
+> The EC2 box is Ubuntu 26.04, which ships **PostgreSQL 18.6 client tools**. `pg_dump` must
+> never be newer than the restore target, and the target is 17.9. `postgresql-client-17` is
+> not in the distro repos.
+> **Run both ends pinned in a container:** `docker run --rm postgres:17 pg_dump …` / `pg_restore`.
 
 - [ ] Load the schema into RDS, including the `uuid-ossp` extension
-- [ ] Copy production data from Supabase -> RDS
+- [ ] Copy production data from Supabase -> RDS (4,698 rows across 35 tables) using **pg17
+      client tooling in a container**, never the host's pg18 binaries
 - [ ] **Copy expense photos** from the Supabase `expense-photos` bucket into the R2 `sfacrm`
       bucket under `receipts/{tenantId}/`
-- [ ] **Rewrite `expenses.photo_url`** to the new `/api/expenses/photo/<id>` form.
+- [ ] **Rewrite `expenses.photo_url`** to the app-relative form `/api/expenses/photo/<id>`.
       Existing rows hold **absolute Supabase Storage URLs** rendered directly by `<img src>`.
       They break the moment the Supabase project is deleted.
+
+> ### ⚠️ DO NOT rewrite photo_url to an R2 URL
+> **The R2 `sfacrm` bucket is PRIVATE.** There is no public base URL, no `r2.dev`, no bound
+> custom domain, and none may be created. Rewriting `photo_url` to any
+> `…r2.cloudflarestorage.com/…` or "R2 public base" address makes **every one of the 128
+> receipts fail** — the object is not publicly readable.
+> The only correct target is the app-relative path `/api/expenses/photo/<id>`, served by the
+> authorising route in section 7, which signs a 300-second inline URL per request.
+>
+> **Verification must resolve through the app route**, not through whatever string the column
+> happens to hold. Immediately after `pg_restore` and before the rewrite, all 128 URLs will
+> still point at Supabase and will verify as reachable *because Supabase is still up* — a
+> false green. Verify only after the rewrite, through `/api/expenses/photo/<id>`, with a
+> logged-in session.
 - [ ] Report: rows migrated, objects copied, and the **count of rows whose `photo_url` did not
       resolve to a real object**. Do not silently skip those.
 - [ ] If the Supabase bucket is unreachable: **stop**. Do not migrate the DB leaving dead

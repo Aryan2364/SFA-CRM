@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "prisma:sync": "prisma db pull && prisma generate && node scripts/generate-date-only-fields.mjs",
+    "verify:data-layer": "tsc src/lib/db.ts --outDir .verify-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck --esModuleInterop && node scripts/verify-data-layer.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
