@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   if (scope === 'own') {
     allowedIds = [user.userId!]
   } else if (scope === 'team') {
-    const visibleIds = await getVisibleUserIds(user.userId!, null, tid)
+    const visibleIds = await getVisibleUserIds(user.userId!, tid)
     allowedIds = [user.userId!, ...visibleIds]
   }
   // scope === 'all' → no user_id filter

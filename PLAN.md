@@ -1,17 +1,17 @@
 # PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
-**Status:** CODE COMPLETE — **all 115 API routes are on Prisma; zero
-import `supabase-server`.** Phase A, Batches 1–6 and Phase B are complete and committed
-(15 commits from `89085ec`). Gates green: smoke 344/344 across seven suites · tenant-scope audit
-clean on all seven · write-path 364/364 on the local scratch DB · lint 0 · build 0 with neither
+**Status:** COMPLETE — **all 115 API routes are on Prisma, and Supabase is gone.**
+`@supabase/supabase-js` is uninstalled, both client modules are deleted, and no source file
+imports anything Supabase. Phase A, Batches 1–6, Phase B and the §9 teardown are committed
+(16 commits from `89085ec`).
+
+Gates, all re-run after teardown: smoke **344/344** across seven suites · tenant-scope audit
+**clean on all seven** · write-path **364/364** on the local scratch database · R2 **35/35**
+against the real bucket · `verify:data-layer` 42/42 · lint 0 · build 0 with neither
 `DATABASE_URL` nor any `R2_*` set.
 
-**The only remaining Supabase surface is two lib files** — `src/lib/supabase-server.ts` and the
-dead `src/lib/supabase-browser.ts`. No route imports either. That makes §9 teardown a single
-deliberate step.
-
-**Phase B is now VERIFIED against real Cloudflare R2** — `npm run verify:r2`, 35/35, run twice,
-bucket empty before and after. Observed, not reasoned: a real `PutObject` landing at exactly
+**Phase B is VERIFIED against real Cloudflare R2** — `npm run verify:r2`, run twice, bucket
+empty before and after. Observed, not reasoned: a real `PutObject` landing at exactly
 `receipts/{tenantId}/{uuid}.{ext}` with the right content-type and size; the 302; the signed URL
 carrying `X-Amz-Expires=300`; following it returning byte-identical content `inline`; a tampered
 signature rejected (403); and **an unsigned GET refused** — R2 answers `400
@@ -20,13 +20,15 @@ object is indistinguishable from a present one. The same URL signed returns 200,
 proves that refusal is authorisation rather than a malformed request. The `region: 'auto'` +
 account-level endpoint + no-`forcePathStyle` construction copied from v2e works in practice.
 
-Remaining work: the **RDS re-pull and diff** (§6.1, a sign-off requirement given
-`migrations.sql` proved obsolete in both directions) · the **§9 teardown**, behind the final
-checkpoint.
+**Remaining work: the RDS re-pull and diff (§6.1), and it is the server side's move.** The
+committed `prisma/schema.prisma` was pulled from **Supabase**, not RDS. Re-pulling against RDS
+and diffing is a sign-off requirement rather than a formality — `supabase/migrations.sql` proved
+obsolete in *both* directions, so "the schema is probably fine" is exactly the assumption that
+already failed once here. RDS currently holds no schema and no data.
 
-Blocked on the owner: RDS being loaded. Server side is parked at a checkpoint (`uuid-ossp`,
-least-privilege role); RDS holds no schema and no data yet. The §11 **fork-vs-move decision** is
-also still open and gates cutover for five real customers.
+§11 is **decided**: delayed replacement. Vercel/Supabase stays authoritative; sfacrm is a
+demo/acceptance environment until the client approves it. The data copy therefore runs twice and
+demo-period writes do not survive.
 
 **Six pre-existing production bugs** found and deliberately NOT fixed — see §13.
 **Audience:** a fresh Claude Code session with no memory of the discussion that produced this file.

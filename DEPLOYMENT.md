@@ -83,6 +83,12 @@ docker compose -f docker-compose.deploy.yml logs -f sfacrm
 
 Next.js inlines any `NEXT_PUBLIC_*` variable into the bundle at **build** time,
 so those cannot be changed from `.env.production`. Server-only names (no
-`NEXT_PUBLIC_` prefix) are read at runtime. That is why `supabase-server.ts`
-prefers `SUPABASE_URL` over `NEXT_PUBLIC_SUPABASE_URL`. Keep the same rule in
-mind when the app moves to RDS: give the new DB vars plain, non-public names.
+`NEXT_PUBLIC_` prefix) are read at runtime.
+
+Every variable this app needs is server-only and read at runtime — `DATABASE_URL`,
+`SESSION_SECRET`, `DEFAULT_TENANT_ID`, the `SMTP_*` set and the five `R2_*` values.
+**Do not introduce a `NEXT_PUBLIC_*` name for any of them**; a database URL or an
+R2 key behind that prefix would be inlined into the browser bundle.
+
+`PRISMA_QUERY_LOG` must never be set in production. It appends every emitted SQL
+statement to a file, unbounded, and exists only for the tenant-scope audit.

@@ -12,15 +12,7 @@ export const POINT_ACTIONS = [
 
 export type PointActionType = typeof POINT_ACTIONS[number]
 
-/**
- * The `supabase` parameter is retained only so existing call sites keep
- * compiling while the route batches are converted one at a time (PLAN.md §2.7).
- * It is unused and is removed, along with every caller's argument, in Batch 9.
- */
-type LegacyClientArg = unknown
-
 export async function awardPoint(
-  _supabase: LegacyClientArg,
   tenantId: string,
   userId: string,
   actionType: string,

@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const tenantId = getTenantId()
 
-  const allowed = await canView(manager.userId!, userId, null, tenantId)
+  const allowed = await canView(manager.userId!, userId, tenantId)
   if (!allowed) return NextResponse.json({ error: 'Not authorized to view this user' }, { status: 403 })
 
   try {

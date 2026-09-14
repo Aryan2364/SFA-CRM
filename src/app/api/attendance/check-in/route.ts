@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       ? await prisma.attendance.update({ where: { id: existing.id }, data: payload })
       : await prisma.attendance.create({ data: payload })
 
-    void awardPoint(null, tid, user.userId, 'daily_checkin', { description: `Daily check-in on ${today}` })
+    void awardPoint(tid, user.userId, 'daily_checkin', { description: `Daily check-in on ${today}` })
     return NextResponse.json(serialize(data, 'attendance'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

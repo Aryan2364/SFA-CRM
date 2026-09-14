@@ -10,7 +10,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const user = await requireUser()
   const tid = getTenantId()
 
-  const visibleIds = await getVisibleUserIds(user.userId!, null, tid)
+  const visibleIds = await getVisibleUserIds(user.userId!, tid)
   const allowedIds = [user.userId!, ...visibleIds]
 
   try {
@@ -35,7 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const { status } = await req.json() as { status: 'Draft' | 'Submitted' | 'Confirmed' }
   const tid = getTenantId()
 
-  const visibleIds = await getVisibleUserIds(user.userId!, null, tid)
+  const visibleIds = await getVisibleUserIds(user.userId!, tid)
   const allowedIds = [user.userId!, ...visibleIds]
 
   try {

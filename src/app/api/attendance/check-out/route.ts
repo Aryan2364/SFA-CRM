@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    void awardPoint(null, tid, user.userId, 'daily_checkout', { description: `Daily check-out on ${today}` })
+    void awardPoint(tid, user.userId, 'daily_checkout', { description: `Daily check-out on ${today}` })
     return NextResponse.json(serialize(data, 'attendance'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

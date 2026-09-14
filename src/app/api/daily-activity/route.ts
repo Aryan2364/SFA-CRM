@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
           visit_type, entity_id: bp.id, entity_name: bp.name, is_new_entity: true, status: 'Pending',
         },
       })
-      void awardPoint(null, tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${bp.name} on ${effectiveDate}` })
+      void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${bp.name} on ${effectiveDate}` })
       return NextResponse.json(serialize(data, 'daily_visits'), { status: 201 })
     }
 
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
         is_new_entity: is_new_entity ?? false, status: 'Pending',
       },
     })
-    void awardPoint(null, tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${entity_name.trim()} on ${effectiveDate}` })
+    void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${entity_name.trim()} on ${effectiveDate}` })
     return NextResponse.json(serialize(data, 'daily_visits'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

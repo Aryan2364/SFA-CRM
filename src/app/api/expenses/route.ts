@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
         photo_url: photo_url ?? null,
       },
     })
-    void awardPoint(null, tid, user.userId!, 'expense_submitted', { refType: 'expense', refId: data.id, description: `${category} expense on ${expense_date}` })
+    void awardPoint(tid, user.userId!, 'expense_submitted', { refType: 'expense', refId: data.id, description: `${category} expense on ${expense_date}` })
     return NextResponse.json(serialize(data, 'expenses'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

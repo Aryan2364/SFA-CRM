@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const tenantId = getTenantId()
 
-  const subIds = await getVisibleUserIds(user.userId, null, tenantId)
+  const subIds = await getVisibleUserIds(user.userId, tenantId)
   if (subIds.length === 0) return NextResponse.json([])
 
   // If a specific userId is requested, verify they are a subordinate

@@ -48,7 +48,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // 'own' and 'team' both include the caller's own expenses.
     allowed = true
   } else if (scope === 'team' && user.userId) {
-    const visibleIds = await getVisibleUserIds(user.userId, null, tid)
+    const visibleIds = await getVisibleUserIds(user.userId, tid)
     allowed = visibleIds.includes(expense.user_id)
   }
   if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

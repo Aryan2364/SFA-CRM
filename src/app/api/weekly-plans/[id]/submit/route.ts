@@ -46,7 +46,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       const weekStart = dateOnlyString(plan.week_start_date)
       const onTime = Boolean(weekStart) && today <= weekStart
       if (onTime) {
-        void awardPoint(null, tid, user.userId, 'weekly_plan_submitted', {
+        void awardPoint(tid, user.userId, 'weekly_plan_submitted', {
           refType: 'weekly_plan', refId: params.id,
           description: `Weekly plan submitted on time for week of ${weekStart}`,
         })

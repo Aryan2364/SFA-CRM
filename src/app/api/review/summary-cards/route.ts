@@ -11,7 +11,7 @@ export async function GET() {
   const tenantId = getTenantId()
   const today = new Date().toISOString().split('T')[0]
 
-  const subIds = await getVisibleUserIds(manager.userId!, null, tenantId)
+  const subIds = await getVisibleUserIds(manager.userId!, tenantId)
   if (subIds.length === 0) return NextResponse.json([])
 
   try {

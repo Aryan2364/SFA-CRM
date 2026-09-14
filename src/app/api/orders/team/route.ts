@@ -10,7 +10,7 @@ export async function GET() {
   const user = await requireUser()
   const tid = getTenantId()
 
-  const visibleIds = await getVisibleUserIds(user.userId!, null, tid)
+  const visibleIds = await getVisibleUserIds(user.userId!, tid)
   const allowedIds = [user.userId!, ...visibleIds]
 
   try {

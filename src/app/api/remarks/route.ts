@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       contextOwnerId = plan?.user_id ?? null
     }
     if (contextOwnerId && contextOwnerId !== user.userId) {
-      const allowed = await canView(user.userId!, contextOwnerId, null, tenantId)
+      const allowed = await canView(user.userId!, contextOwnerId, tenantId)
       if (!allowed) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     }
 

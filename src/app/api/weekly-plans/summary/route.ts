@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const weeksBack = Math.min(parseInt(req.nextUrl.searchParams.get('weeksBack') ?? '11'), 51)
   const tid = getTenantId()
 
-  const subIds = await getVisibleUserIds(user.userId, null, tid)
+  const subIds = await getVisibleUserIds(user.userId, tid)
   if (!subIds.length) return NextResponse.json({ weeks: [], subordinates: [] })
 
   try {

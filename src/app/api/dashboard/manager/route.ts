@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   })()
   const weekEnd = addDays(weekStart, 6)
 
-  const subIds = await getVisibleUserIds(user.userId!, null, tid)
+  const subIds = await getVisibleUserIds(user.userId!, tid)
   if (!subIds.length) return NextResponse.json({ isManager: false })
 
   try {

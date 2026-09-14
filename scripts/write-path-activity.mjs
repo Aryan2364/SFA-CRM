@@ -280,11 +280,13 @@ async function main() {
   ok('daily-activity filledDates are DATE-ONLY', dc.filledDates.every(d => DATE_ONLY.test(d)), dc.filledDates)
 
   // ===== expenses/photo authorisation (Phase B) ============================
-  // R2 itself is NOT reachable here — no credentials. That is fine: every
-  // authorisation branch runs BEFORE the storage call, so "500 File storage is
-  // not configured" is the proof that a request got PAST authorisation, and any
-  // 403/404 is the proof that it did not.
-  section('expenses/photo — authorisation branches (R2 unreachable by design)')
+  // This suite covers the AUTHORISATION branches only; the Cloudflare half is
+  // verify-r2.mjs's job. Both outcomes below mean "got past authorisation":
+  // 302 when R2 is configured (the signed redirect) and 500 when it is not.
+  // Asserting only one of them makes the suite depend on whether R2 credentials
+  // happen to be present, which is exactly how it broke once already.
+  const pastAuth = r => r.status === 302 || r.status === 500
+  section('expenses/photo — authorisation branches')
   const photoFile = '11111111-2222-4333-8444-555555555555.jpg'
   const photoUrl = `/api/expenses/photo/${photoFile}`
   const owned = await prisma.expenses.create({
@@ -298,12 +300,18 @@ async function main() {
     (await call('/api/expenses/photo/99999999-9999-4999-8999-999999999999.jpg', SUB, 'GET')).status === 404)
 
   const asOwner = await call(photoUrl, SUB, 'GET')
-  ok('the OWNER gets past authorisation (500 = reached the R2 step)', asOwner.status === 500, asOwner.status)
-  ok('and the message names storage, not permissions', (await asOwner.json()).error === 'File storage is not configured.')
+  ok(`the OWNER gets past authorisation (${asOwner.status})`, pastAuth(asOwner), asOwner.status)
+  if (asOwner.status === 500) {
+    ok('when R2 is unconfigured the message names storage, not permissions',
+      (await asOwner.json()).error === 'File storage is not configured.')
+  } else {
+    ok('when R2 is configured the 302 carries a signed URL',
+      (asOwner.headers.get('location') ?? '').includes('X-Amz-Signature'), asOwner.headers.get('location')?.slice(0, 60))
+  }
 
   // adminA can see subA (seeded user_visibility), so scope=team must allow it.
   const asManager = await call(photoUrl, MGR, 'GET')
-  ok('a manager who can SEE the owner also gets past authorisation', asManager.status === 500, asManager.status)
+  ok(`a manager who can SEE the owner also gets past authorisation (${asManager.status})`, pastAuth(asManager), asManager.status)
 
   section('expenses/photo — a user who cannot see the owner is refused')
   const outsider = await prisma.users.create({

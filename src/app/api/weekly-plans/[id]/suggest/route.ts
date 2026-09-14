@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const authorized = await canView(user.userId!, plan.user_id, null, tid)
+    const authorized = await canView(user.userId!, plan.user_id, tid)
     if (!authorized) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
 
     // updateMany, not update: no .select().single() in the original (PLAN.md 8.4).

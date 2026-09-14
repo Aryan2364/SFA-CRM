@@ -17,7 +17,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
     if (!plan.reopen_requested) return NextResponse.json({ error: 'No reopen request pending' }, { status: 400 })
 
-    const authorized = await canView(user.userId!, plan.user_id, null, tid)
+    const authorized = await canView(user.userId!, plan.user_id, tid)
     if (!authorized) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
 
     const now = new Date()
