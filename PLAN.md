@@ -3,7 +3,7 @@
 **Status:** COMPLETE — **all 115 API routes are on Prisma, and Supabase is gone.**
 `@supabase/supabase-js` is uninstalled, both client modules are deleted, and no source file
 imports anything Supabase. Phase A, Batches 1–6, Phase B and the §9 teardown are committed
-(16 commits from `89085ec`).
+(17 commits from `89085ec`).
 
 Gates, all re-run after teardown: smoke **344/344** across seven suites · tenant-scope audit
 **clean on all seven** · write-path **364/364** on the local scratch database · R2 **35/35**
