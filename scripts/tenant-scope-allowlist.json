@@ -1,0 +1,56 @@
+{
+  "$comment": [
+    "Queries that legitimately touch a tenant-scoped table WITHOUT a tenant_id predicate.",
+    "PLAN.md 8.2 requires every entry to carry a written reason. Nothing goes in here to",
+    "silence a warning -- an entry is a claim that cross-tenant exposure is impossible by",
+    "some other means, and that claim has to hold on its own.",
+    "",
+    "Tables with no tenant_id column at all are exempt automatically (the audit derives the",
+    "tenant-scoped set from prisma/schema.prisma) and need no entry here. `tenants` is the",
+    "only such table: its primary key IS the tenant id."
+  ],
+  "allow": [
+    {
+      "id": "auth-requireuser-pk",
+      "table": "users",
+      "queryPattern": "SELECT[\\s\\S]*FROM \"public\"\\.\"users\" WHERE \\(?\"public\"\\.\"users\"\\.\"id\" = ",
+      "source": "src/lib/auth.ts requireUser()",
+      "reason": "Lookup by primary key using a user id taken from the already-verified session JWT. The id is not attacker-supplied: it was signed by this server at login. Adding a tenant filter would change behaviour, and the tenant in the session came from the same signed payload."
+    },
+    {
+      "id": "login-lookup-by-contact",
+      "table": "users",
+      "queryPattern": "SELECT[\\s\\S]*FROM \"public\"\\.\"users\"[\\s\\S]*WHERE \"public\"\\.\"users\"\\.\"contact\" = ",
+      "source": "src/app/api/auth/login/route.ts",
+      "reason": "Login is deliberately cross-tenant: the caller has no session yet, so there is no tenant to scope to. The tenant is DERIVED from the matched row and then signed into the session. This was the pre-existing behaviour and the original code documents it. No row data is returned to the caller -- the response is {ok:true} plus a cookie -- so a wrong match cannot leak another tenant's data; it would simply fail the password check."
+    },
+    {
+      "id": "me-credentials-version-pk",
+      "table": "users",
+      "queryPattern": "SELECT[\\s\\S]*\"credentials_version\"[\\s\\S]*FROM \"public\"\\.\"users\" WHERE \\(?\"public\"\\.\"users\"\\.\"id\" = ",
+      "source": "src/app/api/auth/me/route.ts",
+      "reason": "Primary-key lookup of the session's own user id (signed JWT) to compare credentials_version. Returns a single integer that is compared, never returned."
+    },
+    {
+      "id": "me-subordinate-count",
+      "table": "user_visibility",
+      "queryPattern": "SELECT COUNT[\\s\\S]*FROM \"public\"\\.\"user_visibility\"[\\s\\S]*\"viewer_user_id\" = ",
+      "source": "src/app/api/auth/me/route.ts",
+      "reason": "Counts rows whose viewer_user_id is the session's own user id, which is itself tenant-bound. Returns only a boolean (count > 0) to the caller, never row content. Matches the pre-existing query, which was also not tenant-scoped."
+    },
+    {
+      "id": "login-password-rehash-pk",
+      "table": "users",
+      "queryPattern": "UPDATE \"public\"\\.\"users\"[\\s\\S]*WHERE[\\s\\S]*\"id\" (IN|=) ",
+      "source": "src/app/api/auth/login/route.ts and reset-password/route.ts",
+      "reason": "Writes by primary key to the row this request already authenticated (login rehash) or already resolved through a tenant-scoped token lookup (password reset). The id is server-derived in both cases, never taken from the request body."
+    },
+    {
+      "id": "prisma-to-one-relation-fetch-roles",
+      "table": "roles",
+      "queryPattern": "SELECT[\\s\\S]*FROM \"public\"\\.\"roles\" WHERE \"public\"\\.\"roles\"\\.\"id\" IN ",
+      "source": "src/lib/auth.ts requireUser() and src/app/api/auth/login/route.ts, via `roles: { select: { name: true } }`",
+      "reason": "This is how Prisma resolves a to-one relation: it fetches the related row by primary key using the FK value already on the parent row (users.role_id). No request input reaches it. PostgREST resolved the previous `roles(name)` embed exactly the same way, with no tenant filter, so this is not a regression. Residual assumption, stated plainly: it relies on referential integrity -- a users.role_id pointing at another tenant's role would be followed. That is a data-integrity property enforced by the FK and the write paths, not something a read-side tenant filter on a PK lookup would fix."
+    }
+  ]
+}

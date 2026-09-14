@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import bcrypt from 'bcryptjs'
 
@@ -13,28 +13,31 @@ export async function POST(req: NextRequest) {
   if (password.length < 6)
     return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const { data: user } = await supabase
-    .from('users')
-    .select('id, password_reset_expires')
-    .eq('password_reset_token', token)
-    .eq('tenant_id', tid)
-    .maybeSingle()
+  // password_reset_token carries no unique constraint, so findFirst is the
+  // faithful counterpart of .maybeSingle(): first match, or null.
+  const user = await prisma.users.findFirst({
+    where: { password_reset_token: token, tenant_id: tid },
+    select: { id: true, password_reset_expires: true },
+  })
 
   if (!user)
     return NextResponse.json({ error: 'Invalid or expired reset link' }, { status: 400 })
 
-  if (!user.password_reset_expires || new Date(user.password_reset_expires) < new Date())
+  // Prisma already returns a Date here, where Supabase returned an ISO string.
+  if (!user.password_reset_expires || user.password_reset_expires < new Date())
     return NextResponse.json({ error: 'Reset link has expired. Please request a new one.' }, { status: 400 })
 
   const hashedPassword = await bcrypt.hash(password, 12)
-  await supabase.from('users').update({
-    password: hashedPassword,
-    password_reset_token: null,
-    password_reset_expires: null,
-  }).eq('id', user.id)
+  await prisma.users.update({
+    where: { id: user.id },
+    data: {
+      password: hashedPassword,
+      password_reset_token: null,
+      password_reset_expires: null,
+    },
+  })
 
   return NextResponse.json({ ok: true })
 }

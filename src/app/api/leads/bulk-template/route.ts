@@ -88,7 +88,6 @@ export async function GET() {
 
   // ── Data validations (rows 2 – 1001) ─────────────────────────────────────
   const MAX = 1001
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const dv = (ws as any).dataValidations as { add: (range: string, def: object) => void }
 
   if (typeCount > 0)

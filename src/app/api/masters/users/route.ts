@@ -109,7 +109,6 @@ async function cascadeVisibilityUp(
   while (currentId && !visited.has(currentId)) {
     visited.add(currentId)
     rows.push({ tenant_id: tenantId, viewer_user_id: currentId, target_user_id: userId })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res: any = await supabase.from('users').select('manager_user_id').eq('id', currentId).single()
     currentId = (res.data?.manager_user_id as string | null) ?? null
   }

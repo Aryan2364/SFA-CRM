@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { createTransport, MAIL_FROM } from '@/lib/mailer'
 
@@ -8,27 +8,28 @@ export async function POST(req: NextRequest) {
   if (!phone?.trim())
     return NextResponse.json({ error: 'Phone number is required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const { data: user } = await supabase
-    .from('users')
-    .select('id, name, email, contact')
-    .eq('contact', phone.trim())
-    .eq('tenant_id', tid)
-    .maybeSingle()
+  const user = await prisma.users.findFirst({
+    where: { contact: phone.trim(), tenant_id: tid },
+    select: { id: true, name: true, email: true, contact: true },
+  })
 
   // Always respond 200 to prevent phone number enumeration
   if (!user?.email) return NextResponse.json({ ok: true })
 
   // Generate token with 1-hour expiry
   const token = crypto.randomUUID()
-  const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+  // A Date, not an ISO string — Prisma types this column as DateTime.
+  const expires = new Date(Date.now() + 60 * 60 * 1000)
 
-  await supabase.from('users').update({
-    password_reset_token: token,
-    password_reset_expires: expires,
-  }).eq('id', user.id)
+  await prisma.users.update({
+    where: { id: user.id },
+    data: {
+      password_reset_token: token,
+      password_reset_expires: expires,
+    },
+  })
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL
     ?? `${req.nextUrl.protocol}//${req.nextUrl.host}`

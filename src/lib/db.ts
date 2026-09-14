@@ -71,7 +71,30 @@ function getClient(): PrismaClient {
   // Cached on globalThis so Next.js hot-reload in dev does not open a new pool
   // on every recompile until the database refuses further connections.
   if (globalForPrisma.prisma) return globalForPrisma.prisma
-  const client = new PrismaClient({ adapter: buildAdapter() })
+
+  // PRISMA_QUERY_LOG=<path> appends every emitted statement to that file. This
+  // exists for the tenant-scope audit (PLAN.md §8.2): exercise the routes, then
+  // assert that every statement touching a tenant-scoped table carries a
+  // tenant_id predicate. Off unless the variable is set — it must never be set
+  // in production, where it would write query text to disk unbounded.
+  const queryLogPath = process.env.PRISMA_QUERY_LOG
+  const client = queryLogPath
+    ? new PrismaClient({ adapter: buildAdapter(), log: [{ emit: 'event', level: 'query' }] })
+    : new PrismaClient({ adapter: buildAdapter() })
+
+  if (queryLogPath) {
+    const { appendFileSync } = require('node:fs') as typeof import('node:fs')
+    ;(client as unknown as {
+      $on: (e: 'query', cb: (ev: { query: string; params: string }) => void) => void
+    }).$on('query', ev => {
+      try {
+        appendFileSync(queryLogPath, JSON.stringify({ query: ev.query, params: ev.params }) + '\n')
+      } catch {
+        // Never let audit instrumentation break a request.
+      }
+    })
+  }
+
   if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = client
   return client
 }

@@ -42,3 +42,6 @@ next-env.d.ts
 
 # transient output of `npm run verify:data-layer`
 /.verify-build
+
+# tenant-scope audit query log (transient)
+/.audit

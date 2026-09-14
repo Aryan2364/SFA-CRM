@@ -458,7 +458,7 @@ export default function UsersPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">Reactivate {String(reactivateTarget.name)}?</h3>
-                <p className="text-sm text-gray-500 mt-0.5">Review and confirm the user's role and manager before reactivating.</p>
+                <p className="text-sm text-gray-500 mt-0.5">Review and confirm the user&apos;s role and manager before reactivating.</p>
               </div>
             </div>
 

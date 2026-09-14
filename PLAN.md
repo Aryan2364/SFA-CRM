@@ -125,10 +125,26 @@ remark_reads, role_permissions, roles, states, talukas, tenant_point_settings, t
 user_territory_mappings, user_visibility, users, villages, weekly_plan_audit_logs,
 weekly_plan_items, weekly_plans`
 
-**RLS:** `migrations.sql` has 31 x `ENABLE ROW LEVEL SECURITY` and **0 x `CREATE POLICY`**.
-Everything ran through the service-role key, which bypasses RLS, so RLS was doing nothing.
-**Do not enable RLS on RDS.** With RLS on, zero policies, and a non-`BYPASSRLS` role, every
-query silently returns zero rows.
+**RLS — earlier guidance in this plan was wrong; this is the corrected version.**
+`migrations.sql` has 31 x `ENABLE ROW LEVEL SECURITY` and **0 x `CREATE POLICY`**. Everything
+ran through the service-role key, which bypasses RLS, so RLS was doing nothing.
+
+An earlier draft said "RLS on + 0 policies + non-`BYPASSRLS` role = every query silently
+returns zero rows." That is **conditional, not absolute**: RLS is **not enforced against a
+table's owner** unless `ALTER TABLE … FORCE ROW LEVEL SECURITY` is also set. So:
+
+| App connects as | RLS enabled, 0 policies | Result |
+|---|---|---|
+| The table **owner** (`postgres` today) | inert | works fine, no symptom |
+| A dedicated **least-privilege** role | enforced | **every query returns zero rows, no error** |
+
+This inverts the risk: the failure appears precisely **when you do the right thing** and move
+the app off the master user onto a least-privilege role. **Decide the role first, then RLS —
+not the other way round.**
+
+**The clean resolution: do not carry the `ENABLE ROW LEVEL SECURITY` statements to RDS at all.**
+Prisma does not emit them, and they existed only to satisfy Supabase's defaults. That makes the
+question moot under either role choice.
 
 **Storage:** exactly one Supabase Storage call site —
 `src/app/api/expenses/upload/route.ts:24` and `:30` (`expense-photos` bucket).
@@ -189,12 +205,21 @@ The two date shapes matter: PostgREST serialised `timestamptz` as a full ISO str
 as `"YYYY-MM-DD"`, and the UI renders both raw. A serialiser that returns full ISO for a
 date-only column silently appends `T00:00:00.000Z` everywhere — no error, just wrong.
 
-**Verified live: there are ZERO name collisions** between the 9 date-only names and the 13
-timestamp names. So keying date-only detection off column *name* is safe as of this writing.
-It is still fragile by construction — one future `plan_date timestamptz` breaks it silently —
-so prefer keying on **model + field** via `Prisma.dmmf.datamodel.models[].fields[]`, which
-carries the real native type and removes the assumption entirely. If you keep name-keying,
-re-run the collision check after every `db pull`.
+**Do NOT use `Prisma.dmmf` to tell the two date shapes apart — it cannot.** An earlier draft of
+this plan said to key on `Prisma.dmmf.datamodel.models[].fields[]` because it "carries the real
+native type." Verified against the generated client: it does not. Both `@db.Date` and
+`@db.Timestamptz` surface as `type: "DateTime"`.
+
+**The working approach, already implemented:** derive the date-only column set from
+`prisma/schema.prisma` — the same artefact `db pull` regenerates — wired into
+`npm run prisma:sync` so it cannot drift silently. Use DMMF only for what it *does* carry
+reliably: relation structure, so nested `include`/`select` payloads are walked with the correct
+model at each level.
+
+**This was not merely hardening.** A hardcoded date-only name list missed `attendance.date`
+(bare name `date`), which was serialising as `"2026-04-09T00:00:00.000Z"` instead of
+`"2026-04-09"` against live data. `attendance` is one of the 6 tables absent from the obsolete
+`migrations.sql`, so no collision check against that schema could have found it.
 
 The code relies on the string behaviour in real places:
 
@@ -250,6 +275,49 @@ first query. Copy whatever v2e does.
 `next build` runs in CI with no DB. Confirm no route is statically evaluated at build time
 (`export const dynamic = 'force-dynamic'` / `runtime = 'nodejs'` where needed). A route that
 opens a connection during build will hang or bake stale data into the image.
+
+### 5.8 Timezone — currently benign, becomes a bug the moment someone "fixes" it
+
+- RDS: `TimeZone = UTC`, `log_timezone = UTC`.
+- `docker-compose.deploy.yml:17` sets `TZ: Asia/Kolkata`.
+- **But the Dockerfile is `node:20-alpine` and never installs `tzdata`.** Alpine ships no
+  `/usr/share/zoneinfo`, so Node cannot resolve `Asia/Kolkata` and **`TZ` is silently ignored**.
+  The container runs UTC.
+
+So both sides are UTC today and dates are **accidentally consistent** — which matches the
+current Vercel production behaviour, where Supabase returned UTC ISO strings.
+
+> **The trap:** adding `tzdata` to the image — an obvious-looking "fix" — jumps the container
+> to IST while RDS stays UTC, shifting all 61 timestamptz columns by 5:30 and putting activity
+> on the wrong day near midnight. **Introduced by a change that looks like a correction.**
+
+**Decision for this migration: keep UTC.** Rule 1 says no behaviour changes, and UTC is the
+current behaviour. Concretely:
+- [ ] Do **not** add `tzdata` to the Dockerfile.
+- [ ] Remove the inert `TZ: Asia/Kolkata` line from `docker-compose.deploy.yml` and replace it
+      with a comment explaining why, so nobody re-adds it as a fix.
+
+**Pre-existing issue, explicitly OUT OF SCOPE — record, do not fix here:** because the app runs
+UTC, `start_time.slice(0,10)` (`src/app/api/daily-activity/[id]/route.ts:25`) puts an early-morning
+IST visit on the previous calendar day. That is today's Vercel behaviour too. Changing it is a
+product decision, not a migration task. Raise it as separate follow-up work.
+
+### 5.9 SSL — `sslmode=require` does NOT verify the certificate
+
+`rds.force_ssl` is **not set** on this instance, but TLS works (`ssl = on`, session negotiated
+TLSv1.3 / `TLS_AES_256_GCM_SHA384`).
+
+`sslmode=require` encrypts but accepts **any** certificate — functionally close to
+`rejectUnauthorized: false`, which this plan rejects. Real verification needs the RDS CA:
+
+- [ ] Bake the RDS CA bundle into the image (present on the host at `~/global-bundle.pem`,
+      165,408 bytes) or mount it; do not fetch it at runtime.
+- [ ] Under `@prisma/adapter-pg`, SSL is configured on the **`pg` Pool**, not via URL params:
+      `ssl: { ca: readFileSync(CA_PATH), rejectUnauthorized: true }`.
+- [ ] Never `rejectUnauthorized: false` in production.
+
+RDS is private (`172.31.48.74`, same VPC as EC2, `PubliclyAccessible` inferred off from DNS),
+so this is defence in depth rather than the only control — but do it properly.
 
 ---
 
@@ -474,16 +542,38 @@ Execution is on the server side.
 Source URL shape (public bucket):
 `https://<ref>.supabase.co/storage/v1/object/public/expense-photos/receipts/<ts>-<rand>.<ext>`
 
-> ### ⚠️ THIS IS A FORK, NOT A MOVE — confirm intent before cutover
-> Live Supabase serves **5 real tenants**. The moment RDS is loaded, sfacrm and the existing
-> Vercel/Supabase app hold two independent copies. Every write after that point lands in one
-> and not the other, silently, with no error and no reconciliation path.
+> ### DECIDED: delayed replacement — the data copy runs TWICE
+> **Vercel/Supabase stays AUTHORITATIVE.** SFA is sold and in active use by a client. sfacrm is
+> a **demo / acceptance environment** until the client approves it; only then does Vercel retire
+> and sfacrm become authoritative.
 >
-> Decide explicitly and record the answer here:
-> - **Replacement** — the Vercel app is retired at cutover. Then plan a freeze window, or take
->   a final delta sync, or rows written during the copy are lost.
-> - **Parallel run** — both stay live. Then the two datasets diverge from minute one, and five
->   customers' data is affected. If this is the intent, say which system is authoritative.
+> This is *not* a parallel production run — the two never both accept authoritative writes — so
+> no merge or conflict-resolution design is needed. But it means:
+>
+> **1. The data copy happens twice, and today's copy is THROWAWAY.**
+> The snapshot loaded now is for building and demoing against. Supabase keeps changing
+> underneath it, so it is stale the moment it lands. Do not treat it as precious and do not
+> build any process that assumes it stays current.
+>
+> **2. At real cutover, WIPE and re-restore from a fresh dump.** Do not attempt to delta-sync
+> the demo database up to date. A fresh freeze-and-cut restore is simpler, faster at 4,698 rows,
+> and has no partial-sync failure mode.
+>
+> **3. Demo-period writes MUST NOT survive into production.** Anything typed into sfacrm during
+> acceptance — test records, the client clicking around — is disposable and must be destroyed by
+> the cutover wipe. If any of it is ever deemed worth keeping, that is a new problem requiring an
+> explicit decision; do not let it happen by accident.
+>
+> **4. Photos:** the 128 objects are immutable, so pre-copying them to R2 now is safe and
+> reusable. Only the delta needs re-copying at cutover.
+>
+> ⚠️ **The demo environment holds five real customers' production data** (Makhana, Nuetech Solar,
+> RCB, Sama, Social Chutney). If sfacrm is demoed to one client, tenant isolation is the only
+> thing preventing exposure of the others — which makes the section 8.2 tenant-scope audit a
+> customer-data control, not just an internal correctness check.
+>
+> **The server agent's freeze-and-cut plan is correct and is DEFERRED to the approval date.**
+> What is needed now is only a snapshot restore for development and demo.
 
 ### Verified RDS facts (server-side read-only pass)
 
@@ -543,3 +633,23 @@ Source URL shape (public bucket):
 4. Smoke test results, and **explicitly** which routes could not be exercised
 5. Every date/decimal serialisation site changed (5.1)
 6. Anything that could not be verified — an honest gap list, not a green claim
+
+---
+
+## 13. FOLLOW-UPS — capability lost, not migrated
+
+Recorded so nobody later assumes these logs exist.
+
+### 13.1 Login and user-change audit logging is GONE
+
+Login audit logging (`user_login_logs`) and user change auditing (`user_audit_logs`) have
+been **non-functional in production since those tables were dropped from the database**. The
+Supabase client returned errors as values and the call sites ignored them, so the failure was
+invisible. The dead write paths were removed during the Prisma migration in Batch 1.
+
+**THE CAPABILITY IS GONE, NOT MIGRATED.** Restoring it — recreating the tables and reinstating
+the writes — is open follow-up work and a product decision, not a migration task.
+
+Evidence: both tables appear in the obsolete `supabase/migrations.sql` but are absent from the
+live database (see §3, "In migrations.sql, absent from LIVE"). `prisma db pull` against live
+produces no model for either, so the writes could not have been ported even in principle.
