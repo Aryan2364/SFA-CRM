@@ -502,6 +502,24 @@ Decide these once here, not per route. This is the entire surface the codebase u
   route returns only strings/booleans/numbers, **skip it and assert that with a JSON round-trip**
   rather than adding it reflexively.
 
+**Write-path rules — added from Batch 2, where getting these wrong changes status codes:**
+
+| Supabase | Prisma | Why |
+|---|---|---|
+| `.delete().eq('id', id).eq('tenant_id', tid)` | `deleteMany({ where: { id, tenant_id } })` | Supabase's `.delete()` did **not** error when nothing matched — it returned `{ ok: true }`. Prisma's `delete()` throws `P2025`, turning a silent no-op into a **500** on every cross-tenant or already-deleted id. Use `deleteMany` for every delete that is not guaranteed to match. |
+| `.update({...}).eq('id', id).eq('tenant_id', tid)` *(no `.single()`)* | `updateMany({ where: { id, tenant_id }, data })` | Same reasoning. Soft deletes (`update({ is_active: false })`) are the common case — `lead_types`, `lead_stages`, `lead_temperatures`, `expense_categories`. A no-match must stay a no-op, not a 500. |
+| `.update({...}).eq('id', id).eq('tenant_id', tid).select().single()` | `update({ where: { id, tenant_id }, data })` | Here `update()` IS correct: `.single()` already errored on 0 rows and the route answered 500, so Prisma's `P2025` preserves the status. Non-unique fields are allowed in `where` beside the primary key (extended where-unique). |
+| extra guards, e.g. `.eq('type', 'Dealer')` | keep them in `where` next to the PK | `where: { id, tenant_id, type: 'Dealer' }` — a dealers endpoint still cannot edit a distributor. |
+
+**Rule of thumb:** if the Supabase call had `.single()`, a no-match was already an error → use the
+singular Prisma method. If it did **not**, a no-match was silent → use the `*Many` form.
+
+**Tenant-scope audit note:** Prisma resolves a to-one `include` with a *second* statement that
+loads the parents by primary key and carries no `tenant_id`. It appears nowhere in the source, so
+only the runtime audit sees it. Allowlist it by **enumerated table**, never by SQL shape — a plain
+`findMany({ where: { id: { in: [...] } } })` emits byte-identical SQL, and a shape-matcher would
+swallow a genuinely missing filter.
+
 ### 8.2 Tenant-scope audit — build this in Batch 1, run every batch
 
 - [ ] A script that enumerates every Prisma call touching a tenant-scoped table and flags any
@@ -536,6 +554,28 @@ do not implement it during the migration.
 - [ ] Explicit coverage for: every weekly-plan state transition; every route using
       `count: 'exact', head: true` for pagination totals; expense upload + photo view
 - [ ] Record which routes could **not** be exercised and why — that list goes in the final report
+
+#### Write-path testing — use the LOCAL PostgreSQL, not Docker, not production
+
+Read-path suites run against live Supabase (real data shapes). **Write paths must never touch
+production** — they would create rows in five real customers' tenants. Keep the two separate.
+
+**The local server already exists: PostgreSQL 18 is installed at
+`C:\Program Files\PostgreSQL\18\bin` and runs as Windows service `postgresql-x64-18` on port
+5432, start type Automatic.** Use it. **Do not start a Docker container** — Docker Desktop costs
+~1.5 GB of RAM on this machine and has already caused an OOM during `next build`.
+
+- [ ] Create a scratch database on the local instance and `prisma db push` to it. The schema
+      comes from `prisma/schema.prisma`, pulled from live, so fidelity is exact.
+- [ ] Seed a disposable tenant: one `tenants` row, one user, one role with `role_permissions`,
+      plus the minimal reference rows the write paths need.
+- [ ] Point write-path tests (POST/PUT/DELETE) at that database only.
+
+**Version note:** local is PG18 while Supabase is 17.6 and RDS is 17.9. Irrelevant here —
+write semantics (`deleteMany` no-op, `where` guards, Decimal/Date serialisation) are identical
+across those majors. The version difference matters *only* for `pg_dump`/`pg_restore`, which is
+the server-side concern handled in section 11 with pinned pg17 containers. Never use the local
+pg18 binaries to dump or restore against 17.x.
 
 ---
 

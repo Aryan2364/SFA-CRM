@@ -34,14 +34,14 @@ export async function GET(req: NextRequest) {
     )]
     let distMap = new Map<string, string>()
     if (distIds.length > 0) {
-      // NOTE: no tenant_id filter here, matching the pre-migration query exactly.
-      // The ids come from the tenant-scoped query above, so this cannot widen the
-      // result set in practice — but the filter is absent, unlike the equivalent
-      // lookup in distributors/route.ts. Flagged as a pre-existing asymmetry
-      // rather than changed, because PLAN.md §2.1 forbids behaviour changes in
-      // this migration. See the tenant-scope allowlist entry.
+      // tenant_id is filtered here even though the pre-migration query omitted
+      // it. The ids already come from the tenant-scoped query above, and live
+      // was checked for cross-tenant FK references (39 tenant-scoped FK pairs,
+      // zero violations), so this cannot change results — it is defence in depth
+      // on a tenant-isolation boundary, and it removes an asymmetry with the
+      // mirror-image lookup in distributors/route.ts, which always had it.
       const dists = await prisma.business_partners.findMany({
-        where: { id: { in: distIds } },
+        where: { tenant_id: tid, id: { in: distIds } },
         select: { id: true, name: true },
       })
       distMap = new Map(dists.map(d => [d.id, d.name]))

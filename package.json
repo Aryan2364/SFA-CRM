@@ -10,7 +10,11 @@
     "prisma:sync": "prisma db pull && prisma generate && node scripts/generate-date-only-fields.mjs",
     "verify:data-layer": "tsc src/lib/db.ts --outDir .verify-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck --esModuleInterop && node scripts/verify-data-layer.mjs",
     "smoke": "node scripts/smoke-test.mjs",
-    "audit:tenant": "node scripts/audit-tenant-scope.mjs"
+    "audit:tenant": "node scripts/audit-tenant-scope.mjs",
+    "scratch:push": "prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss",
+    "scratch:seed": "node scripts/seed-scratch.mjs",
+    "dev:scratch": "next dev -p 3012",
+    "test:write": "node scripts/write-path-tests.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
