@@ -475,10 +475,19 @@ low-risk routes go in large batches; genuinely tricky ones stay small.
 - **3 — weekly-plans:** the one genuinely hard batch. Stop and report after it.
   **Reconnaissance against live, so it does not have to be rediscovered:**
 
+> **⚠️ METHOD WARNING — an earlier draft of this section got this wrong.**
+> It listed 4 statuses and 8 action types as "the ONLY values", derived from `SELECT DISTINCT`
+> over live rows. **Observed values are not legal values.** The real sets are larger, and three
+> legal statuses have simply never occurred in production. Trusting the sampled list would have
+> meant "correcting" `Resubmitted`/`Resubmit` as typos and silently breaking three transitions.
+> **For any enumerated column, read the CHECK constraint and the code — never `SELECT DISTINCT`.**
+
   | | |
   |---|---|
-  | `weekly_plans.status` — the **only** 4 values, exact casing | `Draft` (8) · `Submitted` (18) · `Approved` (47) · `Rejected` (1) |
-  | `weekly_plan_audit_logs.action_type` — the **only** 8 values | `Create` · `Update` · `Submit` · `UndoSubmit` · `Approve` · `Reject` · `RequestReopen` · `AcceptReopen` |
+  | `weekly_plans.status` — **7 legal values** from `weekly_plans_status_check`, exact casing | `Draft` · `Submitted` · `Approved` · `Rejected` · `On Hold` · `Edited by Manager` · `Resubmitted` |
+  | …of which live data contains only | `Draft` (8) · `Submitted` (18) · `Approved` (47) · `Rejected` (1). `On Hold`, `Edited by Manager` and `Resubmitted` are legal and reachable but have never occurred. |
+  | `weekly_plan_audit_logs.action_type` | **No CHECK constraint at all.** The code writes **13** values: `Create` · `Update` · `Submit` · `Resubmit` · `UndoSubmit` · `Approve` · `Reject` · `Hold` · `Suggest` · `EditByManager` · `RequestReopen` · `AcceptReopen` · `DeclineReopen` |
+  | …absent from live data | `Resubmit`, `Hold`, `Suggest`, `EditByManager`, `DeclineReopen` |
   | Date-only columns in this batch (§5.1) | `weekly_plans.week_start_date`, `weekly_plans.week_end_date`, `weekly_plan_items.plan_date` |
   | `day_notes` | `jsonb`, currently `{}` in every row — do not assume a shape |
   | `weekly_plan_items` | has **no** `status` column; state lives on the parent only |
@@ -570,6 +579,13 @@ include: { users: { select: { id: true, name: true } } }
 supplied is a *pre-existing* bug. Prisma catches it at compile time; PostgreSQL caught it at
 runtime. Preserve the behaviour with an explicit cast and a comment, record it in section 13, and
 do **not** fix it here — see 13.3 (designations) and 13.4 (product import).
+
+**A missing foreign key STRENGTHENS the case for an explicit tenant filter.** When ids come from
+a real FK column, the database itself guarantees the parent is in-tenant and a `tenant_id` filter
+is belt-and-braces (the `dealers` distributor lookup). When ids come from a `uuid[]` column — e.g.
+`user_territory_mappings.district_ids` — **nothing** enforces that, so the filter is the only
+control on the path and must be present. The instinct to reason "no FK, so the integrity argument
+does not carry over, so leave it alone" is backwards: follow it through and the conclusion flips.
 
 **Tenant-scope audit note:** Prisma resolves a to-one `include` with a *second* statement that
 loads the parents by primary key and carries no `tenant_id`. It appears nowhere in the source, so

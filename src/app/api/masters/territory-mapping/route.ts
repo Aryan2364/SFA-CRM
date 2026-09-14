@@ -28,14 +28,16 @@ export async function GET() {
   const allDistrictIds = [...new Set(mappings.flatMap(m => m.district_ids ?? []))]
   let districtRows: { id: string; name: string; state_id: string }[] = []
   if (allDistrictIds.length > 0) {
-    // NOTE: no tenant_id filter, matching the pre-migration query. Unlike the
-    // dealers case, the ids here come from user_territory_mappings.district_ids,
-    // a uuid[] COLUMN with no foreign key behind it — so the "referential
-    // integrity guarantees the tenant" argument does NOT apply, and adding a
-    // filter could change results if any array holds a foreign id. Left exactly
-    // as it was and raised for a decision rather than changed silently.
+    // tenant_id IS filtered here, unlike the pre-migration query. The ids come
+    // from user_territory_mappings.district_ids, a uuid[] column with NO foreign
+    // key — so unlike the dealers lookup, nothing in the database guarantees
+    // they belong to this tenant. That absence makes the filter MORE necessary,
+    // not less: it is the only control that exists on this path. It can only
+    // withhold rows that should never have been visible, never add or alter
+    // any, and live measures 730 referenced ids across 10 mappings with zero
+    // cross-tenant hits, so there is no observable change today.
     districtRows = await prisma.districts.findMany({
-      where: { id: { in: allDistrictIds } },
+      where: { tenant_id: tid, id: { in: allDistrictIds } },
       select: { id: true, name: true, state_id: true },
     })
   }
