@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs'
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -11,15 +11,14 @@ const TEMPS = ['Cold', 'Warm', 'Hot']
 export async function GET() {
   await requireUser()
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const [{ data: leadTypes }, { data: leadStages }, { data: states }, { data: districts }, { data: talukas }] = await Promise.all([
-    supabase.from('lead_types').select('name').eq('tenant_id', tid).order('sort_order'),
-    supabase.from('lead_stages').select('name').eq('tenant_id', tid).order('sort_order'),
-    supabase.from('states').select('name').eq('tenant_id', tid).order('name'),
-    supabase.from('districts').select('name').eq('tenant_id', tid).order('name'),
-    supabase.from('talukas').select('name').eq('tenant_id', tid).order('name'),
+  const [leadTypes, leadStages, states, districts, talukas] = await Promise.all([
+    prisma.lead_types.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { sort_order: 'asc' } }),
+    prisma.lead_stages.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { sort_order: 'asc' } }),
+    prisma.states.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }),
+    prisma.districts.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }),
+    prisma.talukas.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }),
   ])
 
   const workbook = new ExcelJS.Workbook()
@@ -34,11 +33,11 @@ export async function GET() {
     return values.length
   }
 
-  const typeCount  = addRefSheet('Ref_Types',     (leadTypes  ?? []).map(r => r.name))
-  const stageCount = addRefSheet('Ref_Stages',    (leadStages ?? []).map(r => r.name))
-  const stateCount = addRefSheet('Ref_States',    (states     ?? []).map(r => r.name))
-  const distCount  = addRefSheet('Ref_Districts', (districts  ?? []).map(r => r.name))
-  const taluCount  = addRefSheet('Ref_Talukas',   (talukas    ?? []).map(r => r.name))
+  const typeCount  = addRefSheet('Ref_Types',     leadTypes.map(r => r.name))
+  const stageCount = addRefSheet('Ref_Stages',    leadStages.map(r => r.name))
+  const stateCount = addRefSheet('Ref_States',    states.map(r => r.name))
+  const distCount  = addRefSheet('Ref_Districts', districts.map(r => r.name))
+  const taluCount  = addRefSheet('Ref_Talukas',   talukas.map(r => r.name))
   addRefSheet('Ref_Temps', TEMPS)
 
   // ── Main "Leads" sheet ────────────────────────────────────────────────────

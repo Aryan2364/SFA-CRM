@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -34,23 +34,22 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(rows) || rows.length === 0)
     return NextResponse.json({ error: 'No leads provided' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
   // Fetch lookup tables once
-  const [{ data: states }, { data: districts }, { data: talukas }, { data: leadTypes }, { data: leadStages }] = await Promise.all([
-    supabase.from('states').select('id, name').eq('tenant_id', tid),
-    supabase.from('districts').select('id, name, state_id').eq('tenant_id', tid),
-    supabase.from('talukas').select('id, name, district_id').eq('tenant_id', tid),
-    supabase.from('lead_types').select('id, name').eq('tenant_id', tid),
-    supabase.from('lead_stages').select('name').eq('tenant_id', tid),
+  const [states, districts, talukas, leadTypes, leadStages] = await Promise.all([
+    prisma.states.findMany({ where: { tenant_id: tid }, select: { id: true, name: true } }),
+    prisma.districts.findMany({ where: { tenant_id: tid }, select: { id: true, name: true, state_id: true } }),
+    prisma.talukas.findMany({ where: { tenant_id: tid }, select: { id: true, name: true, district_id: true } }),
+    prisma.lead_types.findMany({ where: { tenant_id: tid }, select: { id: true, name: true } }),
+    prisma.lead_stages.findMany({ where: { tenant_id: tid }, select: { name: true } }),
   ])
 
-  const stateMap   = new Map((states   ?? []).map(r => [r.name.toLowerCase(), r.id]))
-  const distMap    = new Map((districts ?? []).map(r => [r.name.toLowerCase(), { id: r.id, state_id: r.state_id }]))
-  const talukaMap  = new Map((talukas  ?? []).map(r => [r.name.toLowerCase(), { id: r.id, district_id: r.district_id }]))
-  const typeNames  = new Set((leadTypes  ?? []).map(r => r.name.toLowerCase()))
-  const VALID_STAGES = new Set((leadStages ?? []).map(r => r.name.toLowerCase()))
+  const stateMap   = new Map(states.map(r => [r.name.toLowerCase(), r.id]))
+  const distMap    = new Map(districts.map(r => [r.name.toLowerCase(), { id: r.id, state_id: r.state_id }]))
+  const talukaMap  = new Map(talukas.map(r => [r.name.toLowerCase(), { id: r.id, district_id: r.district_id }]))
+  const typeNames  = new Set(leadTypes.map(r => r.name.toLowerCase()))
+  const VALID_STAGES = new Set(leadStages.map(r => r.name.toLowerCase()))
 
   const VALID_TEMPS = new Set(['cold', 'warm', 'hot'])
 
@@ -94,27 +93,36 @@ export async function POST(req: NextRequest) {
       ? rawStage.charAt(0).toUpperCase() + rawStage.slice(1).toLowerCase()
       : 'Prospect'
 
-    const { error: insErr } = await supabase.from('business_partners').insert({
-      tenant_id: tid,
-      stage,
-      name: r.name.trim(),
-      type: r.type.trim(),
-      contact_person_name: r.contact_person_name?.trim() || null,
-      mobile_1: r.mobile_1?.trim() || null,
-      mobile_2: r.mobile_2?.trim() || null,
-      gst_number: r.gst_number?.trim().toUpperCase() || null,
-      pincode: r.pincode?.trim() || null,
-      address: r.address?.trim() || null,
-      description: r.description?.trim() || null,
-      state_id: stateId,
-      district_id: districtId,
-      taluka_id: talukaId,
-      temperature: r.temperature ? (r.temperature.trim().charAt(0).toUpperCase() + r.temperature.trim().slice(1).toLowerCase()) : null,
-      next_follow_up_date: r.next_follow_up_date?.trim() || null,
-    })
-
-    if (insErr) errors.push({ row: rowNum, message: insErr.message })
-    else inserted.push(rowNum)
+    // One INSERT per row, each with its own error captured — unlike the product
+    // importer (PLAN.md 13.4), a bad row here does NOT abort the whole import.
+    // That per-row behaviour is preserved exactly: the throw is caught inside the
+    // loop and recorded against the row number.
+    try {
+      await prisma.business_partners.create({
+        data: {
+          tenant_id: tid,
+          stage,
+          name: r.name.trim(),
+          type: r.type.trim(),
+          contact_person_name: r.contact_person_name?.trim() || null,
+          mobile_1: r.mobile_1?.trim() || null,
+          mobile_2: r.mobile_2?.trim() || null,
+          gst_number: r.gst_number?.trim().toUpperCase() || null,
+          pincode: r.pincode?.trim() || null,
+          address: r.address?.trim() || null,
+          description: r.description?.trim() || null,
+          state_id: stateId,
+          district_id: districtId,
+          taluka_id: talukaId,
+          temperature: r.temperature ? (r.temperature.trim().charAt(0).toUpperCase() + r.temperature.trim().slice(1).toLowerCase()) : null,
+          // next_follow_up_date is @db.Date.
+          next_follow_up_date: r.next_follow_up_date?.trim() ? new Date(r.next_follow_up_date.trim()) : null,
+        },
+      })
+      inserted.push(rowNum)
+    } catch (err) {
+      errors.push({ row: rowNum, message: dbErrorMessage(err) })
+    }
   }
 
   return NextResponse.json({ inserted: inserted.length, errors })

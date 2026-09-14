@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dateOnlyString, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -18,17 +18,23 @@ export async function GET(req: NextRequest) {
   const lastDay = new Date(year, month, 0).getDate()
   const to = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('expenses')
-    .select('expense_date')
-    .eq('tenant_id', getTenantId())
-    .eq('user_id', userId)
-    .gte('expense_date', from)
-    .lte('expense_date', to)
+  try {
+    const data = await prisma.expenses.findMany({
+      where: {
+        tenant_id: getTenantId(),
+        user_id: userId ?? undefined,
+        // expense_date is @db.Date, so the month bounds become Date objects.
+        expense_date: { gte: new Date(from), lte: new Date(to) },
+      },
+      select: { expense_date: true },
+    })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  const filledDates = [...new Set((data ?? []).map(r => r.expense_date))]
-  return NextResponse.json({ filledDates })
+    // The client compares these against "YYYY-MM-DD" strings. Left as Dates the
+    // Set would hold distinct objects per row and JSON.stringify would emit full
+    // ISO timestamps, so no calendar day would ever match (PLAN.md 5.1).
+    const filledDates = [...new Set(data.map(r => dateOnlyString(r.expense_date)))]
+    return NextResponse.json({ filledDates })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

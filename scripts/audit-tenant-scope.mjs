@@ -148,6 +148,25 @@ const BATCH_FILES = {
     'src/app/api/superadmin/companies/[id]/users/route.ts',
     'src/app/api/superadmin/companies/[id]/usage-summary/route.ts',
   ],
+  'orders-leads-activity': [
+    'src/app/api/orders/route.ts',
+    'src/app/api/orders/[id]/route.ts',
+    'src/app/api/orders/team/route.ts',
+    'src/app/api/leads/route.ts',
+    'src/app/api/leads/[id]/route.ts',
+    'src/app/api/leads/bulk-import/route.ts',
+    'src/app/api/leads/bulk-template/route.ts',
+    'src/app/api/business-partners/route.ts',
+    'src/app/api/daily-activity/route.ts',
+    'src/app/api/daily-activity/[id]/route.ts',
+    'src/app/api/daily-activity/calendar/route.ts',
+    'src/app/api/attendance/route.ts',
+    'src/app/api/attendance/check-in/route.ts',
+    'src/app/api/attendance/check-out/route.ts',
+    'src/app/api/expenses/route.ts',
+    'src/app/api/expenses/[id]/route.ts',
+    'src/app/api/expenses/calendar/route.ts',
+  ],
 }
 
 const allowlist = JSON.parse(fs.readFileSync('scripts/tenant-scope-allowlist.json', 'utf8')).allow

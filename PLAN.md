@@ -500,8 +500,15 @@ low-risk routes go in large batches; genuinely tricky ones stay small.
   `src/app/(protected)/review/[userId]/page.tsx:257` calls `plan_date.localeCompare(...)` — so a
   serialiser regression here is a crash, not a cosmetic bug.
 - **4:** `orders` has the trickiest embeds in the codebase — `order_items(*)`,
-  `order_items(count)`, and the `users!orders_user_id_fkey` FK hint. Do this batch **after**
-  Phase B (R2). `daily-activity/[id]/route.ts:25` has the `.slice(0,10)` date trap.
+  `order_items(count)`, and the `users!orders_user_id_fkey` FK hint.
+  `daily-activity/[id]/route.ts:25` has the `.slice(0,10)` date trap.
+
+  > **Correction — an earlier draft said this whole batch must wait for Phase B (R2). It does
+  > not.** Verified: exactly **one** route in the codebase touches Supabase Storage —
+  > `src/app/api/expenses/upload/route.ts` (lines 24 and 30). The other 17 routes in this batch
+  > — all of `orders`, `leads`, `business-partners`, `daily-activity`, `attendance`, and the
+  > other three `expenses` routes — have **no storage dependency** and can be converted without
+  > R2 credentials. Only `expenses/upload` is genuinely Phase-B-gated.
 - **5:** `conversations/route.ts:121` has the `localeCompare` date trap. Dashboard has aggregate
   counts. `access-control` touches `role_permissions` — re-verify permissions resolve
   identically after.

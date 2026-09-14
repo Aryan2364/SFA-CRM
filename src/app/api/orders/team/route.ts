@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { getVisibleUserIds } from '@/lib/visibility'
@@ -8,20 +8,21 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const user = await requireUser()
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const visibleIds = await getVisibleUserIds(user.userId!, supabase, tid)
+  const visibleIds = await getVisibleUserIds(user.userId!, null, tid)
   const allowedIds = [user.userId!, ...visibleIds]
 
-  // Return current user + their visible users
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, name')
-    .eq('tenant_id', tid)
-    .in('id', allowedIds)
-    .order('name')
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+  try {
+    // Return current user + their visible users
+    const data = await prisma.users.findMany({
+      where: { tenant_id: tid, id: { in: allowedIds } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+    // Ids and names only — nothing to serialise.
+    return NextResponse.json(data)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -19,26 +19,32 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (body.gst_number && !GSTIN_RE.test(String(body.gst_number).trim().toUpperCase()))
     return NextResponse.json({ error: 'Please enter a valid GST Number' }, { status: 400 })
   if (body.gst_number) body.gst_number = String(body.gst_number).trim().toUpperCase()
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('business_partners')
-    .update(body)
-    .eq('id', params.id)
-    .eq('tenant_id', getTenantId())
-    .select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  // next_follow_up_date is @db.Date; a "YYYY-MM-DD" string has to become a Date.
+  if (body.next_follow_up_date !== undefined) {
+    body.next_follow_up_date = body.next_follow_up_date ? new Date(body.next_follow_up_date) : null
+  }
+  try {
+    // update(), not updateMany(): the original ended in .select().single().
+    const data = await prisma.business_partners.update({
+      where: { id: params.id, tenant_id: getTenantId() },
+      data: body,
+    })
+    return NextResponse.json(serialize(data, 'business_partners'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'leads', 'delete')) return forbidden()
-  const supabase = createServerSupabase()
-  const { error } = await supabase
-    .from('business_partners')
-    .delete()
-    .eq('id', params.id)
-    .eq('tenant_id', getTenantId())
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  try {
+    // deleteMany: a no-match was silent before (PLAN.md 8.4).
+    await prisma.business_partners.deleteMany({
+      where: { id: params.id, tenant_id: getTenantId() },
+    })
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

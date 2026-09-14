@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { awardPoint } from '@/lib/points'
@@ -9,16 +9,21 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const user = await requireUser()
   const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('expenses')
-    .select('*')
-    .eq('tenant_id', getTenantId())
-    .eq('user_id', user.userId)
-    .eq('expense_date', date)
-    .order('created_at')
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const data = await prisma.expenses.findMany({
+      where: {
+        tenant_id: getTenantId(),
+        user_id: user.userId ?? undefined,
+        // expense_date is @db.Date.
+        expense_date: new Date(date),
+      },
+      orderBy: { created_at: 'asc' },
+    })
+    // amount is NUMERIC and expense_date is DATE (PLAN.md 5.1).
+    return NextResponse.json(serialize(data, 'expenses'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -29,22 +34,22 @@ export async function POST(req: NextRequest) {
   }
   const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   if (expense_date > todayStr) return NextResponse.json({ error: 'Cannot create expenses for future dates' }, { status: 400 })
-  const supabase = createServerSupabase()
   const tid = getTenantId()
-  const { data, error } = await supabase
-    .from('expenses')
-    .insert({
-      tenant_id: tid,
-      user_id: user.userId,
-      expense_date,
-      category,
-      amount: Number(amount),
-      notes: notes ?? null,
-      photo_url: photo_url ?? null,
+  try {
+    const data = await prisma.expenses.create({
+      data: {
+        tenant_id: tid,
+        user_id: user.userId!,
+        expense_date: new Date(expense_date),
+        category,
+        amount: Number(amount),
+        notes: notes ?? null,
+        photo_url: photo_url ?? null,
+      },
     })
-    .select()
-    .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  void awardPoint(supabase, tid, user.userId!, 'expense_submitted', { refType: 'expense', refId: data!.id, description: `${category} expense on ${expense_date}` })
-  return NextResponse.json(data, { status: 201 })
+    void awardPoint(null, tid, user.userId!, 'expense_submitted', { refType: 'expense', refId: data.id, description: `${category} expense on ${expense_date}` })
+    return NextResponse.json(serialize(data, 'expenses'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

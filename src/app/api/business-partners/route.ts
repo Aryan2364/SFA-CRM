@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -11,23 +11,21 @@ export async function GET(req: NextRequest) {
   await requireUser()
   const type   = req.nextUrl.searchParams.get('type') ?? ''
   const status = req.nextUrl.searchParams.get('status') ?? 'existing'
-  const supabase = createServerSupabase()
-
-  let query = supabase
-    .from('business_partners')
-    .select('id, name')
-    .eq('tenant_id', getTenantId())
-    .eq('is_active', true)
-    .order('name')
-
-  if (type) query = query.eq('type', type)
-  if (status === 'lead') {
-    query = query.neq('stage', 'Existing')
-  } else {
-    query = query.eq('stage', 'Existing')
+  try {
+    const data = await prisma.business_partners.findMany({
+      where: {
+        tenant_id: getTenantId(),
+        is_active: true,
+        ...(type ? { type } : {}),
+        // .neq('stage', 'Existing') -> { not: 'Existing' }
+        stage: status === 'lead' ? { not: 'Existing' } : 'Existing',
+      },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+    // Ids and names only — nothing to serialise.
+    return NextResponse.json(data)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
-
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
 }
