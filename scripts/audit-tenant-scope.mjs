@@ -139,6 +139,15 @@ const BATCH_FILES = {
     'src/app/api/settings/roles/[id]/route.ts',
     'src/app/api/settings/role-permissions/route.ts',
   ],
+  superadmin: [
+    'src/app/api/superadmin/auth/login/route.ts',
+    'src/app/api/superadmin/companies/route.ts',
+    'src/app/api/superadmin/companies/[id]/route.ts',
+    'src/app/api/superadmin/companies/[id]/admin/route.ts',
+    'src/app/api/superadmin/companies/[id]/admins/[userId]/route.ts',
+    'src/app/api/superadmin/companies/[id]/users/route.ts',
+    'src/app/api/superadmin/companies/[id]/usage-summary/route.ts',
+  ],
 }
 
 const allowlist = JSON.parse(fs.readFileSync('scripts/tenant-scope-allowlist.json', 'utf8')).allow
@@ -150,6 +159,10 @@ const allowlist = JSON.parse(fs.readFileSync('scripts/tenant-scope-allowlist.jso
  * left unscoped — not a way to quiet the checker.
  */
 const STATIC_EXEMPT = {
+  'src/app/api/superadmin/companies/[id]/usage-summary/route.ts':
+    'One filter fewer because one QUERY fewer: the user_login_logs fetch was removed, and it carried a tenant_id filter. That table does not exist (PLAN.md 13.1), so the query always failed and its result was consumed as `loginLogs ?? []`. The remaining six queries all keep their tenant_id filters, and a query that no longer runs cannot be unscoped. See PLAN.md 13.6.',
+  'src/app/api/superadmin/companies/[id]/users/route.ts':
+    'The route no longer queries anything. It depended on users.level_id and user_login_logs, neither of which exists, so it returned 500 before the migration and still does. Zero queries means zero unscoped queries. See PLAN.md 13.6.',
   'src/app/api/masters/users/audit-log/route.ts':
     'The route no longer queries anything. user_audit_logs does not exist in the database, so there is no model and no query — the handler returns the same 500 it always returned. Zero queries means zero unscoped queries. See PLAN.md 13.1.',
 }

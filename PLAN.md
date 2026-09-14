@@ -931,3 +931,27 @@ visible. Fixing it means deciding which field is authoritative — most likely c
 `role_id` as well as `profile` — which is a product decision about the role model, not a
 migration task.
 
+
+### 13.6 SuperAdmin per-company user intelligence is dead
+
+Found while converting the superadmin batch. Pre-existing; behaviour preserved exactly.
+
+`GET /api/superadmin/companies/[id]/users` depended on two things absent from the database:
+
+- **`users.level_id`**, selected in its primary query. That column exists only in the obsolete
+  `supabase/migrations.sql` (§3). PostgREST rejected the whole select, `allUsers` came back null,
+  and the route hit `return NextResponse.json({ error: 'Failed to load users' }, { status: 500 })`.
+- **`user_login_logs`**, the source of every login metric (§13.1).
+
+So this endpoint returned **500 before the migration**, and it still does — same status, same
+body, with the reason now stated in the file rather than surfacing as a generic failure.
+
+**Its sibling is NOT dead.** `GET /api/superadmin/companies/[id]/usage-summary` reads the same
+missing login table, but every consumer there is written `loginLogs ?? []`, so the failure
+degraded gracefully and the route answered **200 with all login metrics at zero**. That is
+preserved by substituting an empty array — the two routes must not be "fixed" the same way,
+because they did not behave the same way.
+
+Reviving the dead one means deciding what replaces `level_id` and whether login history is
+recreated at all. Product decision, not a migration task.
+

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 
 async function requireSuperAdmin() {
@@ -17,27 +17,30 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Phone must be exactly 10 digits' }, { status: 400 })
   if (!password?.trim()) return NextResponse.json({ error: 'Password is required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
-
-  // Check phone not already in use
-  const { data: existing } = await supabase
-    .from('users').select('id').eq('contact', contact.trim()).maybeSingle()
-  if (existing) return NextResponse.json({ error: 'This phone number is already in use' }, { status: 400 })
-
-  const { data: user, error } = await supabase
-    .from('users')
-    .insert({
-      tenant_id: params.id,
-      name: name.trim(),
-      contact: contact.trim(),
-      email: email?.trim() || null,
-      password: password.trim(),
-      profile: 'Administrator',
-      status: 'Active',
+  try {
+    // Cross-tenant by design: phone numbers are globally unique for login.
+    const existing = await prisma.users.findFirst({
+      where: { contact: contact.trim() },
+      select: { id: true },
     })
-    .select('id,name,email,contact')
-    .single()
+    if (existing) return NextResponse.json({ error: 'This phone number is already in use' }, { status: 400 })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(user, { status: 201 })
+    const user = await prisma.users.create({
+      data: {
+        tenant_id: params.id,
+        name: name.trim(),
+        contact: contact.trim(),
+        email: email?.trim() || null,
+        password: password.trim(),
+        profile: 'Administrator',
+        status: 'Active',
+      },
+      select: { id: true, name: true, email: true, contact: true },
+    })
+
+    // Ids and strings only — nothing to serialise.
+    return NextResponse.json(user, { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

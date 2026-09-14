@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 
 async function requireSuperAdmin() {
@@ -11,21 +11,31 @@ async function requireSuperAdmin() {
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!await requireSuperAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const supabase = createServerSupabase()
-  const { data: tenant, error } = await supabase
-    .from('tenants')
-    .select('*')
-    .eq('id', params.id)
-    .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 })
+  try {
+    // .single() errored when the tenant did not exist and the route answered 404;
+    // findUnique's null takes the same branch.
+    const tenant = await prisma.tenants.findUnique({ where: { id: params.id } })
+    if (!tenant) return NextResponse.json({ error: 'No rows found' }, { status: 404 })
 
-  const [{ count: totalUsers }, { count: activeUsers }, { data: adminUsers }] = await Promise.all([
-    supabase.from('users').select('*', { count: 'exact', head: true }).eq('tenant_id', params.id),
-    supabase.from('users').select('*', { count: 'exact', head: true }).eq('tenant_id', params.id).eq('status', 'Active'),
-    supabase.from('users').select('id,name,email,contact,status').eq('tenant_id', params.id).eq('profile', 'Administrator').order('created_at', { ascending: true }),
-  ])
+    const [totalUsers, activeUsers, adminUsers] = await Promise.all([
+      prisma.users.count({ where: { tenant_id: params.id } }),
+      prisma.users.count({ where: { tenant_id: params.id, status: 'Active' } }),
+      prisma.users.findMany({
+        where: { tenant_id: params.id, profile: 'Administrator' },
+        select: { id: true, name: true, email: true, contact: true, status: true },
+        orderBy: { created_at: 'asc' },
+      }),
+    ])
 
-  return NextResponse.json({ ...tenant, total_users: totalUsers ?? 0, active_users: activeUsers ?? 0, adminUsers: adminUsers ?? [] })
+    return NextResponse.json({
+      ...(serialize(tenant, 'tenants') as Record<string, unknown>),
+      total_users: totalUsers,
+      active_users: activeUsers,
+      adminUsers,
+    })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -38,15 +48,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (key in body) update[key] = body[key]
   }
   if (update.license_count !== undefined) update.license_count = Number(update.license_count)
+  // payment_due_date is @db.Date — the client sends "YYYY-MM-DD".
+  if (update.payment_due_date !== undefined) {
+    update.payment_due_date = update.payment_due_date ? new Date(update.payment_due_date as string) : null
+  }
 
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('tenants')
-    .update(update)
-    .eq('id', params.id)
-    .select()
-    .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  try {
+    // update(), not updateMany(): the original ended in .select().single().
+    const data = await prisma.tenants.update({
+      where: { id: params.id },
+      data: update,
+    })
 
   // Update admin user if payload provided
   if (body.adminUser?.id) {
@@ -57,9 +69,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (adminContact !== undefined && adminContact.trim()) userUpdate.contact = adminContact.trim()
     if (adminPassword !== undefined && adminPassword.trim()) userUpdate.password = adminPassword.trim()
     if (Object.keys(userUpdate).length > 0) {
-      await supabase.from('users').update(userUpdate).eq('id', adminId)
+      // updateMany: no .single() in the original, so a no-match stayed silent.
+      await prisma.users.updateMany({ where: { id: adminId }, data: userUpdate })
     }
   }
 
-  return NextResponse.json(data)
+    return NextResponse.json(serialize(data, 'tenants'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
