@@ -16,8 +16,10 @@ services:
       PORT: 3000
       TZ: Asia/Kolkata
     ports:
-      # host:container — 3400 on the box, proxied by nginx/Caddy to the domain.
-      - "3400:3000"
+      # host:container. 3500 on the box, proxied by nginx/Caddy to the domain.
+      # NOT 3400 — that belongs to budget-tracking-frontend (sbn-frontend).
+      # Check with: ss -ltnp | grep <port>  before changing this.
+      - "3500:3000"
     restart: unless-stopped
     networks:
       - sfacrm_prod

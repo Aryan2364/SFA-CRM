@@ -46,9 +46,12 @@ Pulls `:latest`, restarts the container, prunes old images, prints status.
 
 ## Ports
 
-The container listens on **3000**, published on host port **3400**. Point
-nginx/Caddy at `http://127.0.0.1:3400`. Change the left-hand number in
-`docker-compose.deploy.yml` if 3400 is taken.
+The container listens on **3000**, published on host port **3500**. Point
+nginx/Caddy at `http://127.0.0.1:3500`.
+
+Ports already taken on the shared box: **3400** = budget-tracking-frontend
+(sbn-frontend), **3300/4300** = v2e. Always check `ss -ltnp | grep <port>`
+before claiming a new one.
 
 ## Rolling back
 
