@@ -95,6 +95,25 @@ const BATCH_FILES = {
     'src/app/api/masters/import/locations/route.ts',
     'src/app/api/masters/import/products/route.ts',
   ],
+  'weekly-plans': [
+    'src/app/api/weekly-plans/route.ts',
+    'src/app/api/weekly-plans/my/route.ts',
+    'src/app/api/weekly-plans/review/route.ts',
+    'src/app/api/weekly-plans/summary/route.ts',
+    'src/app/api/weekly-plans/day/route.ts',
+    'src/app/api/weekly-plans/[id]/route.ts',
+    'src/app/api/weekly-plans/[id]/logs/route.ts',
+    'src/app/api/weekly-plans/[id]/submit/route.ts',
+    'src/app/api/weekly-plans/[id]/undo-submit/route.ts',
+    'src/app/api/weekly-plans/[id]/approve/route.ts',
+    'src/app/api/weekly-plans/[id]/reject/route.ts',
+    'src/app/api/weekly-plans/[id]/hold/route.ts',
+    'src/app/api/weekly-plans/[id]/suggest/route.ts',
+    'src/app/api/weekly-plans/[id]/edit-by-manager/route.ts',
+    'src/app/api/weekly-plans/[id]/request-reopen/route.ts',
+    'src/app/api/weekly-plans/[id]/accept-reopen/route.ts',
+    'src/app/api/weekly-plans/[id]/decline-reopen/route.ts',
+  ],
 }
 
 const allowlist = JSON.parse(fs.readFileSync('scripts/tenant-scope-allowlist.json', 'utf8')).allow

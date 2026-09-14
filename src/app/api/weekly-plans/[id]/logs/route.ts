@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase.from('weekly_plan_audit_logs')
-    .select('*, users!actor_user_id(name)')
-    .eq('weekly_plan_id', params.id)
-    .eq('tenant_id', getTenantId())
-    .order('timestamp', { ascending: false })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    // `users!actor_user_id(name)` arrived under the key `users`, and the
+    // introspected relation field is also called `users`, so no rename is needed.
+    const data = await prisma.weekly_plan_audit_logs.findMany({
+      where: { weekly_plan_id: params.id, tenant_id: getTenantId() },
+      include: { users: { select: { name: true } } },
+      orderBy: { timestamp: 'desc' },
+    })
+    return NextResponse.json(serialize(data, 'weekly_plan_audit_logs'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

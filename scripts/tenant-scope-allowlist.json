@@ -68,6 +68,24 @@
       "queryPattern": "^SELECT \"public\"\\.\"users\"\\.\"id\", \"public\"\\.\"users\"\\.\"name\" FROM \"public\"\\.\"users\" WHERE \"public\"\\.\"users\"\\.\"id\" IN ",
       "source": "src/app/api/masters/users/route.ts \u2014 include: { users: { select: { id, name } } }, the manager embed",
       "reason": "Prisma loading the users self-relation (manager_user_id -> users.id) for the aliased `manager` embed. Same class as prisma-to-one-relation-fetch, kept as its own entry because `users` is queried in many other places and a loose pattern here would be dangerous: the pattern is pinned to the exact id+name projection this embed emits. The manager ids come from rows already selected under tenant_id, and the FK check against live found zero cross-tenant references across all 39 tenant-scoped FK pairs. Note the other id-IN query on users (the scope=manage visibility filter in the same route) DOES carry tenant_id and so is never flagged."
+    },
+    {
+      "id": "weekly-plans-owner-embed",
+      "table": "users",
+      "queryPattern": "^SELECT \"public\"\\.\"users\"\\.\"id\", \"public\"\\.\"users\"\\.\"name\", \"public\"\\.\"users\"\\.\"contact\" FROM \"public\"\\.\"users\" WHERE \"public\"\\.\"users\"\\.\"id\" IN ",
+      "source": "src/app/api/weekly-plans/review/route.ts \u2014 the users!user_id(id, name, contact) embed",
+      "reason": "Prisma loading the plan owner for the review list. Pinned to the exact id+name+contact projection this embed emits, so it cannot match an unrelated unfiltered users query. The owner ids come from weekly_plans rows already selected under tenant_id, and weekly_plans.user_id -> users.id is an enforced FK; the live check across all 39 tenant-scoped FK pairs found zero cross-tenant references. Same class as prisma-to-one-relation-fetch and prisma-manager-self-relation-fetch, listed separately only because the projection differs."
+    },
+    {
+      "id": "prisma-to-many-relation-fetch",
+      "tables": [
+        "weekly_plan_items",
+        "weekly_plan_audit_logs",
+        "order_items"
+      ],
+      "queryPattern": "^SELECT [^;]*FROM \"public\"\\.\"__TABLE__\" WHERE \"public\"\\.\"__TABLE__\"\\.\"(weekly_plan_id|order_id)\" IN ",
+      "source": "Prisma relation loading for include: { weekly_plan_items: \u2026 } and similar to-many embeds",
+      "reason": "The to-MANY counterpart of prisma-to-one-relation-fetch, and a genuinely different SQL shape: children are fetched by their PARENT FOREIGN KEY rather than by their own primary key. The parent ids come from a query already filtered by tenant_id, and the child-to-parent FK is enforced by the database, so a child of another tenant cannot be reached this way. Tables and FK columns are both enumerated rather than matched by shape, for the same reason as the to-one rule: an ordinary findMany filtered on a FK column emits identical SQL and must keep being flagged. Note these child tables carry their own tenant_id, so a future explicit query on them is still expected to filter it."
     }
   ]
 }

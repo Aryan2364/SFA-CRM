@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -10,15 +10,24 @@ export async function GET(req: NextRequest) {
   const weekStart = req.nextUrl.searchParams.get('weekStart')
   if (!weekStart) return NextResponse.json({ error: 'weekStart required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('weekly_plans')
-    .select('*, weekly_plan_items(*)')
-    .eq('tenant_id', getTenantId())
-    .eq('user_id', user.userId)
-    .eq('week_start_date', weekStart)
-    .single()
+  try {
+    // The original tolerated PGRST116 (no rows) and returned null; every other
+    // error became a 500. findUnique on the real @@unique([tenant_id, user_id,
+    // week_start_date]) returns null for the no-row case and throws only on
+    // genuine failures, so both branches are preserved.
+    const data = await prisma.weekly_plans.findUnique({
+      where: {
+        tenant_id_user_id_week_start_date: {
+          tenant_id: getTenantId(),
+          user_id: user.userId,
+          week_start_date: new Date(weekStart),
+        },
+      },
+      include: { weekly_plan_items: true },
+    })
 
-  if (error && error.code !== 'PGRST116') return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? null)
+    return NextResponse.json(data ? serialize(data, 'weekly_plans') : null)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

@@ -52,6 +52,9 @@ export const SEED = {
   catA:         '0000000a-0000-4000-8000-000000000030',
   subcatA:      '0000000a-0000-4000-8000-000000000031',
   deptA:        '0000000a-0000-4000-8000-000000000040',
+  // A subordinate of adminA, with a user_visibility row so canView() passes.
+  // Weekly-plan transitions need a real manager/subordinate pair.
+  subA:         '0000000a-0000-4000-8000-000000000050',
   // Tenant B — the "other tenant" every isolation assertion aims at.
   tenantB:      '0000000b-0000-4000-8000-000000000001',
   stateB:       '0000000b-0000-4000-8000-000000000020',
@@ -65,6 +68,11 @@ async function main() {
   // Wipe in FK-safe order. Only ever the two scratch tenants.
   const tenants = [SEED.tenantA, SEED.tenantB]
   const wipe = { tenant_id: { in: tenants } }
+  await prisma.weekly_plan_audit_logs.deleteMany({ where: { tenant_id: { in: tenants } } })
+  await prisma.weekly_plan_items.deleteMany({ where: { tenant_id: { in: tenants } } })
+  await prisma.weekly_plans.deleteMany({ where: wipe })
+  await prisma.notifications.deleteMany({ where: wipe })
+  await prisma.user_visibility.deleteMany({ where: wipe })
   await prisma.order_items.deleteMany({ where: { orders: { tenant_id: { in: tenants } } } })
   await prisma.orders.deleteMany({ where: wipe })
   await prisma.products.deleteMany({ where: wipe })
@@ -103,6 +111,21 @@ async function main() {
       email: 'scratch-admin@example.invalid', contact: '9000000001',
       password: '', profile: 'Administrator', status: 'Active',
     },
+  })
+
+  await prisma.users.create({
+    data: {
+      id: SEED.subA, tenant_id: SEED.tenantA, name: 'Scratch Subordinate',
+      email: 'scratch-sub@example.invalid', contact: '9000000002',
+      password: '', profile: 'Standard', status: 'Active',
+      manager_user_id: SEED.adminA,
+    },
+  })
+
+  // adminA can see subA — this is what canView() checks on every manager-side
+  // weekly-plan transition.
+  await prisma.user_visibility.create({
+    data: { tenant_id: SEED.tenantA, viewer_user_id: SEED.adminA, target_user_id: SEED.subA },
   })
 
   // A non-admin role with a known permission matrix, for gating assertions.

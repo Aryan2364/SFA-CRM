@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -10,27 +10,34 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get('date')
   if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
+  try {
+    const day = new Date(date)
 
-  // Find the weekly plan that contains this date
-  const { data: plan } = await supabase
-    .from('weekly_plans')
-    .select('id, status')
-    .eq('tenant_id', getTenantId())
-    .eq('user_id', user.userId)
-    .lte('week_start_date', date)
-    .gte('week_end_date', date)
-    .single()
+    // Find the weekly plan that contains this date. .single() returned an error
+    // (leaving `plan` null) when nothing matched, and the route answered null —
+    // findFirst's null takes the same branch.
+    const plan = await prisma.weekly_plans.findFirst({
+      where: {
+        tenant_id: getTenantId(),
+        user_id: user.userId ?? undefined,
+        week_start_date: { lte: day },
+        week_end_date: { gte: day },
+      },
+      select: { id: true, status: true },
+    })
 
-  if (!plan) return NextResponse.json(null)
+    if (!plan) return NextResponse.json(null)
 
-  const { data: items, error } = await supabase
-    .from('weekly_plan_items')
-    .select('*')
-    .eq('weekly_plan_id', plan.id)
-    .eq('plan_date', date)
-    .order('created_at')
+    const items = await prisma.weekly_plan_items.findMany({
+      where: { weekly_plan_id: plan.id, plan_date: day },
+      orderBy: { created_at: 'asc' },
+    })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ plan_status: plan.status, items: items ?? [] })
+    return NextResponse.json({
+      plan_status: plan.status,
+      items: serialize(items, 'weekly_plan_items'),
+    })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

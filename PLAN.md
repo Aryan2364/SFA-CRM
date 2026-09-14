@@ -294,6 +294,19 @@ current Vercel production behaviour, where Supabase returned UTC ISO strings.
 > to IST while RDS stays UTC, shifting all 61 timestamptz columns by 5:30 and putting activity
 > on the wrong day near midnight. **Introduced by a change that looks like a correction.**
 
+**A concrete symptom of that trap, found in Batch 3.** `weekly-plans/summary` builds its grid
+keys with `getMondayOf(new Date())`, which uses **local-time** getters (`getDay`, `setDate`,
+`setHours`) and then emits the key via `toISOString()`. Under UTC that yields true Mondays and
+the keys match the stored `week_start_date` values. Under IST, local midnight Monday is Sunday
+18:30 UTC, so every key lands one day early, matches nothing, and **the entire review grid
+renders blank** — no error, no empty state, just every cell empty. Reproduced on an IST dev
+machine and fixed by running the process under `TZ=UTC`.
+
+This predates the migration (Supabase returned the same date strings) and is not changed by it,
+but it means the §5.8 trap is not merely a 5:30 shift on timestamps: adding `tzdata` would also
+silently blank a manager-facing screen. The write-path harness therefore runs under `TZ=UTC`,
+matching production.
+
 **Decision for this migration: keep UTC.** Rule 1 says no behaviour changes, and UTC is the
 current behaviour. Concretely:
 - [ ] Do **not** add `tzdata` to the Dockerfile.

@@ -241,3 +241,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 export function dbErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
+
+/**
+ * A `@db.Date` column as the `"YYYY-MM-DD"` string PostgREST used to return.
+ *
+ * `serialize()` handles this for RESPONSE payloads, but some routes need the
+ * string SERVER-SIDE — to compare against a date string, or to use as an object
+ * key. Those sites used to work by accident because Supabase already handed back
+ * a string; with a `Date` they would compare/index against
+ * "Mon Sep 14 2026 …" instead, silently and without throwing.
+ */
+export function dateOnlyString(value: Date): string {
+  return value.toISOString().slice(0, 10)
+}
