@@ -766,3 +766,34 @@ the writes — is open follow-up work and a product decision, not a migration ta
 Evidence: both tables appear in the obsolete `supabase/migrations.sql` but are absent from the
 live database (see §3, "In migrations.sql, absent from LIVE"). `prisma db pull` against live
 produces no model for either, so the writes could not have been ported even in principle.
+
+### 13.2 Password reset only works for the DEFAULT tenant
+
+Found by the write-path harness, not introduced by this migration — the Supabase code behaves
+identically, and the Prisma conversion preserves it faithfully.
+
+`/api/auth/forgot-password` and `/api/auth/reset-password` are in `middleware.ts`'s `PUBLIC`
+list, so middleware never injects `x-tenant-id` for them. Both routes call `getTenantId()`,
+which then falls back to `process.env.DEFAULT_TENANT_ID`, and both filter their `users` lookup
+by that tenant:
+
+```
+forgot-password:  where: { contact, tenant_id: tid }
+reset-password:   where: { password_reset_token: token, tenant_id: tid }
+```
+
+Live has **5 real tenants**. Only users in `DEFAULT_TENANT_ID` can reset a password; for the
+other four, `forgot-password` silently returns `{ ok: true }` (the anti-enumeration response)
+without sending anything, and a reset link would not validate. It fails silently by design,
+which is why it has gone unnoticed.
+
+This is a **product decision, not a migration task** — fixing it means deciding how an
+unauthenticated caller's tenant is resolved (look the contact up across all tenants, as
+`/api/auth/login` already does, or carry a tenant hint in the reset link). Left unchanged.
+
+**Consequence for testing:** the write-path dev server must run with `DEFAULT_TENANT_ID` set to
+the scratch tenant, or every auth write-path test fails for this reason rather than a real one:
+
+```
+DATABASE_URL=$SCRATCH_DATABASE_URL DEFAULT_TENANT_ID=0000000a-0000-4000-8000-000000000001 npx next dev -p 3012
+```

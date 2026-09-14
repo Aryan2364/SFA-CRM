@@ -218,6 +218,14 @@ async function main() {
   })
   ok('POST /forgot-password for a real user -> 200', rForgot.status === 200, rForgot.status)
   const afterForgot = await prisma.users.findUnique({ where: { id: scratchUser.id } })
+  if (!afterForgot.password_reset_token) {
+    console.error('  !! No reset token was written. Almost certainly a MISCONFIGURATION, not a bug:')
+    console.error('     /api/auth/forgot-password is a PUBLIC route, so middleware injects no')
+    console.error('     x-tenant-id and getTenantId() falls back to DEFAULT_TENANT_ID. Start the')
+    console.error('     scratch server with DEFAULT_TENANT_ID set to the scratch tenant:')
+    console.error(`       DATABASE_URL=$SCRATCH_DATABASE_URL DEFAULT_TENANT_ID=${SEED.tenantA} npx next dev -p 3012`)
+    console.error('     See PLAN.md 13.2.')
+  }
   ok('a reset token was written', typeof afterForgot.password_reset_token === 'string' && afterForgot.password_reset_token.length > 0)
   ok('the expiry is a Date roughly an hour out',
     afterForgot.password_reset_expires instanceof Date &&

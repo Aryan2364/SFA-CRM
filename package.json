@@ -14,7 +14,7 @@
     "scratch:push": "prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss",
     "scratch:seed": "node scripts/seed-scratch.mjs",
     "dev:scratch": "next dev -p 3012",
-    "test:write": "node scripts/write-path-tests.mjs"
+    "test:write": "node scripts/seed-scratch.mjs && node scripts/write-path-tests.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
