@@ -16,10 +16,15 @@ services:
       PORT: 3000
       TZ: Asia/Kolkata
     ports:
-      # host:container. 3500 on the box, proxied by nginx/Caddy to the domain.
-      # NOT 3400 — that belongs to budget-tracking-frontend (sbn-frontend).
-      # Check with: ss -ltnp | grep <port>  before changing this.
-      - "3500:3000"
+      # Bound to LOOPBACK ONLY. A bare "3500:3000" publishes on 0.0.0.0, and
+      # Docker writes its own nat/DOCKER-USER rules ahead of UFW — so the port
+      # would be reachable from the internet even with the host firewall shut.
+      # Only the reverse proxy should reach this; it terminates TLS.
+      # NOTE: if nginx/Caddy runs in a CONTAINER rather than on the host, it
+      # cannot reach 127.0.0.1 here — put it on the sfacrm_prod network and
+      # talk to http://sfacrm:3000 directly instead of publishing a port.
+      # 3400 is taken by budget-tracking-frontend (sbn-frontend).
+      - "127.0.0.1:3500:3000"
     restart: unless-stopped
     networks:
       - sfacrm_prod

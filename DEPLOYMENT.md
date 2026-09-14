@@ -46,8 +46,17 @@ Pulls `:latest`, restarts the container, prunes old images, prints status.
 
 ## Ports
 
-The container listens on **3000**, published on host port **3500**. Point
-nginx/Caddy at `http://127.0.0.1:3500`.
+The container listens on **3000**, published on **127.0.0.1:3500** — loopback
+only, so the internet cannot reach it directly. Point nginx/Caddy (running on
+the host) at `http://127.0.0.1:3500`.
+
+Do NOT shorten this to a bare `3500:3000`. That publishes on 0.0.0.0, and
+Docker inserts its own nat/DOCKER-USER rules ahead of UFW, so the port stays
+reachable from the internet even when the host firewall appears closed.
+
+If the reverse proxy itself runs in a container it cannot reach the host
+loopback: attach it to the `sfacrm_prod` network and proxy to
+`http://sfacrm:3000` instead of publishing a host port at all.
 
 Ports already taken on the shared box: **3400** = budget-tracking-frontend
 (sbn-frontend), **3300/4300** = v2e. Always check `ss -ltnp | grep <port>`
