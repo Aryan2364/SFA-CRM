@@ -1,6 +1,6 @@
 # PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
-**Status:** CODE COMPLETE, PENDING VERIFICATION — **all 115 API routes are on Prisma; zero
+**Status:** CODE COMPLETE — **all 115 API routes are on Prisma; zero
 import `supabase-server`.** Phase A, Batches 1–6 and Phase B are complete and committed
 (15 commits from `89085ec`). Gates green: smoke 344/344 across seven suites · tenant-scope audit
 clean on all seven · write-path 364/364 on the local scratch DB · lint 0 · build 0 with neither
@@ -10,17 +10,23 @@ clean on all seven · write-path 364/364 on the local scratch DB · lint 0 · bu
 dead `src/lib/supabase-browser.ts`. No route imports either. That makes §9 teardown a single
 deliberate step.
 
-**UNVERIFIED and labelled as such:** everything in Phase B touching Cloudflare — `PutObject`,
-the signed URL, the 302 redirect, and whether the endpoint/`forcePathStyle` choices work in
-practice. The *authorisation* half of the photo route **is** verified (13 assertions).
+**Phase B is now VERIFIED against real Cloudflare R2** — `npm run verify:r2`, 35/35, run twice,
+bucket empty before and after. Observed, not reasoned: a real `PutObject` landing at exactly
+`receipts/{tenantId}/{uuid}.{ext}` with the right content-type and size; the 302; the signed URL
+carrying `X-Amz-Expires=300`; following it returning byte-identical content `inline`; a tampered
+signature rejected (403); and **an unsigned GET refused** — R2 answers `400
+InvalidArgument/Authorization`, *not* 401/403, and refuses auth *before* key lookup so a missing
+object is indistinguishable from a present one. The same URL signed returns 200, which is what
+proves that refusal is authorisation rather than a malformed request. The `region: 'auto'` +
+account-level endpoint + no-`forcePathStyle` construction copied from v2e works in practice.
 
-Remaining work: exercise Phase B against real R2 · the **RDS re-pull and diff** (§6.1, a
-sign-off requirement given `migrations.sql` proved obsolete in both directions) · the **§9
-teardown**, behind the final checkpoint.
+Remaining work: the **RDS re-pull and diff** (§6.1, a sign-off requirement given
+`migrations.sql` proved obsolete in both directions) · the **§9 teardown**, behind the final
+checkpoint.
 
-Blocked on the owner: `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (runtime values only — the
-Phase B *code* does not need them), and RDS being loaded. Server side is parked at a checkpoint
-(`uuid-ossp`, least-privilege role); RDS holds no schema and no data yet.
+Blocked on the owner: RDS being loaded. Server side is parked at a checkpoint (`uuid-ossp`,
+least-privilege role); RDS holds no schema and no data yet. The §11 **fork-vs-move decision** is
+also still open and gates cutover for five real customers.
 
 **Six pre-existing production bugs** found and deliberately NOT fixed — see §13.
 **Audience:** a fresh Claude Code session with no memory of the discussion that produced this file.

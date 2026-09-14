@@ -17,7 +17,8 @@
     "test:write": "node scripts/seed-scratch.mjs && node scripts/write-path-tests.mjs",
     "test:write:plans": "node scripts/seed-scratch.mjs && node scripts/write-path-weekly-plans.mjs",
     "test:write:ops": "node scripts/seed-scratch.mjs && node scripts/write-path-weekly-plans.mjs && node scripts/write-path-ops.mjs",
-    "test:write:activity": "node scripts/seed-scratch.mjs && node scripts/write-path-activity.mjs"
+    "test:write:activity": "node scripts/seed-scratch.mjs && node scripts/write-path-activity.mjs",
+    "verify:r2": "node scripts/seed-scratch.mjs && node scripts/verify-r2.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
