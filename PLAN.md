@@ -532,6 +532,32 @@ Decide these once here, not per route. This is the entire surface the codebase u
 **Rule of thumb:** if the Supabase call had `.single()`, a no-match was already an error → use the
 singular Prisma method. If it did **not**, a no-match was silent → use the `*Many` form.
 
+**More rules, added while converting the rest of `masters`:**
+
+| Supabase | Prisma | Why |
+|---|---|---|
+| `.insert([...]).select('id, name')` | `createManyAndReturn({ data, select })` | `createMany` returns **only a count**. Both bulk importers need the inserted ids to build their lookup maps, so `createMany` would silently break them. PostgreSQL-only, which is what we target. |
+| `.insert([...])` with no `.select()` | `createMany({ data })` | Count is all the caller used. |
+| `.upsert(rows, { ignoreDuplicates: true })` | `createMany({ data, skipDuplicates: true })` | "Do nothing on conflict". Needs the real unique constraint — `user_visibility` has `@@unique([viewer_user_id, target_user_id])`. |
+| `.upsert(row, { onConflict: 'a,b' })` | `upsert({ where: { a_b: {...} }, create, update })` | Only where a matching compound unique exists; `user_territory_mappings` has `@@unique([tenant_id, user_id])`. |
+| `.not('status', 'in', '(...)')` | `where: { status: { notIn: [...] } }` | The codebase's single `.not()`. |
+| `.or('a.ilike.%q%,b.ilike.%q%')` | `OR: [{ a: { contains: q, mode: 'insensitive' } }, …]` | `mode` goes on **each** clause, not the `OR`. |
+
+**Aliased to-one embeds.** `manager:manager_user_id(id, name)` has no Prisma equivalent at the
+query level: the FK is exposed through whatever the introspected relation field is called (for
+`users.manager_user_id` that is the self-relation field `users`). Fetch through the real field
+and rename in the response, because the client only ever saw the alias:
+
+```ts
+include: { users: { select: { id: true, name: true } } }
+// then: ({ users, ...rest }) => ({ ...rest, manager: users ?? null })
+```
+
+**When Prisma's types reject what Postgres also rejected.** A NOT NULL column the old code never
+supplied is a *pre-existing* bug. Prisma catches it at compile time; PostgreSQL caught it at
+runtime. Preserve the behaviour with an explicit cast and a comment, record it in section 13, and
+do **not** fix it here — see 13.3 (designations) and 13.4 (product import).
+
 **Tenant-scope audit note:** Prisma resolves a to-one `include` with a *second* statement that
 loads the parents by primary key and carries no `tenant_id`. It appears nowhere in the source, so
 only the runtime audit sees it. Allowlist it by **enumerated table**, never by SQL shape — a plain
