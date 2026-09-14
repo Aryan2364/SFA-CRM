@@ -67,9 +67,48 @@ const BATCH_FILES = {
     'src/app/api/masters/dealers/route.ts',
     'src/app/api/masters/dealers/[id]/route.ts',
   ],
+  'masters-org-users-leads': [
+    'masters-location-product',
+    'src/app/api/masters/departments/route.ts',
+    'src/app/api/masters/departments/[id]/route.ts',
+    'src/app/api/masters/designations/route.ts',
+    'src/app/api/masters/designations/[id]/route.ts',
+    'src/app/api/masters/expense-categories/route.ts',
+    'src/app/api/masters/expense-categories/[id]/route.ts',
+    'src/app/api/masters/institutions/route.ts',
+    'src/app/api/masters/institutions/[id]/route.ts',
+    'src/app/api/masters/lead-types/route.ts',
+    'src/app/api/masters/lead-types/[id]/route.ts',
+    'src/app/api/masters/lead-stages/route.ts',
+    'src/app/api/masters/lead-stages/[id]/route.ts',
+    'src/app/api/masters/lead-temperatures/route.ts',
+    'src/app/api/masters/lead-temperatures/[id]/route.ts',
+    'src/app/api/masters/roles/route.ts',
+    'src/app/api/masters/territory-mapping/route.ts',
+    'src/app/api/masters/territory-mapping/[userId]/route.ts',
+    'src/app/api/masters/territory-mapping/places/route.ts',
+    'src/app/api/masters/users/route.ts',
+    'src/app/api/masters/users/[id]/route.ts',
+    'src/app/api/masters/users/[id]/deactivation-summary/route.ts',
+    'src/app/api/masters/users/audit-log/route.ts',
+    'src/app/api/masters/users/license/route.ts',
+    'src/app/api/masters/import/locations/route.ts',
+    'src/app/api/masters/import/products/route.ts',
+  ],
 }
 
 const allowlist = JSON.parse(fs.readFileSync('scripts/tenant-scope-allowlist.json', 'utf8')).allow
+
+/**
+ * Files that legitimately have FEWER tenant_id predicates after conversion, with
+ * the reason. Pass A compares filter counts, so a file that stopped querying
+ * altogether looks like a regression. Each entry is a claim that no query was
+ * left unscoped — not a way to quiet the checker.
+ */
+const STATIC_EXEMPT = {
+  'src/app/api/masters/users/audit-log/route.ts':
+    'The route no longer queries anything. user_audit_logs does not exist in the database, so there is no model and no query — the handler returns the same 500 it always returned. Zero queries means zero unscoped queries. See PLAN.md 13.1.',
+}
 
 // Tenant-scoped tables are derived from the schema, so a new table is covered
 // automatically rather than relying on someone updating a hardcoded list.
@@ -117,8 +156,11 @@ if (!files) {
     // Prisma predicates: tenant_id used as an object key in a where/data clause.
     const afterCode = after.split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l)).join('\n')
     const afterFilters = (afterCode.match(/\btenant_id\s*:/g) || []).length
-    const ok = afterFilters >= beforeFilters
-    console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${file}  (${beforeFilters} supabase -> ${afterFilters} prisma)`)
+    const exemptReason = STATIC_EXEMPT[file]
+    const ok = afterFilters >= beforeFilters || Boolean(exemptReason)
+    const label = exemptReason && afterFilters < beforeFilters ? 'xmpt' : ok ? 'ok  ' : 'FAIL'
+    console.log(`  ${label}  ${file}  (${beforeFilters} supabase -> ${afterFilters} prisma)`)
+    if (exemptReason && afterFilters < beforeFilters) console.log(`          exempt: ${exemptReason}`)
     if (!ok) bad(`${file} lost ${beforeFilters - afterFilters} tenant_id filter(s) in conversion`)
   }
 }

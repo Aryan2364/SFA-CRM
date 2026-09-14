@@ -1,6 +1,9 @@
 # PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
-**Status:** Not started
+**Status:** IN PROGRESS — Phase A done; auth (5 routes) and the location/product masters (18)
+converted; local write-path harness built; remaining masters, then weekly-plans, in flight.
+Server side is parked at a checkpoint (`uuid-ossp`, least-privilege role). RDS holds no schema
+and no data yet.
 **Audience:** a fresh Claude Code session with no memory of the discussion that produced this file.
 Read this whole document before touching code.
 
@@ -456,9 +459,24 @@ low-risk routes go in large batches; genuinely tricky ones stay small.
   are here (`users` with departments/designations/roles/manager). This is also where
   `count`/`head` pagination totals get exercised in anger — assert the TOTAL, not just that rows
   came back. Verify cardinality at each level of states → districts → talukas → villages.
-- **3 — weekly-plans:** the one genuinely hard batch. 12+ state transitions
-  (submit → approve/reject/suggest), plus `weekly_plan_audit_logs` writes and the `day_notes`
-  Json column. Exercise **every** transition. Stop and report after this one.
+- **3 — weekly-plans:** the one genuinely hard batch. Stop and report after it.
+  **Reconnaissance against live, so it does not have to be rediscovered:**
+
+  | | |
+  |---|---|
+  | `weekly_plans.status` — the **only** 4 values, exact casing | `Draft` (8) · `Submitted` (18) · `Approved` (47) · `Rejected` (1) |
+  | `weekly_plan_audit_logs.action_type` — the **only** 8 values | `Create` · `Update` · `Submit` · `UndoSubmit` · `Approve` · `Reject` · `RequestReopen` · `AcceptReopen` |
+  | Date-only columns in this batch (§5.1) | `weekly_plans.week_start_date`, `weekly_plans.week_end_date`, `weekly_plan_items.plan_date` |
+  | `day_notes` | `jsonb`, currently `{}` in every row — do not assume a shape |
+  | `weekly_plan_items` | has **no** `status` column; state lives on the parent only |
+  | Audit log also carries | `edited_fields` (jsonb), `previous_status`, `new_status`, `actor_role`, `ip_address`, `user_agent` |
+
+  These status and action_type strings are written to the database and read by the UI —
+  **preserve them exactly**, casing included. Exercise **every** one of the 8 transitions and
+  assert the audit row each one writes (`previous_status` → `new_status`).
+  All three date-only columns render in the UI, and
+  `src/app/(protected)/review/[userId]/page.tsx:257` calls `plan_date.localeCompare(...)` — so a
+  serialiser regression here is a crash, not a cosmetic bug.
 - **4:** `orders` has the trickiest embeds in the codebase — `order_items(*)`,
   `order_items(count)`, and the `users!orders_user_id_fkey` FK hint. Do this batch **after**
   Phase B (R2). `daily-activity/[id]/route.ts:25` has the `.slice(0,10)` date trap.
@@ -797,3 +815,40 @@ the scratch tenant, or every auth write-path test fails for this reason rather t
 ```
 DATABASE_URL=$SCRATCH_DATABASE_URL DEFAULT_TENANT_ID=0000000a-0000-4000-8000-000000000001 npx next dev -p 3012
 ```
+
+### 13.3 Creating a Designation has never worked
+
+Found while converting `masters/designations`, not introduced by this migration.
+
+`designations.department_id` is `NOT NULL` with no default, but
+`POST /api/masters/designations` only ever inserted `{ name, tenant_id }`, and the UI
+(`masters/designations/page.tsx`) only ever submits `{ name }`. Every attempt therefore fails on
+a not-null violation and returns 500 — the "Add Designation" button in the UI cannot succeed.
+
+Behaviour is **preserved exactly**: the Prisma `create()` still throws and the route still
+answers 500. Prisma's generated types flag it at compile time, where PostgreSQL was rejecting it
+at runtime, so the call carries an explicit cast and a comment rather than a silent fix.
+
+Fixing it means deciding how a designation picks its department — the form has no department
+field at all, so this is a UI change as well as an API one, and therefore a product decision
+outside this migration's scope.
+
+
+### 13.4 Product import fails when a row has no Sub-Category or no Price
+
+Found while converting `masters/import/products`, not introduced by this migration.
+
+`products.subcategory_id` and `products.price` are both `NOT NULL`, but the importer builds
+`subcategory_id: null` when a spreadsheet row has no Sub-Category, and `price: null` when it has
+no Price. Because all new products go in as a single multi-row insert, **one such row fails the
+entire import** with a not-null violation and a 500 — no products are created and the partial
+`created`/`skipped` report is never returned.
+
+Behaviour is **preserved exactly**: the insert still throws and the route still answers 500.
+The call carries an explicit cast and a comment because Prisma's generated types reject at
+compile time what PostgreSQL was rejecting at runtime.
+
+Fixing it is a product decision: either reject those rows into `skipped` with a clear reason
+(consistent with how unknown categories are already handled), or give the columns defaults.
+Both change observable behaviour, so neither belongs in this migration.
+

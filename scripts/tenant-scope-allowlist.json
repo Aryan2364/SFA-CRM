@@ -54,11 +54,20 @@
         "talukas",
         "villages",
         "product_categories",
-        "product_subcategories"
+        "product_subcategories",
+        "departments",
+        "designations"
       ],
       "queryPattern": "^SELECT [^;]*FROM \"public\"\\.\"__TABLE__\" WHERE \"public\"\\.\"__TABLE__\"\\.\"id\" (IN \\(|= )[^)]*\\)? ?OFFSET",
       "source": "Prisma relation loading for `include: { <parent>: { select: { name: true } } }` in src/lib/auth.ts and the Batch 2 master routes",
       "reason": "How Prisma resolves a to-one relation: a second statement fetching the related rows by PRIMARY KEY, using FK values already present on parent rows that were themselves selected under a tenant_id filter. No request input reaches these ids. PostgREST resolved the equivalent embeds the same way, with no tenant filter, so this is not a regression. The reliance on referential integrity was checked against live across the whole database: 39 FK pairs where both sides are tenant-scoped, zero cross-tenant references. Nothing at the DB level ENFORCES it -- a composite FK including tenant_id would make it structural -- and that is recorded as follow-up in PLAN.md 8.2. Tables are enumerated rather than matched by shape on purpose: a plain findMany({ where: { id: { in: ... } } }) emits identical SQL, so a blanket rule would silently swallow a genuinely missing filter."
+    },
+    {
+      "id": "prisma-manager-self-relation-fetch",
+      "table": "users",
+      "queryPattern": "^SELECT \"public\"\\.\"users\"\\.\"id\", \"public\"\\.\"users\"\\.\"name\" FROM \"public\"\\.\"users\" WHERE \"public\"\\.\"users\"\\.\"id\" IN ",
+      "source": "src/app/api/masters/users/route.ts \u2014 include: { users: { select: { id, name } } }, the manager embed",
+      "reason": "Prisma loading the users self-relation (manager_user_id -> users.id) for the aliased `manager` embed. Same class as prisma-to-one-relation-fetch, kept as its own entry because `users` is queried in many other places and a loose pattern here would be dangerous: the pattern is pinned to the exact id+name projection this embed emits. The manager ids come from rows already selected under tenant_id, and the FK check against live found zero cross-tenant references across all 39 tenant-scoped FK pairs. Note the other id-IN query on users (the scope=manage visibility filter in the same route) DOES carry tenant_id and so is never flagged."
     }
   ]
 }
