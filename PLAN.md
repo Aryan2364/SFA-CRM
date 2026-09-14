@@ -1,14 +1,22 @@
 # PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
-**Status:** IN PROGRESS — **113 of 114 API routes converted to Prisma.** Phase A, and Batches
-1–6 complete and committed. Gates green: smoke 344/344 across seven suites · tenant-scope audit
-clean on all seven · write-path 355/355 on the local scratch DB · lint 0 · build 0 with
-`DATABASE_URL` unset.
+**Status:** CODE COMPLETE, PENDING VERIFICATION — **all 115 API routes are on Prisma; zero
+import `supabase-server`.** Phase A, Batches 1–6 and Phase B are complete and committed
+(15 commits from `89085ec`). Gates green: smoke 344/344 across seven suites · tenant-scope audit
+clean on all seven · write-path 364/364 on the local scratch DB · lint 0 · build 0 with neither
+`DATABASE_URL` nor any `R2_*` set.
 
-**The only file still importing Supabase is `src/app/api/expenses/upload/route.ts`** (Phase B).
+**The only remaining Supabase surface is two lib files** — `src/lib/supabase-server.ts` and the
+dead `src/lib/supabase-browser.ts`. No route imports either. That makes §9 teardown a single
+deliberate step.
 
-Remaining work: **Phase B** (R2 + rewrite `expenses/upload` + the new photo route) · the **RDS
-re-pull and diff** (§6.1) · the **§9 teardown**, which is behind the final checkpoint.
+**UNVERIFIED and labelled as such:** everything in Phase B touching Cloudflare — `PutObject`,
+the signed URL, the 302 redirect, and whether the endpoint/`forcePathStyle` choices work in
+practice. The *authorisation* half of the photo route **is** verified (13 assertions).
+
+Remaining work: exercise Phase B against real R2 · the **RDS re-pull and diff** (§6.1, a
+sign-off requirement given `migrations.sql` proved obsolete in both directions) · the **§9
+teardown**, behind the final checkpoint.
 
 Blocked on the owner: `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (runtime values only — the
 Phase B *code* does not need them), and RDS being loaded. Server side is parked at a checkpoint
@@ -425,7 +433,20 @@ its structure (adapted from a NestJS `@Injectable` to a plain module).
     - Keep validation unchanged: `image/jpeg|jpg|png`, 5 MB max
     - Keep the response contract `{ url }` — the client reads `(await r.json()).url` at
       `src/app/(protected)/daily-activity/page.tsx:701`
-    - The returned `url` is now the **app-relative path** `/api/expenses/photo/<expenseId>`
+    - The returned `url` is the **app-relative path** — but keyed by the **PHOTO file name**,
+      not the expense id:  `/api/expenses/photo/<uuid>.<ext>`
+
+> ### ⚠️ CORRECTION — it is the PHOTO id, NOT the expense id
+> An earlier draft of this section specified `/api/expenses/photo/<expenseId>`. **That is
+> impossible**, and the reason is in the client: `daily-activity/page.tsx:692-705` uploads the
+> photo **first**, reads `url`, and only **then** calls `onAdd()` to create the expense carrying
+> that `photo_url`. At upload time **no expense exists yet**. The route never receives `category`
+> or `amount`, so it cannot create one, and reordering the client is a UI change rule 1 forbids.
+>
+> Every property §7 actually requires still holds: app-relative, never an R2 address, no bucket
+> or account id exposed, per-expense authorisation via `getDataScope`, and the real key rebuilt
+> server-side as `receipts/{tenantId}/{file}` from the **session** tenant plus a regex-validated
+> file name — so path traversal cannot escape the tenant prefix.
     - Keep errors-as-values: `NextResponse.json({ error }, { status: 500 })`, do not throw
 - [ ] **New route `GET /api/expenses/photo/[id]`**
     - `requireUser()`, then authorise against the real permission system
@@ -823,7 +844,25 @@ Source URL shape (public bucket):
       client tooling in a container**, never the host's pg18 binaries
 - [ ] **Copy expense photos** from the Supabase `expense-photos` bucket into the R2 `sfacrm`
       bucket under `receipts/{tenantId}/`
-- [ ] **Rewrite `expenses.photo_url`** to the app-relative form `/api/expenses/photo/<id>`.
+- [ ] **Rewrite `expenses.photo_url`** to the app-relative form `/api/expenses/photo/<file>`.
+
+> ### ⚠️ THE UUID MUST MATCH ON BOTH SIDES — get this wrong and all 128 photos 404
+> The path segment is the **photo file name**, not the expense id (see the correction in §7).
+> So the object and the row must be written with **the same uuid**:
+>
+> | | |
+> |---|---|
+> | Object lands in R2 at | `receipts/{tenantId}/{uuid}.{ext}` |
+> | Row stores | `/api/expenses/photo/{uuid}.{ext}` |
+>
+> The photo route rebuilds the key server-side as `receipts/{session tenantId}/{file}`. If the
+> migration script generates a fresh name for the object without writing that same name into
+> `photo_url` — or vice versa — **every one of the 128 receipts returns 404**, and it will look
+> like an R2 problem rather than a pairing mistake.
+>
+> Also: the `{tenantId}` in the key must be the expense row's **own** tenant, since the route
+> resolves it from the viewer's session. 127 of the 128 belong to
+> `00000000-…-0001` and 1 to `08bfa9da-…` — do not write them all under one prefix.
       Existing rows hold **absolute Supabase Storage URLs** rendered directly by `<img src>`.
       They break the moment the Supabase project is deleted.
 
