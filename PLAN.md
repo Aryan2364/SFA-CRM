@@ -1,9 +1,37 @@
 # PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
-**Status:** COMPLETE — **all 115 API routes are on Prisma, and Supabase is gone.**
-`@supabase/supabase-js` is uninstalled, both client modules are deleted, and no source file
-imports anything Supabase. Phase A, Batches 1–6, Phase B and the §9 teardown are committed
-(17 commits from `89085ec`).
+**Status: DEPLOYED AND RUNNING on AWS (2026-09-15).** `sfacrm.rgbindia.com` serves the migrated
+app from RDS + R2.
+
+> **⚠️ ONE ITEM OUTSTANDING.** The Caddy `/api/*` route still points at `localhost:4500`, so every
+> API call through the domain **502s** — pages render, nobody can log in. That edit touches a
+> Caddyfile shared with **eight live production domains** and is the owner's to make or authorise.
+
+| Verified in production | |
+|---|---|
+| Image | digest of `:latest` == `:39d0e52`, distinct from the pre-fix `:e01b100` — gated on **digest**, not tag name |
+| Container | running, RestartCount 0, `Ready in 536ms`, bound `127.0.0.1:3500`, not internet-reachable |
+| **TLS** | **demonstrated, not inferred** — a login with a deliberately wrong password returned `401`, proving the query reached RDS and matched a user; a cert fault would have 500'd. Confirmed DB-side via `pg_stat_activity` showing an `sfacrm_app` backend mid-request |
+| DB role | app connects as **`sfacrm_app`** (least-privilege), not `postgres`. Safe because `CMD ["npm","start"]` runs no migrate step at boot |
+| Data | 4,714 rows · 5 tenants · 22 users · **128/128 photos migrated and object-level verified** |
+| Public | `/login` → 200 (`<title>RGB SFA Admin</title>`) · `/api/auth/me` → **502** (Caddy) · `127.0.0.1:3500` → 307 (the app is fine) |
+
+**Deliberately NOT done, each after reading the code first:** no admin seeded — the restored data
+already contains a live Administrator, and the earlier "create me as admin" instruction was
+written when the database was empty, so acting on it would have overwritten a real customer's
+password. `SUPER_ADMIN_*` left blank (the route returns 500 "not configured" and rejects empty
+submissions, so blank disables rather than opening a hole). `SMTP_*` blank — the app boots; only
+password-reset sending fails, and it is a restart to add, not a rebuild.
+
+**Open housekeeping:** drop `sfacrm_rehearsal` (capped at 5, now just a second copy of customer
+data). Box disk at **89%**, 2.2 GB free of 19 GB after the image pull, on a volume shared with
+five other products; 548 MB of dead build cache is the safe reclaim.
+
+---
+
+**Migration record.** All 115 API routes on Prisma; `@supabase/supabase-js` uninstalled, both
+client modules deleted, no source file imports anything Supabase. Phase A, Batches 1–6, Phase B
+and the §9 teardown committed (17 commits from `89085ec`).
 
 Gates, all re-run after teardown: smoke **344/344** across seven suites · tenant-scope audit
 **clean on all seven** · write-path **364/364** on the local scratch database · R2 **35/35**
