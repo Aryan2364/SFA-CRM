@@ -781,7 +781,30 @@ Execution is on the server side.
 
 | | |
 |---|---|
-| Total rows, all 35 tables | **4,698** — small, a single dump/restore is fine |
+| Total rows, all 35 tables | **4,698** on 2026-09-14; **4,709** on 2026-09-15. ⚠️ **Do not assert a fixed row count at cutover — re-measure.** The source is live and a client is actively writing to it; the drift is the §11 throwaway point demonstrating itself. |
+
+### Measured cutover window (rehearsal, 2026-09-15)
+
+| | |
+|---|---|
+| Schema load | 0.52 s |
+| Data dump from live | 1.60 s (1.6 MB) |
+| Data restore | 0.26 s |
+| **Data-only — the real window**, schema pre-loaded | **1.86 s** |
+| Full (schema + data) | 2.38 s |
+
+**The database half is effectively instantaneous.** Any announced window is dominated by human
+coordination, the Vercel teardown and DNS — not by the data. Don't announce less than ~15 minutes,
+but know the technical floor is under 3 seconds.
+
+**Two mechanics the rehearsal surfaced:**
+- **FK ordering.** A `--data-only` restore into a pre-loaded schema violates FK order.
+  Use `SET session_replication_role = replica;` for the load session — `ALTER TABLE … DISABLE
+  TRIGGER ALL` wants real superuser, which RDS does not grant.
+- **`search_path = ''`.** The dump sets it at line 16, so a *bare* `uuid_generate_v4()` fails to
+  resolve even with the extension in `public`. The cutover artifact writes
+  `public.uuid_generate_v4()` — which resolves under the empty `search_path` **and** still renders
+  bare on introspection, preserving the clean §6.1 diff.
 | Largest tables | `daily_visits` 1,112 · `point_events` 1,034 · `business_partners` 586 · `weekly_plan_items` 446 |
 | Empty tables | `point_config_history` only |
 | **Tenants** | **5 real customers** — Makhana, Nuetech Solar Systems, RCB, Sama, Social Chutney |
@@ -842,17 +865,143 @@ Source URL shape (public bucket):
   below.
 
 > ### ⚠️ pg_dump VERSION TRAP — will fail mid-freeze-window if ignored
-> The EC2 box is Ubuntu 26.04, which ships **PostgreSQL 18.6 client tools**. `pg_dump` must
-> never be newer than the restore target, and the target is 17.9. `postgresql-client-17` is
-> not in the distro repos.
+> The EC2 box is Ubuntu 26.04, which ships **PostgreSQL 18.6 client tools**, and the restore
+> target is **17.9**. `postgresql-client-17` is not in the distro repos.
 > **Run both ends pinned in a container:** `docker run --rm postgres:17 pg_dump …` / `pg_restore`.
+>
+> **The rule is MAJOR-version, not "never newer" — state it precisely.** An earlier draft said
+> `pg_dump` must never be newer than the target, which taken literally would rule out the very
+> container we use: `postgres:17` ships **pg_dump 17.11**, numerically newer than 17.9.
+>
+> - **pg18 → pg17 is the real trap:** a newer *major* emits catalog constructs and syntax the
+>   older server rejects.
+> - **Within one major, minor version does not change the dump's SQL surface.** 17.11 producing a
+>   dump that 17.9 restores is fine and routine.
+> - **Newer client against an older server of the same major is the supported direction** — so
+>   dumping the 17.6 source with a 17.11 client is correct.
 
-- [ ] Load the schema into RDS, including the `uuid-ossp` extension
+> ### ⚠️ LOAD THE SCHEMA FROM `pg_dump`, **NOT** FROM `prisma/schema.prisma`
+> Prisma's datamodel cannot express three things the source database depends on, so
+> `migrate diff --from-empty --to-schema-datamodel` (and `db push`) silently drop them:
+>
+> | Lost | Count | Consequence |
+> |---|---|---|
+> | CHECK constraints | **15** | `weekly_plans_status_check`, `orders_status_check`, `expenses_amount_check (amount > 0)`, `order_items_qty_check`, `users_status_check`, … — invalid data can enter |
+> | Triggers | **19** | all call `update_updated_at()` |
+> | Functions | **1** | `public.update_updated_at()` |
+>
+> **The triggers are the dangerous loss.** `schema.prisma` has **zero `@updatedAt`** directives —
+> `updated_at` is only `@default(now())` — and the app writes it explicitly in exactly **two**
+> routes (`points/config/route.ts:72`, `points/settings/route.ts:38`). Everywhere else it is
+> maintained *entirely* by those 19 triggers. Without them `updated_at` is written once at INSERT
+> and **never changes on UPDATE**, across 19 tables, with nothing erroring. Every "last modified"
+> value in the product silently becomes a creation timestamp.
+>
+> **⚠️ Do NOT verify the triggers via the conversations list.** An earlier draft claimed that list
+> would freeze. **It would not** — `conversations/route.ts` orders by `created_at` (line 33) and
+> *synthesises* its `updated_at` field from `created_at` (lines 68, 73), so its sort is unaffected
+> whether the triggers exist or not. There is **no `orderBy` on `updated_at` anywhere in `src/`**.
+> A "the list still updates" check therefore passes either way and proves nothing.
+> **The real test: `UPDATE` a row in one of the 19 tables and assert `updated_at` moved.**
+>
+> **And `db pull` cannot detect the loss** — it models neither CHECKs nor triggers, so the §6.1
+> diff comes back clean while the database is materially different from source. The verification
+> would pass and be worthless.
+>
+> **Correct method** — same pinned pg17 client the data copy needs:
+> ```
+> docker run --rm postgres:17 pg_dump --schema-only --no-owner --no-acl \
+>   --schema=public "<supabase url>" > schema.sql
+> ```
+> Strip before loading: every `ENABLE ROW LEVEL SECURITY`; GRANTs to `anon` / `authenticated` /
+> `service_role`; `CREATE EXTENSION` for `supabase_vault` / `pg_graphql` / `pgsodium`. Keep
+> `uuid-ossp` and `pgcrypto`. Load as **`postgres`** via psql so the step-1
+> `ALTER DEFAULT PRIVILEGES` actually fire.
+>
+> `schema.prisma` remains the **cross-check**, not the source: after loading, `db pull` from RDS
+> and diff against it. They should match — it was pulled from this same database.
+>
+> **Exact step-2 assertions:** 35 tables · no `_prisma_migrations` · **15 CHECKs** · **19
+> triggers** · **1 USER-DEFINED function** (`public` reports **11** — the other 10 are owned by
+> `uuid-ossp`; filter on `pg_depend.deptype='e'`, or the next reader will call a pass a failure) ·
+> 57 indexes (13 `CREATE INDEX` + 44 constraint-backed) · 39 FKs · RLS 0/0 ·
+> `db pull` diff shows no *structural* differences.
+>
+> **Status: ALL PASSED on 2026-09-15.** The normalized diff is byte-identical — same 35 models,
+> same 508 lines, `@id` 35, `@relation` 48, `@@unique` 9, `@@index` 5. Raw `diff -u` shows ~172
+> changed lines, all cosmetic: the pulled file is strictly alphabetical while the committed one
+> is not (diff renders moved blocks as remove+add), plus marker comments — RLS 26 → 0 (expected,
+> we dropped RLS) and check 10 → 12 (Prisma emits at most one marker per model; on Supabase the
+> RLS marker outranked the check marker on two models, so with RLS gone their check markers
+> surface — 10 + 2 = 12, consistent).
+
+### Four load-time findings — all discovered in practice, none anticipated
+
+**1. The direct endpoint is IPv6-ONLY and unreachable from EC2.**
+`db.<ref>.supabase.co` has an AAAA record and **no A record**; the EC2 box has no IPv6 egress, so
+`pg_dump` fails with *"Network is unreachable"*. Use the **IPv4 pooler in SESSION mode on 5432**.
+Two corrections to earlier guidance in this plan:
+- "Not the pooler" was too broad. **Session-mode pooler on 5432 is a fully supported `pg_dump`
+  path.** What breaks `pg_dump` is **transaction mode on 6543**.
+- The host prefix is **`aws-1-`**, not `aws-0-`. All 14 `aws-0-*` regions return
+  *"tenant/user not found"*, which reads exactly like bad credentials when the credentials are
+  fine. Working shape:
+  `postgresql://postgres.<ref>@aws-1-ap-south-1.pooler.supabase.com:5432/postgres`
+
+**2. The dump contains `CREATE SCHEMA public;`** (line 26). Under `ON_ERROR_STOP=1` it aborts the
+entire load having applied nothing. **Strip it — a fourth item beyond the three listed above.**
+`COMMENT ON SCHEMA public` is harmless; leave it.
+
+**3. `extensions.uuid_generate_v4()` — 23 schema-qualified defaults.** Supabase puts `uuid-ossp`
+in an `extensions` schema that does not exist on RDS, so all 23 defaults would fail on load.
+**Resolution: install `uuid-ossp` into `public`.** The stored default is an OID reference whose
+*text rendering* follows `search_path`, so this changes rendering without rewriting a single
+column definition. Measured both ways: extension in `extensions` → `db pull` renders
+`dbgenerated("extensions.uuid_generate_v4()")` on 23 models, a 216-line diff; extension in
+`public` → defaults render bare and the normalized diff is identical to the committed file.
+*Known, accepted divergence from source:* source keeps `uuid-ossp` in `extensions`, RDS keeps it
+in `public`.
+
+**4. ⚠️ A SINGLE-TRANSACTION TRIGGER TEST IS A FALSE NEGATIVE.** `now()` returns **transaction
+start** time, so an INSERT and UPDATE in one transaction produce identical timestamps *by
+construction* — `pg_sleep` does not advance it. The triggers look broken when they are fine.
+**Test across separate transactions.** Pair this with the conversations-list warning above: that
+one is a false *positive*, this one a false *negative*. Both look like verification and neither is.
+
+- [ ] Load the schema into RDS from a source `pg_dump --schema-only` (see above), including the
+      `uuid-ossp` extension
 - [ ] Copy production data from Supabase -> RDS (4,698 rows across 35 tables) using **pg17
       client tooling in a container**, never the host's pg18 binaries
 - [ ] **Copy expense photos** from the Supabase `expense-photos` bucket into the R2 `sfacrm`
       bucket under `receipts/{tenantId}/`
 - [ ] **Rewrite `expenses.photo_url`** to the app-relative form `/api/expenses/photo/<file>`.
+
+> ### ⚠️ THE SOURCE FILENAMES ARE NOT UUIDs — every photo needs a NEW one
+> Measured 2026-09-15. The source layout is
+> `expense-photos/receipts/{Date.now()}-{random}.{ext}`, e.g.
+> `1773654621915-xa7u8oi782.png` — **no tenant segment, and not a uuid**.
+>
+> The target route validates before doing anything
+> (`src/app/api/expenses/photo/[id]/route.ts`):
+> ```
+> if (!/^[0-9a-f-]{36}\.(jpg|png)$/i.test(params.id)) return 404
+> ```
+> **All 128 current filenames fail that regex** (26 chars, non-hex letters). So the tempting
+> shortcut — keep the names, just add a tenant prefix — **is not available**. Every one of the
+> 128 must be assigned a **new uuid**, written into *both* the object key and `photo_url`.
+>
+> Measured, and it is a clean 1:1 remap: **119 jpg + 9 png** (both inside the allowed set),
+> **128 rows, 128 distinct filenames, zero duplicates** — no object is shared between two
+> expenses, so there is no copy-versus-alias decision to make.
+>
+> **`photo_url` must match EXACTLY.** The route looks the row up with
+> `where: { tenant_id: tid, photo_url: '/api/expenses/photo/' + params.id }`. A trailing slash, a
+> full URL, or a different extension case resolves to nothing and returns 404 — again looking
+> like an R2 fault. Write the extension lowercase.
+>
+> Confirms the security case from the other side: source URLs are `/object/public/`, so the
+> Supabase bucket really is world-readable. Moving to a private bucket behind an authorising
+> route is a genuine improvement, not a lateral move.
 
 > ### ⚠️ THE UUID MUST MATCH ON BOTH SIDES — get this wrong and all 128 photos 404
 > The path segment is the **photo file name**, not the expense id (see the correction in §7).
