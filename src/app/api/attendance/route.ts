@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -10,15 +10,20 @@ export async function GET(req: NextRequest) {
   if (!user.userId) return NextResponse.json(null)
 
   const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
-  const supabase = createServerSupabase()
 
-  const { data } = await supabase
-    .from('attendance')
-    .select('*')
-    .eq('tenant_id', getTenantId())
-    .eq('user_id', user.userId)
-    .eq('date', date)
-    .single()
+  try {
+    // .single() left `data` null when there was no row and the route answered
+    // null — findFirst's null takes the same branch. `date` is @db.Date.
+    const data = await prisma.attendance.findFirst({
+      where: {
+        tenant_id: getTenantId(),
+        user_id: user.userId ?? undefined,
+        date: new Date(date),
+      },
+    })
 
-  return NextResponse.json(data ?? null)
+    return NextResponse.json(data ? serialize(data, 'attendance') : null)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

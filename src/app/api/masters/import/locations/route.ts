@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(body.rows)) return NextResponse.json({ error: 'rows must be an array' }, { status: 400 })
   if (body.rows.length > 2000) return NextResponse.json({ error: 'Maximum 2000 rows per import' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
   const skipped: { row: number; reason: string }[] = []
@@ -51,20 +50,29 @@ export async function POST(req: NextRequest) {
   const stateNames = uniqueByLower(rows.filter(r => r.state).map(r => r.state))
 
   // Fetch ALL states for tenant → case-insensitive map
-  const { data: existingStates } = await supabase
-    .from('states').select('id, name').eq('tenant_id', tid)
-  const stateMap = new Map<string, string>(existingStates?.map(s => [s.name.toLowerCase(), s.id]) ?? [])
+  const existingStates = await prisma.states.findMany({
+    where: { tenant_id: tid }, select: { id: true, name: true },
+  })
+  const stateMap = new Map<string, string>(existingStates.map(s => [s.name.toLowerCase(), s.id]))
 
   existing.states = stateNames.filter(n => stateMap.has(n.toLowerCase())).length
   const toCreateStates = stateNames.filter(n => !stateMap.has(n.toLowerCase()))
 
   if (toCreateStates.length > 0) {
-    const { data: ns, error } = await supabase.from('states')
-      .insert(toCreateStates.map(name => ({ tenant_id: tid, name, is_active: true })))
-      .select('id, name')
-    if (error) return NextResponse.json({ error: `States: ${error.message}` }, { status: 500 })
-    for (const s of ns ?? []) stateMap.set(s.name.toLowerCase(), s.id)
-    created.states = ns?.length ?? 0
+    // .insert([...]).select(...) returns the inserted rows; createMany does NOT
+    // (it returns only a count), so createManyAndReturn is the faithful
+    // equivalent here. PostgreSQL-only, which is what we target (PLAN.md 8.4).
+    let ns
+    try {
+      ns = await prisma.states.createManyAndReturn({
+        data: toCreateStates.map(name => ({ tenant_id: tid, name, is_active: true })),
+        select: { id: true, name: true },
+      })
+    } catch (err) {
+      return NextResponse.json({ error: `States: ${dbErrorMessage(err)}` }, { status: 500 })
+    }
+    for (const s of ns) stateMap.set(s.name.toLowerCase(), s.id)
+    created.states = ns.length
   }
 
   // ── 2. DISTRICTS ─────────────────────────────────────────────────────────
@@ -90,19 +98,26 @@ export async function POST(req: NextRequest) {
   if (districtInputs.length > 0) {
     // Fetch ALL districts for the relevant states (not by name — avoids case sensitivity)
     const relevantStateIds = [...new Set(districtInputs.map(d => d.stateId))]
-    const { data: eds } = await supabase.from('districts')
-      .select('id, name, state_id').eq('tenant_id', tid).in('state_id', relevantStateIds)
-    for (const d of eds ?? []) districtMap.set(`${d.state_id}|${d.name.toLowerCase()}`, d.id)
+    const eds = await prisma.districts.findMany({
+      where: { tenant_id: tid, state_id: { in: relevantStateIds } },
+      select: { id: true, name: true, state_id: true },
+    })
+    for (const d of eds) districtMap.set(`${d.state_id}|${d.name.toLowerCase()}`, d.id)
 
     existing.districts = districtInputs.filter(d => districtMap.has(`${d.stateId}|${d.name.toLowerCase()}`)).length
     const toCreate = districtInputs.filter(d => !districtMap.has(`${d.stateId}|${d.name.toLowerCase()}`))
     if (toCreate.length > 0) {
-      const { data: nd, error } = await supabase.from('districts')
-        .insert(toCreate.map(d => ({ tenant_id: tid, name: d.name, state_id: d.stateId, is_active: true })))
-        .select('id, name, state_id')
-      if (error) return NextResponse.json({ error: `Districts: ${error.message}` }, { status: 500 })
-      for (const d of nd ?? []) districtMap.set(`${d.state_id}|${d.name.toLowerCase()}`, d.id)
-      created.districts = nd?.length ?? 0
+      let nd
+      try {
+        nd = await prisma.districts.createManyAndReturn({
+          data: toCreate.map(d => ({ tenant_id: tid, name: d.name, state_id: d.stateId, is_active: true })),
+          select: { id: true, name: true, state_id: true },
+        })
+      } catch (err) {
+        return NextResponse.json({ error: `Districts: ${dbErrorMessage(err)}` }, { status: 500 })
+      }
+      for (const d of nd) districtMap.set(`${d.state_id}|${d.name.toLowerCase()}`, d.id)
+      created.districts = nd.length
     }
   }
 
@@ -122,19 +137,26 @@ export async function POST(req: NextRequest) {
   if (talukaInputs.length > 0) {
     // Fetch ALL talukas for the relevant districts
     const relevantDistrictIds = [...new Set(talukaInputs.map(t => t.districtId))]
-    const { data: ets } = await supabase.from('talukas')
-      .select('id, name, district_id').eq('tenant_id', tid).in('district_id', relevantDistrictIds)
-    for (const t of ets ?? []) talukaMap.set(`${t.district_id}|${t.name.toLowerCase()}`, t.id)
+    const ets = await prisma.talukas.findMany({
+      where: { tenant_id: tid, district_id: { in: relevantDistrictIds } },
+      select: { id: true, name: true, district_id: true },
+    })
+    for (const t of ets) talukaMap.set(`${t.district_id}|${t.name.toLowerCase()}`, t.id)
 
     existing.talukas = talukaInputs.filter(t => talukaMap.has(`${t.districtId}|${t.name.toLowerCase()}`)).length
     const toCreate = talukaInputs.filter(t => !talukaMap.has(`${t.districtId}|${t.name.toLowerCase()}`))
     if (toCreate.length > 0) {
-      const { data: nt, error } = await supabase.from('talukas')
-        .insert(toCreate.map(t => ({ tenant_id: tid, name: t.name, district_id: t.districtId, is_active: true })))
-        .select('id, name, district_id')
-      if (error) return NextResponse.json({ error: `Talukas: ${error.message}` }, { status: 500 })
-      for (const t of nt ?? []) talukaMap.set(`${t.district_id}|${t.name.toLowerCase()}`, t.id)
-      created.talukas = nt?.length ?? 0
+      let nt
+      try {
+        nt = await prisma.talukas.createManyAndReturn({
+          data: toCreate.map(t => ({ tenant_id: tid, name: t.name, district_id: t.districtId, is_active: true })),
+          select: { id: true, name: true, district_id: true },
+        })
+      } catch (err) {
+        return NextResponse.json({ error: `Talukas: ${dbErrorMessage(err)}` }, { status: 500 })
+      }
+      for (const t of nt) talukaMap.set(`${t.district_id}|${t.name.toLowerCase()}`, t.id)
+      created.talukas = nt.length
     }
   }
 
@@ -154,18 +176,24 @@ export async function POST(req: NextRequest) {
   if (villageInputs.length > 0) {
     // Fetch ALL villages for the relevant talukas
     const relevantTalukaIds = [...new Set(villageInputs.map(v => v.talukaId))]
-    const { data: evs } = await supabase.from('villages')
-      .select('id, name, taluka_id').eq('tenant_id', tid).in('taluka_id', relevantTalukaIds)
-    const villageMap = new Map(evs?.map(v => [`${v.taluka_id}|${v.name.toLowerCase()}`, v.id]) ?? [])
+    const evs = await prisma.villages.findMany({
+      where: { tenant_id: tid, taluka_id: { in: relevantTalukaIds } },
+      select: { id: true, name: true, taluka_id: true },
+    })
+    const villageMap = new Map(evs.map(v => [`${v.taluka_id}|${v.name.toLowerCase()}`, v.id]))
 
     existing.villages = villageInputs.filter(v => villageMap.has(`${v.talukaId}|${v.name.toLowerCase()}`)).length
     const toCreate = villageInputs.filter(v => !villageMap.has(`${v.talukaId}|${v.name.toLowerCase()}`))
     if (toCreate.length > 0) {
-      const { data: nv, error } = await supabase.from('villages')
-        .insert(toCreate.map(v => ({ tenant_id: tid, name: v.name, taluka_id: v.talukaId, is_active: true })))
-        .select('id')
-      if (error) return NextResponse.json({ error: `Villages: ${error.message}` }, { status: 500 })
-      created.villages = nv?.length ?? 0
+      try {
+        const nv = await prisma.villages.createManyAndReturn({
+          data: toCreate.map(v => ({ tenant_id: tid, name: v.name, taluka_id: v.talukaId, is_active: true })),
+          select: { id: true },
+        })
+        created.villages = nv.length
+      } catch (err) {
+        return NextResponse.json({ error: `Villages: ${dbErrorMessage(err)}` }, { status: 500 })
+      }
     }
   }
 

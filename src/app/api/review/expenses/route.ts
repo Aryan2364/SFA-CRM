@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { canView } from '@/lib/visibility'
@@ -13,20 +13,23 @@ export async function GET(req: NextRequest) {
 
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tenantId = getTenantId()
 
-  const allowed = await canView(manager.userId!, userId, supabase, tenantId)
+  const allowed = await canView(manager.userId!, userId, tenantId)
   if (!allowed) return NextResponse.json({ error: 'Not authorized to view this user' }, { status: 403 })
 
-  const { data, error } = await supabase
-    .from('expenses')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('user_id', userId)
-    .eq('expense_date', date)
-    .order('created_at')
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const data = await prisma.expenses.findMany({
+      where: {
+        tenant_id: tenantId,
+        user_id: userId,
+        // expense_date is @db.Date, so the "YYYY-MM-DD" query parameter becomes a Date.
+        expense_date: new Date(date),
+      },
+      orderBy: { created_at: 'asc' },
+    })
+    return NextResponse.json(serialize(data, 'expenses'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

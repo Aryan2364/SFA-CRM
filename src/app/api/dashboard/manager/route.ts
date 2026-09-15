@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dateOnlyString, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { getVisibleUserIds } from '@/lib/visibility'
@@ -17,7 +17,6 @@ function addDays(dateStr: string, n: number): string {
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
   const weekStart = req.nextUrl.searchParams.get('weekStart') ?? (() => {
@@ -29,59 +28,55 @@ export async function GET(req: NextRequest) {
   })()
   const weekEnd = addDays(weekStart, 6)
 
-  const subIds = await getVisibleUserIds(user.userId!, supabase, tid)
+  const subIds = await getVisibleUserIds(user.userId!, tid)
   if (!subIds.length) return NextResponse.json({ isManager: false })
 
-  const { data: subordinates } = await supabase
-    .from('users')
-    .select('id, name')
-    .in('id', subIds)
-    .eq('tenant_id', tid)
+  try {
+  const subordinates = await prisma.users.findMany({
+    where: { id: { in: subIds }, tenant_id: tid },
+    select: { id: true, name: true },
+  })
 
-  if (!subordinates || subordinates.length === 0) {
+  if (subordinates.length === 0) {
     return NextResponse.json({ isManager: false })
   }
 
   const activeSubIds = subordinates.map(s => s.id)
 
-  // Parallel data fetch for the week
-  const [plansRes, visitsRes, ordersRes, expensesRes] = await Promise.all([
-    supabase
-      .from('weekly_plans')
-      .select('id, user_id, status, submitted_at, reopen_requested, reopen_request_message, week_start_date')
-      .eq('tenant_id', tid)
-      .eq('week_start_date', weekStart)
-      .in('user_id', activeSubIds),
-
-    supabase
-      .from('daily_visits')
-      .select('id, user_id, status, visit_date')
-      .eq('tenant_id', tid)
-      .in('user_id', activeSubIds)
-      .gte('visit_date', weekStart)
-      .lte('visit_date', weekEnd),
-
-    supabase
-      .from('orders')
-      .select('user_id, order_date, total_amount, status')
-      .eq('tenant_id', tid)
-      .in('user_id', activeSubIds)
-      .gte('order_date', weekStart)
-      .lte('order_date', weekEnd),
-
-    supabase
-      .from('expenses')
-      .select('user_id, expense_date, amount')
-      .eq('tenant_id', tid)
-      .in('user_id', activeSubIds)
-      .gte('expense_date', weekStart)
-      .lte('expense_date', weekEnd),
+  // Parallel data fetch for the week. All four date columns are @db.Date, so the
+  // "YYYY-MM-DD" bounds become Date objects.
+  const weekStartDate = new Date(weekStart)
+  const weekEndDate = new Date(weekEnd)
+  const [planRows, visitRows, orderRows, expenseRows] = await Promise.all([
+    prisma.weekly_plans.findMany({
+      where: { tenant_id: tid, week_start_date: weekStartDate, user_id: { in: activeSubIds } },
+      select: {
+        id: true, user_id: true, status: true, submitted_at: true,
+        reopen_requested: true, reopen_request_message: true, week_start_date: true,
+      },
+    }),
+    prisma.daily_visits.findMany({
+      where: { tenant_id: tid, user_id: { in: activeSubIds }, visit_date: { gte: weekStartDate, lte: weekEndDate } },
+      select: { id: true, user_id: true, status: true, visit_date: true },
+    }),
+    prisma.orders.findMany({
+      where: { tenant_id: tid, user_id: { in: activeSubIds }, order_date: { gte: weekStartDate, lte: weekEndDate } },
+      select: { user_id: true, order_date: true, total_amount: true, status: true },
+    }),
+    prisma.expenses.findMany({
+      where: { tenant_id: tid, user_id: { in: activeSubIds }, expense_date: { gte: weekStartDate, lte: weekEndDate } },
+      select: { user_id: true, expense_date: true, amount: true },
+    }),
   ])
 
-  const plans = plansRes.data ?? []
-  const visits = visitsRes.data ?? []
-  const orders = ordersRes.data ?? []
-  const expenses = expensesRes.data ?? []
+  // The per-day loops below compare these date columns against "YYYY-MM-DD"
+  // STRINGS built by addDays(). Supabase already returned strings; Prisma returns
+  // Date objects, and `date === Date` is always false — every daily cell would
+  // silently read zero. Reduce them to date-only strings up front (PLAN.md 5.1).
+  const plans = planRows.map(p => ({ ...p, week_start_date: dateOnlyString(p.week_start_date) }))
+  const visits = visitRows.map(v => ({ ...v, visit_date: dateOnlyString(v.visit_date) }))
+  const orders = orderRows.map(o => ({ ...o, order_date: dateOnlyString(o.order_date) }))
+  const expenses = expenseRows.map(e => ({ ...e, expense_date: dateOnlyString(e.expense_date) }))
 
   // Plan stats
   const planStats = { approved: 0, submitted: 0, rejected: 0, draft: 0, onHold: 0, notSubmitted: 0 }
@@ -160,4 +155,7 @@ export async function GET(req: NextRequest) {
     pendingPlans,
     teamPerformance,
   })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -10,14 +10,20 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   const user = await requireUser()
-  const supabase = createServerSupabase()
-  const { error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('id', params.id)
-    .eq('tenant_id', getTenantId())
-    .eq('recipient_id', user.userId)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  try {
+    // updateMany: no .single() in the original, and the recipient_id guard means
+    // one user cannot mark another user's notification read.
+    await prisma.notifications.updateMany({
+      where: {
+        id: params.id,
+        tenant_id: getTenantId(),
+        recipient_id: user.userId ?? undefined,
+      },
+      data: { is_read: true },
+    })
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

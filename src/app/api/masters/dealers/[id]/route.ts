@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -24,29 +24,30 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (body.longitude != null && (isNaN(Number(body.longitude)) || Number(body.longitude) < -180 || Number(body.longitude) > 180))
     return NextResponse.json({ error: 'Longitude must be between -180 and 180' }, { status: 400 })
   if (body.gst_number) body.gst_number = String(body.gst_number).trim().toUpperCase()
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('business_partners')
-    .update(body)
-    .eq('id', params.id)
-    .eq('tenant_id', getTenantId())
-    .eq('type', 'Dealer')
-    .select()
-    .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    // The `type` guard is kept alongside the primary key and tenant_id, so a
+    // Dealer endpoint still cannot edit a row of the other partner type.
+    const data = await prisma.business_partners.update({
+      where: { id: params.id, tenant_id: getTenantId(), type: 'Dealer' },
+      data: body,
+    })
+    return NextResponse.json(serialize(data, 'business_partners'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'dealers', 'delete')) return forbidden()
-  const supabase = createServerSupabase()
-  const { error } = await supabase
-    .from('business_partners')
-    .delete()
-    .eq('id', params.id)
-    .eq('tenant_id', getTenantId())
-    .eq('type', 'Dealer')
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  try {
+    // deleteMany, NOT delete: the previous .delete() returned ok when nothing
+    // matched; delete() would throw P2025 and turn that into a 500.
+    await prisma.business_partners.deleteMany({
+      where: { id: params.id, tenant_id: getTenantId(), type: 'Dealer' },
+    })
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

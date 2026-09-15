@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { verifySession, COOKIE_NAME } from './session'
-import { createServerSupabase } from './supabase-server'
+import { prisma } from './db'
 
 export type SessionUser = {
   phone: string
@@ -26,19 +26,25 @@ export async function requireUser(): Promise<SessionUser> {
 
   if (user.userId) {
     try {
-      const supabase = createServerSupabase()
-      const { data } = await supabase
-        .from('users')
-        .select('profile, status, roles(name)')
-        .eq('id', user.userId)
-        .single()
+      // Lookup by primary key, exactly as before. `roles` is a to-one relation,
+      // so this is a single object (or null) — not an array (PLAN.md §5.2).
+      // A missing row yields `null` here, matching Supabase's .single() error
+      // path, which also left `data` null and fell through to 'NoRole'.
+      const data = await prisma.users.findUnique({
+        where: { id: user.userId },
+        select: {
+          profile: true,
+          status: true,
+          roles: { select: { name: true } },
+        },
+      })
 
       if (data?.status === 'Inactive') {
         user.role = 'Deactivated'
       } else if (data?.profile === 'Administrator') {
         user.role = 'Administrator'
       } else {
-        const roleName = (data?.roles as unknown as { name: string } | null)?.name
+        const roleName = data?.roles?.name
         user.role = roleName ?? 'NoRole'
       }
     } catch {

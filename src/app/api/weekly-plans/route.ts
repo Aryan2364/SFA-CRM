@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -10,35 +10,51 @@ export async function POST(req: NextRequest) {
   const { week_start_date, week_end_date, items, day_notes, week_goal } = await req.json()
   if (!week_start_date) return NextResponse.json({ error: 'week_start_date required' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  // Look up manager
-  const { data: dbUser } = await supabase.from('users').select('manager_user_id').eq('id', user.userId).single()
+  try {
+    // Look up manager
+    const dbUser = await prisma.users.findUnique({
+      where: { id: user.userId },
+      select: { manager_user_id: true },
+    })
 
-  const { data: plan, error: planErr } = await supabase.from('weekly_plans').insert({
-    tenant_id: tid, user_id: user.userId,
-    week_start_date, week_end_date,
-    status: 'Draft',
-    current_manager_id: dbUser?.manager_user_id ?? null,
-    last_status_changed_at: new Date().toISOString(),
-    day_notes: day_notes ?? {},
-    week_goal: week_goal ?? null,
-  }).select().single()
+    const plan = await prisma.weekly_plans.create({
+      data: {
+        tenant_id: tid, user_id: user.userId,
+        // @db.Date columns: Prisma wants Date objects, not the ISO strings the
+        // client sends.
+        week_start_date: new Date(week_start_date),
+        week_end_date: new Date(week_end_date),
+        status: 'Draft',
+        current_manager_id: dbUser?.manager_user_id ?? null,
+        last_status_changed_at: new Date(),
+        day_notes: day_notes ?? {},
+        week_goal: week_goal ?? null,
+      },
+    })
 
-  if (planErr) return NextResponse.json({ error: planErr.message }, { status: 500 })
+    if (items?.length) {
+      await prisma.weekly_plan_items.createMany({
+        data: items.map((item: Record<string, unknown>) => ({
+          ...item,
+          plan_date: new Date(item.plan_date as string),
+          weekly_plan_id: plan.id,
+          tenant_id: tid,
+        })),
+      })
+    }
 
-  if (items?.length) {
-    await supabase.from('weekly_plan_items').insert(
-      items.map((item: Record<string, unknown>) => ({ ...item, weekly_plan_id: plan.id, tenant_id: tid }))
-    )
+    await prisma.weekly_plan_audit_logs.create({
+      data: {
+        tenant_id: tid, weekly_plan_id: plan.id,
+        actor_user_id: user.userId, actor_role: 'User',
+        action_type: 'Create', new_status: 'Draft',
+      },
+    })
+
+    return NextResponse.json(serialize(plan, 'weekly_plans'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
-
-  await supabase.from('weekly_plan_audit_logs').insert({
-    tenant_id: tid, weekly_plan_id: plan.id,
-    actor_user_id: user.userId, actor_role: 'User',
-    action_type: 'Create', new_status: 'Draft',
-  })
-
-  return NextResponse.json(plan, { status: 201 })
 }

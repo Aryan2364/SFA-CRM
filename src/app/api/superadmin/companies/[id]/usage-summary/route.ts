@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { classifyUser, computeActivityScore } from '@/lib/usage-intelligence'
 
@@ -13,35 +13,45 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!await requireSuperAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const tid = params.id
-  const supabase = createServerSupabase()
   const now = new Date()
-  const ago30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
-  const ago7  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000).toISOString()
+  const ago30Date = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const ago7Date  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000)
+  // The comparison helpers below work on ISO STRINGS, as they did under
+  // Supabase, so keep string copies of both cut-offs.
+  const ago30 = ago30Date.toISOString()
+  const ago7  = ago7Date.toISOString()
 
-  // Parallel fetch all needed data
-  const [
-    { data: users },
-    { data: loginLogs },
-    { data: visits },
-    { data: orders },
-    { data: expenses },
-    { data: remarks },
-    { data: planLogs },
-  ] = await Promise.all([
-    supabase.from('users').select('id, name, status').eq('tenant_id', tid),
-    supabase.from('user_login_logs').select('user_id, logged_in_at').eq('tenant_id', tid).gte('logged_in_at', ago30),
-    supabase.from('daily_visits').select('user_id, created_at, status').eq('tenant_id', tid).gte('created_at', ago30),
-    supabase.from('orders').select('user_id, created_at').eq('tenant_id', tid).gte('created_at', ago30),
-    supabase.from('expenses').select('user_id, created_at').eq('tenant_id', tid).gte('created_at', ago30),
-    supabase.from('contextual_remarks').select('author_user_id, created_at').eq('tenant_id', tid).gte('created_at', ago30),
-    supabase.from('weekly_plan_audit_logs').select('actor_user_id, timestamp').eq('tenant_id', tid).eq('action_type', 'submit').gte('timestamp', ago30),
+  try {
+  // Parallel fetch all needed data.
+  //
+  // NOTE: `user_login_logs` is NOT queried. That table does not exist in the
+  // database (PLAN.md 13.1), so the Supabase call failed and `loginLogs` came
+  // back null — `loginLogs ?? []` then meant this route still answered 200 with
+  // every login metric at zero. An empty array preserves that exactly. This is
+  // the graceful-degradation counterpart of the hard 500 in ../users.
+  const loginLogs: { user_id: string; logged_in_at: string }[] = []
+  const [users, visitRows, orderRows, expenseRows, remarkRows, planLogRows] = await Promise.all([
+    prisma.users.findMany({ where: { tenant_id: tid }, select: { id: true, name: true, status: true } }),
+    prisma.daily_visits.findMany({ where: { tenant_id: tid, created_at: { gte: ago30Date } }, select: { user_id: true, created_at: true, status: true } }),
+    prisma.orders.findMany({ where: { tenant_id: tid, created_at: { gte: ago30Date } }, select: { user_id: true, created_at: true } }),
+    prisma.expenses.findMany({ where: { tenant_id: tid, created_at: { gte: ago30Date } }, select: { user_id: true, created_at: true } }),
+    prisma.contextual_remarks.findMany({ where: { tenant_id: tid, created_at: { gte: ago30Date } }, select: { author_user_id: true, created_at: true } }),
+    prisma.weekly_plan_audit_logs.findMany({ where: { tenant_id: tid, action_type: 'submit', timestamp: { gte: ago30Date } }, select: { actor_user_id: true, timestamp: true } }),
   ])
 
-  const allUsers = users ?? []
+  // Every timestamp below is compared against the ISO cut-off strings, so
+  // normalise the Date objects once (PLAN.md 5.1).
+  const visits = visitRows.map(v => ({ ...v, created_at: v.created_at.toISOString() }))
+  const orders = orderRows.map(o => ({ ...o, created_at: o.created_at.toISOString() }))
+  const expenses = expenseRows.map(e => ({ ...e, created_at: e.created_at.toISOString() }))
+  const remarks = remarkRows.map(r => ({ ...r, created_at: r.created_at.toISOString() }))
+  const planLogs = planLogRows.map(p => ({ ...p, timestamp: p.timestamp.toISOString() }))
+
+  const allUsers = users
 
   // Build per-user metric maps
   const loginsByUser = new Map<string, string[]>()
-  for (const l of loginLogs ?? []) {
+  for (const l of loginLogs) {
     const arr = loginsByUser.get(l.user_id) ?? []
     arr.push(l.logged_in_at)
     loginsByUser.set(l.user_id, arr)
@@ -53,11 +63,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     arr.push({ ts, weight })
     activityByUser.set(uid, arr)
   }
-  for (const v of visits ?? []) addActivity(v.user_id, v.created_at, v.status === 'Completed' ? 3 : 1)
-  for (const o of orders ?? []) addActivity(o.user_id, o.created_at, 3)
-  for (const e of expenses ?? []) addActivity(e.user_id, e.created_at, 1)
-  for (const r of remarks ?? []) addActivity(r.author_user_id, r.created_at, 1)
-  for (const p of planLogs ?? []) addActivity(p.actor_user_id, p.timestamp, 2)
+  for (const v of visits) addActivity(v.user_id, v.created_at, v.status === 'Completed' ? 3 : 1)
+  for (const o of orders) addActivity(o.user_id, o.created_at, 3)
+  for (const e of expenses) addActivity(e.user_id, e.created_at, 1)
+  for (const r of remarks) addActivity(r.author_user_id ?? '', r.created_at, 1)
+  for (const p of planLogs) addActivity(p.actor_user_id ?? '', p.timestamp, 2)
 
   // Compute per-user classification
   const classMap = new Map<string, string>()
@@ -102,4 +112,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     adoption_rate:    adoptionRate,
     power_users:      powerUsers,
   })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from './supabase-server'
+import { prisma } from './db'
 import { getTenantId } from './tenant'
 import { SessionUser } from './auth'
 
@@ -36,15 +36,16 @@ export async function checkPermission(
 ): Promise<boolean> {
   if (user.role === 'Administrator') return true
   if (user.role === 'Deactivated' || user.role === 'NoRole') return false
-  const supabase = createServerSupabase()
   const tid = getTenantId()
-  const { data } = await supabase
-    .from('role_permissions')
-    .select('can_view,can_create,can_edit,can_delete')
-    .eq('tenant_id', tid)
-    .eq('profile', user.role)
-    .eq('section', section)
-    .maybeSingle()
+  // role_permissions has a unique constraint on (tenant_id, profile, section),
+  // so findUnique is exactly equivalent to .maybeSingle(): at most one row, and
+  // null when there is none (PLAN.md §5.3).
+  const data = await prisma.role_permissions.findUnique({
+    where: {
+      tenant_id_profile_section: { tenant_id: tid, profile: user.role, section },
+    },
+    select: { can_view: true, can_create: true, can_edit: true, can_delete: true },
+  })
   if (!data) return false
   switch (action) {
     case 'view':   return data.can_view
@@ -62,15 +63,13 @@ export async function getDataScope(
   // Master sections are always tenant-wide
   if (MASTER_SECTIONS.has(section)) return 'all'
   if (user.role === 'NoRole') return 'own'
-  const supabase = createServerSupabase()
   const tid = getTenantId()
-  const { data } = await supabase
-    .from('role_permissions')
-    .select('data_scope')
-    .eq('tenant_id', tid)
-    .eq('profile', user.role)
-    .eq('section', section)
-    .maybeSingle()
+  const data = await prisma.role_permissions.findUnique({
+    where: {
+      tenant_id_profile_section: { tenant_id: tid, profile: user.role, section },
+    },
+    select: { data_scope: true },
+  })
   const scope = data?.data_scope as DataScope | undefined
   return scope ?? 'own'
 }

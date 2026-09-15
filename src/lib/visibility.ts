@@ -1,4 +1,4 @@
-import { SupabaseClient } from '@supabase/supabase-js'
+import { prisma } from './db'
 
 /**
  * Returns IDs of all users that `viewerUserId` is configured to see.
@@ -6,15 +6,13 @@ import { SupabaseClient } from '@supabase/supabase-js'
  */
 export async function getVisibleUserIds(
   viewerUserId: string,
-  supabase: SupabaseClient,
   tenantId: string
 ): Promise<string[]> {
-  const { data } = await supabase
-    .from('user_visibility')
-    .select('target_user_id')
-    .eq('viewer_user_id', viewerUserId)
-    .eq('tenant_id', tenantId)
-  return (data ?? []).map(r => r.target_user_id)
+  const rows = await prisma.user_visibility.findMany({
+    where: { viewer_user_id: viewerUserId, tenant_id: tenantId },
+    select: { target_user_id: true },
+  })
+  return rows.map(r => r.target_user_id)
 }
 
 /**
@@ -23,14 +21,14 @@ export async function getVisibleUserIds(
 export async function canView(
   viewerUserId: string,
   targetUserId: string,
-  supabase: SupabaseClient,
   tenantId: string
 ): Promise<boolean> {
-  const { count } = await supabase
-    .from('user_visibility')
-    .select('id', { count: 'exact', head: true })
-    .eq('viewer_user_id', viewerUserId)
-    .eq('target_user_id', targetUserId)
-    .eq('tenant_id', tenantId)
-  return (count ?? 0) > 0
+  const count = await prisma.user_visibility.count({
+    where: {
+      viewer_user_id: viewerUserId,
+      target_user_id: targetUserId,
+      tenant_id: tenantId,
+    },
+  })
+  return count > 0
 }

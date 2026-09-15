@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -9,53 +9,54 @@ export async function GET(req: NextRequest) {
   const user = await requireUser()
   if (!user.userId) return NextResponse.json({ total: 0, events: [] })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
   const period = req.nextUrl.searchParams.get('period') ?? 'month'
 
   // Determine date range
-  let fromDate: string | null = null
+  let fromDate: Date | null = null
   const now = new Date()
   if (period === 'month') {
-    fromDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
   } else if (period === 'quarter') {
     const q = Math.floor(now.getMonth() / 3)
-    fromDate = new Date(now.getFullYear(), q * 3, 1).toISOString()
+    fromDate = new Date(now.getFullYear(), q * 3, 1)
   }
-  // period === 'all' → no date filter
+  // period === 'all' -> no date filter
 
-  // Fetch events
-  let query = supabase
-    .from('point_events')
-    .select('*')
-    .eq('tenant_id', tid)
-    .eq('user_id', user.userId)
-    .order('earned_at', { ascending: false })
-    .limit(500)
+  try {
+    const events = await prisma.point_events.findMany({
+      where: {
+        tenant_id: tid,
+        user_id: user.userId,
+        ...(fromDate ? { earned_at: { gte: fromDate } } : {}),
+      },
+      orderBy: { earned_at: 'desc' },
+      take: 500,
+    })
 
-  if (fromDate) query = query.gte('earned_at', fromDate)
+    const total = events.reduce((sum, e) => sum + e.points, 0)
 
-  const { data: events } = await query
+    // Breakdown by action type
+    const breakdown: Record<string, { count: number; points: number; label: string }> = {}
+    for (const e of events) {
+      if (!breakdown[e.action_type]) breakdown[e.action_type] = { count: 0, points: 0, label: e.action_type }
+      breakdown[e.action_type].count++
+      breakdown[e.action_type].points += e.points
+    }
 
-  const total = (events ?? []).reduce((sum, e) => sum + e.points, 0)
+    // Fetch labels from config
+    const configs = await prisma.point_config.findMany({
+      where: { tenant_id: tid },
+      select: { action_type: true, label: true },
+    })
+    for (const c of configs) {
+      if (breakdown[c.action_type]) breakdown[c.action_type].label = c.label
+    }
 
-  // Breakdown by action type
-  const breakdown: Record<string, { count: number; points: number; label: string }> = {}
-  for (const e of events ?? []) {
-    if (!breakdown[e.action_type]) breakdown[e.action_type] = { count: 0, points: 0, label: e.action_type }
-    breakdown[e.action_type].count++
-    breakdown[e.action_type].points += e.points
+    // `events` carries earned_at (timestamptz) and must be serialised; total and
+    // breakdown are plain numbers and strings.
+    return NextResponse.json({ total, events: serialize(events, 'point_events'), breakdown })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
-
-  // Fetch labels from config
-  const { data: configs } = await supabase
-    .from('point_config')
-    .select('action_type, label')
-    .eq('tenant_id', tid)
-
-  for (const c of configs ?? []) {
-    if (breakdown[c.action_type]) breakdown[c.action_type].label = c.label
-  }
-
-  return NextResponse.json({ total, events: events ?? [], breakdown })
 }

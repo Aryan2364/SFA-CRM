@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { Prisma } from '@prisma/client'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -31,7 +32,6 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(body.rows)) return NextResponse.json({ error: 'rows must be an array' }, { status: 400 })
   if (body.rows.length > 2000) return NextResponse.json({ error: 'Maximum 2000 rows per import' }, { status: 400 })
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
   const skipped: { row: number; reason: string }[] = []
@@ -52,20 +52,28 @@ export async function POST(req: NextRequest) {
   const catNames = uniqueByLower(rows.filter(r => r.category).map(r => r.category))
 
   // Fetch ALL categories for tenant → case-insensitive map
-  const { data: existingCats } = await supabase
-    .from('product_categories').select('id, name').eq('tenant_id', tid)
-  const catMap = new Map<string, string>(existingCats?.map(c => [c.name.toLowerCase(), c.id]) ?? [])
+  const existingCats = await prisma.product_categories.findMany({
+    where: { tenant_id: tid }, select: { id: true, name: true },
+  })
+  const catMap = new Map<string, string>(existingCats.map(c => [c.name.toLowerCase(), c.id]))
 
   existing.categories = catNames.filter(n => catMap.has(n.toLowerCase())).length
   const toCreateCats = catNames.filter(n => !catMap.has(n.toLowerCase()))
 
   if (toCreateCats.length > 0) {
-    const { data: nc, error } = await supabase.from('product_categories')
-      .insert(toCreateCats.map(name => ({ tenant_id: tid, name, is_active: true })))
-      .select('id, name')
-    if (error) return NextResponse.json({ error: `Categories: ${error.message}` }, { status: 500 })
-    for (const c of nc ?? []) catMap.set(c.name.toLowerCase(), c.id)
-    created.categories = nc?.length ?? 0
+    // createManyAndReturn, not createMany: the original .select()ed the inserted
+    // rows and the ids are needed below (PLAN.md 8.4).
+    let nc
+    try {
+      nc = await prisma.product_categories.createManyAndReturn({
+        data: toCreateCats.map(name => ({ tenant_id: tid, name, is_active: true })),
+        select: { id: true, name: true },
+      })
+    } catch (err) {
+      return NextResponse.json({ error: `Categories: ${dbErrorMessage(err)}` }, { status: 500 })
+    }
+    for (const c of nc) catMap.set(c.name.toLowerCase(), c.id)
+    created.categories = nc.length
   }
 
   // ── 2. SUB-CATEGORIES ────────────────────────────────────────────────────
@@ -91,19 +99,26 @@ export async function POST(req: NextRequest) {
   if (subInputs.length > 0) {
     // Fetch ALL subcategories for the relevant categories (avoids case-sensitive .in('name'))
     const relevantCatIds = [...new Set(subInputs.map(s => s.categoryId))]
-    const { data: ess } = await supabase.from('product_subcategories')
-      .select('id, name, category_id').eq('tenant_id', tid).in('category_id', relevantCatIds)
-    for (const s of ess ?? []) subMap.set(`${s.category_id}|${s.name.toLowerCase()}`, s.id)
+    const ess = await prisma.product_subcategories.findMany({
+      where: { tenant_id: tid, category_id: { in: relevantCatIds } },
+      select: { id: true, name: true, category_id: true },
+    })
+    for (const s of ess) subMap.set(`${s.category_id}|${s.name.toLowerCase()}`, s.id)
 
     existing.subcategories = subInputs.filter(s => subMap.has(`${s.categoryId}|${s.name.toLowerCase()}`)).length
     const toCreate = subInputs.filter(s => !subMap.has(`${s.categoryId}|${s.name.toLowerCase()}`))
     if (toCreate.length > 0) {
-      const { data: ns, error } = await supabase.from('product_subcategories')
-        .insert(toCreate.map(s => ({ tenant_id: tid, name: s.name, category_id: s.categoryId, is_active: true })))
-        .select('id, name, category_id')
-      if (error) return NextResponse.json({ error: `Sub-categories: ${error.message}` }, { status: 500 })
-      for (const s of ns ?? []) subMap.set(`${s.category_id}|${s.name.toLowerCase()}`, s.id)
-      created.subcategories = ns?.length ?? 0
+      let ns
+      try {
+        ns = await prisma.product_subcategories.createManyAndReturn({
+          data: toCreate.map(s => ({ tenant_id: tid, name: s.name, category_id: s.categoryId, is_active: true })),
+          select: { id: true, name: true, category_id: true },
+        })
+      } catch (err) {
+        return NextResponse.json({ error: `Sub-categories: ${dbErrorMessage(err)}` }, { status: 500 })
+      }
+      for (const s of ns) subMap.set(`${s.category_id}|${s.name.toLowerCase()}`, s.id)
+      created.subcategories = ns.length
     }
   }
 
@@ -130,11 +145,13 @@ export async function POST(req: NextRequest) {
   if (prodInputs.length > 0) {
     // Fetch ALL products for the relevant categories (avoids case-sensitive .in('name'))
     const relevantCatIds = [...new Set(prodInputs.map(p => p.categoryId))]
-    const { data: eps } = await supabase.from('products')
-      .select('id, name, category_id, subcategory_id').eq('tenant_id', tid).in('category_id', relevantCatIds)
-    const prodMap = new Map(eps?.map(p => [
+    const eps = await prisma.products.findMany({
+      where: { tenant_id: tid, category_id: { in: relevantCatIds } },
+      select: { id: true, name: true, category_id: true, subcategory_id: true },
+    })
+    const prodMap = new Map(eps.map(p => [
       `${p.category_id}|${p.subcategory_id ?? ''}|${p.name.toLowerCase()}`, p.id
-    ]) ?? [])
+    ]))
 
     existing.products = prodInputs.filter(p =>
       prodMap.has(`${p.categoryId}|${p.subcategoryId ?? ''}|${p.name.toLowerCase()}`)
@@ -143,19 +160,29 @@ export async function POST(req: NextRequest) {
       !prodMap.has(`${p.categoryId}|${p.subcategoryId ?? ''}|${p.name.toLowerCase()}`)
     )
     if (toCreate.length > 0) {
-      const { data: np, error } = await supabase.from('products')
-        .insert(toCreate.map(p => ({
-          tenant_id: tid,
-          name: p.name,
-          category_id: p.categoryId,
-          subcategory_id: p.subcategoryId,
-          price: p.price,
-          sku: p.sku,
-          is_active: true,
-        })))
-        .select('id')
-      if (error) return NextResponse.json({ error: `Products: ${error.message}` }, { status: 500 })
-      created.products = np?.length ?? 0
+      try {
+        // PRESERVED BUG, do not "fix" here. products.subcategory_id and
+        // products.price are both NOT NULL, but this importer passes null for
+        // either when the spreadsheet omits a Sub-Category or a Price. The
+        // Supabase insert failed on a not-null violation and the whole import
+        // returned 500; that is unchanged. Prisma's types catch at compile time
+        // what Postgres rejected at runtime, hence the cast. See PLAN.md 13.4.
+        const np = await prisma.products.createManyAndReturn({
+          data: toCreate.map(p => ({
+            tenant_id: tid,
+            name: p.name,
+            category_id: p.categoryId,
+            subcategory_id: p.subcategoryId,
+            price: p.price,
+            sku: p.sku,
+            is_active: true,
+          })) as unknown as Prisma.productsCreateManyInput[],
+          select: { id: true },
+        })
+        created.products = np.length
+      } catch (err) {
+        return NextResponse.json({ error: `Products: ${dbErrorMessage(err)}` }, { status: 500 })
+      }
     }
   }
 

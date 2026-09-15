@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -11,20 +11,35 @@ export async function GET(req: NextRequest) {
   if (!await checkPermission(user, 'leads', 'view')) return forbidden()
   const q = req.nextUrl.searchParams.get('q') ?? ''
   const type = req.nextUrl.searchParams.get('type') ?? ''
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  let query = supabase
-    .from('business_partners')
-    .select('*, districts(name), talukas(name), villages(name), created_by:created_by_user_id(id, name)')
-    .eq('tenant_id', tid)
-    .order('name')
-  if (q) query = query.ilike('name', `%${q}%`)
-  if (type) query = query.eq('type', type)
+  try {
+    const rows = await prisma.business_partners.findMany({
+      where: {
+        tenant_id: tid,
+        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+        ...(type ? { type } : {}),
+      },
+      include: {
+        districts: { select: { name: true } },
+        talukas: { select: { name: true } },
+        villages: { select: { name: true } },
+        // `created_by:created_by_user_id(id, name)` is an ALIASED embed; the
+        // introspected relation field has a different name, so it is renamed
+        // back to `created_by` below.
+        users: { select: { id: true, name: true } },
+      },
+      orderBy: { name: 'asc' },
+    })
 
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+    // NUMERIC latitude/longitude and DATE next_follow_up_date (PLAN.md 5.1).
+    const data = (serialize(rows, 'business_partners') as Record<string, unknown>[])
+      .map(({ users, ...rest }) => ({ ...rest, created_by: users ?? null }))
+
+    return NextResponse.json(data)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -43,32 +58,34 @@ export async function POST(req: NextRequest) {
   if (mobile_2 && !/^\d{10}$/.test(String(mobile_2).trim()))
     return NextResponse.json({ error: 'Mobile Number 2 must be exactly 10 digits' }, { status: 400 })
 
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('business_partners')
-    .insert({
-      tenant_id: getTenantId(),
-      type: type.trim(),
-      stage: 'Prospect',
-      name: name.trim(),
-      contact_person_name: contact_person_name?.trim() || null,
-      pincode: pincode?.trim() || null,
-      gst_number: gst_number?.trim().toUpperCase() || null,
-      mobile_1: mobile_1?.trim() || null,
-      mobile_2: mobile_2?.trim() || null,
-      address: address || null,
-      description: description || null,
-      state_id: state_id || null,
-      district_id: district_id || null,
-      taluka_id: taluka_id || null,
-      village_id: village_id || null,
-      latitude: latitude != null ? Number(latitude) : null,
-      longitude: longitude != null ? Number(longitude) : null,
-      temperature: temperature || null,
-      next_follow_up_date: next_follow_up_date || null,
-      created_by_user_id: user.userId || null,
+  try {
+    const data = await prisma.business_partners.create({
+      data: {
+        tenant_id: getTenantId(),
+        type: type.trim(),
+        stage: 'Prospect',
+        name: name.trim(),
+        contact_person_name: contact_person_name?.trim() || null,
+        pincode: pincode?.trim() || null,
+        gst_number: gst_number?.trim().toUpperCase() || null,
+        mobile_1: mobile_1?.trim() || null,
+        mobile_2: mobile_2?.trim() || null,
+        address: address || null,
+        description: description || null,
+        state_id: state_id || null,
+        district_id: district_id || null,
+        taluka_id: taluka_id || null,
+        village_id: village_id || null,
+        latitude: latitude != null ? Number(latitude) : null,
+        longitude: longitude != null ? Number(longitude) : null,
+        temperature: temperature || null,
+        // next_follow_up_date is @db.Date — the client sends "YYYY-MM-DD".
+        next_follow_up_date: next_follow_up_date ? new Date(next_follow_up_date) : null,
+        created_by_user_id: user.userId || null,
+      },
     })
-    .select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+    return NextResponse.json(serialize(data, 'business_partners'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -7,14 +7,15 @@ export const dynamic = 'force-dynamic'
 
 export async function POST() {
   const user = await requireUser()
-  const supabase = createServerSupabase()
-  const { error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('tenant_id', getTenantId())
-    .eq('recipient_id', user.userId)
-    .eq('is_read', false)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  try {
+    // updateMany: the original had no .single(), so matching nothing was silent.
+    await prisma.notifications.updateMany({
+      where: { tenant_id: getTenantId(), recipient_id: user.userId ?? undefined, is_read: false },
+      data: { is_read: true },
+    })
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

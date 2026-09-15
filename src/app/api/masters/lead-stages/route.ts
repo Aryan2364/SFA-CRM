@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -10,14 +10,15 @@ export async function GET() {
   // Reference data: any authenticated user may read it (used by the Leads form).
   // Managing the master still requires create/edit permission below.
   await requireUser()
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('lead_stages')
-    .select('*')
-    .eq('tenant_id', getTenantId())
-    .order('sort_order')
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const data = await prisma.lead_stages.findMany({
+      where: { tenant_id: getTenantId() },
+      orderBy: { sort_order: 'asc' },
+    })
+    return NextResponse.json(serialize(data, 'lead_stages'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -25,11 +26,12 @@ export async function POST(req: NextRequest) {
   if (!await checkPermission(user, 'lead_stages', 'create')) return forbidden()
   const { name, sort_order } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('lead_stages')
-    .insert({ tenant_id: getTenantId(), name: name.trim(), sort_order: sort_order ?? 0, is_fixed: false })
-    .select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+  try {
+    const data = await prisma.lead_stages.create({
+      data: { tenant_id: getTenantId(), name: name.trim(), sort_order: sort_order ?? 0, is_fixed: false },
+    })
+    return NextResponse.json(serialize(data, 'lead_stages'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

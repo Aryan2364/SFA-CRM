@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -9,24 +9,36 @@ export async function GET(req: NextRequest) {
   // business-partner forms). Managing the master still requires edit permission below.
   await requireUser()
   const q = req.nextUrl.searchParams.get('q') ?? ''
-  const supabase = createServerSupabase()
   const tid = getTenantId()
-  let query = supabase.from('states').select('*').eq('tenant_id', tid).order('name')
-  if (q) query = query.ilike('name', `%${q}%`)
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  try {
+    const data = await prisma.states.findMany({
+      where: {
+        tenant_id: tid,
+        // .ilike('name', `%q%`) -> case-insensitive contains.
+        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+      },
+      orderBy: { name: 'asc' },
+    })
+    return NextResponse.json(serialize(data, 'states'))
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
   const user = await requireUser()
   if (!await checkPermission(user, 'states', 'edit')) return forbidden()
-  const body = await req.json()
-  const { name } = body
+  const { name } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('states').insert({ name: name.trim(), tenant_id: getTenantId() }).select().single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+  try {
+    const data = await prisma.states.create({
+      data: {
+        name: name.trim(),
+        tenant_id: getTenantId(),
+      },
+    })
+    return NextResponse.json(serialize(data, 'states'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

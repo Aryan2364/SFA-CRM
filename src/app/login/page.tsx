@@ -150,7 +150,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
           <>
             <h3 className="text-base font-bold text-gray-900 mb-1">Reset Password</h3>
             <p className="text-sm text-gray-400 mb-5">
-              Enter your registered phone number. We'll send your current credentials and a reset link to your email.
+              Enter your registered phone number. We&apos;ll send your current credentials and a reset link to your email.
             </p>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

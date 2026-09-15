@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 
@@ -10,13 +10,14 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const user = await requireUser()
-  const supabase = createServerSupabase()
-  const { error } = await supabase
-    .from('expenses')
-    .delete()
-    .eq('id', params.id)
-    .eq('tenant_id', getTenantId())
-    .eq('user_id', user.userId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  try {
+    // deleteMany: a no-match — including another user's expense — was a silent
+    // no-op before and must stay one (PLAN.md 8.4).
+    await prisma.expenses.deleteMany({
+      where: { id: params.id, tenant_id: getTenantId(), user_id: user.userId ?? undefined },
+    })
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

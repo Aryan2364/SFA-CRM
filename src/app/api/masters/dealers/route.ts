@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -10,39 +10,56 @@ export async function GET(req: NextRequest) {
   const user = await requireUser()
   if (!await checkPermission(user, 'dealers', 'view')) return forbidden()
   const q = req.nextUrl.searchParams.get('q') ?? ''
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  let query = supabase
-    .from('business_partners')
-    .select('*, states(name), districts(name), talukas(name), villages(name)')
-    .eq('tenant_id', tid)
-    .eq('type', 'Dealer')
-    .eq('stage', 'Existing')
-    .order('name')
-  if (q) query = query.ilike('name', `%${q}%`)
+  try {
+    const dealers = await prisma.business_partners.findMany({
+      where: {
+        tenant_id: tid,
+        type: 'Dealer',
+        stage: 'Existing',
+        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+      },
+      include: {
+        states: { select: { name: true } },
+        districts: { select: { name: true } },
+        talukas: { select: { name: true } },
+        villages: { select: { name: true } },
+      },
+      orderBy: { name: 'asc' },
+    })
 
-  const { data: dealers, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const distIds = [...new Set(
+      dealers.filter(d => d.distributor_id).map(d => d.distributor_id as string)
+    )]
+    let distMap = new Map<string, string>()
+    if (distIds.length > 0) {
+      // tenant_id is filtered here even though the pre-migration query omitted
+      // it. The ids already come from the tenant-scoped query above, and live
+      // was checked for cross-tenant FK references (39 tenant-scoped FK pairs,
+      // zero violations), so this cannot change results — it is defence in depth
+      // on a tenant-isolation boundary, and it removes an asymmetry with the
+      // mirror-image lookup in distributors/route.ts, which always had it.
+      const dists = await prisma.business_partners.findMany({
+        where: { tenant_id: tid, id: { in: distIds } },
+        select: { id: true, name: true },
+      })
+      distMap = new Map(dists.map(d => [d.id, d.name]))
+    }
 
-  const distIds = [...new Set(
-    (dealers ?? []).filter(d => d.distributor_id).map(d => d.distributor_id as string)
-  )]
-  let distMap = new Map<string, string>()
-  if (distIds.length > 0) {
-    const { data: dists } = await supabase
-      .from('business_partners')
-      .select('id, name')
-      .in('id', distIds)
-    if (dists) distMap = new Map(dists.map(d => [d.id as string, d.name as string]))
+    // Serialise before attaching `distributors`, which is a plain object built
+    // in JS and needs no conversion. business_partners carries NUMERIC
+    // latitude/longitude and a DATE next_follow_up_date (PLAN.md §5.1).
+    const serialised = serialize(dealers, 'business_partners') as Record<string, unknown>[]
+    const result = serialised.map(d => ({
+      ...d,
+      distributors: d.distributor_id ? { name: distMap.get(d.distributor_id as string) ?? null } : null,
+    }))
+
+    return NextResponse.json(result)
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
-
-  const result = (dealers ?? []).map(d => ({
-    ...d,
-    distributors: d.distributor_id ? { name: distMap.get(d.distributor_id as string) ?? null } : null,
-  }))
-
-  return NextResponse.json(result)
 }
 
 export async function POST(req: NextRequest) {
@@ -68,28 +85,30 @@ export async function POST(req: NextRequest) {
   if (longitude != null && (isNaN(Number(longitude)) || Number(longitude) < -180 || Number(longitude) > 180))
     return NextResponse.json({ error: 'Longitude must be between -180 and 180' }, { status: 400 })
 
-  const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('business_partners')
-    .insert({
-      type: 'Dealer',
-      name: name.trim(),
-      contact_person_name: contact_person_name?.trim() || null,
-      pincode: pincode?.trim() || null,
-      gst_number: gst_number?.trim().toUpperCase() || null,
-      state_id, district_id, taluka_id,
-      village_id: village_id || null,
-      distributor_id: distributor_id || null,
-      mobile_1: mobile_1?.trim() || null,
-      mobile_2: mobile_2?.trim() || null,
-      address: address || null,
-      description: description || null,
-      latitude: latitude != null ? Number(latitude) : null,
-      longitude: longitude != null ? Number(longitude) : null,
-      tenant_id: getTenantId(),
+  try {
+    const data = await prisma.business_partners.create({
+      data: {
+        type: 'Dealer',
+        name: name.trim(),
+        contact_person_name: contact_person_name?.trim() || null,
+        pincode: pincode?.trim() || null,
+        gst_number: gst_number?.trim().toUpperCase() || null,
+        state_id,
+        district_id,
+        taluka_id,
+        village_id: village_id || null,
+        distributor_id: distributor_id || null,
+        mobile_1: mobile_1?.trim() || null,
+        mobile_2: mobile_2?.trim() || null,
+        address: address || null,
+        description: description || null,
+        latitude: latitude != null ? Number(latitude) : null,
+        longitude: longitude != null ? Number(longitude) : null,
+        tenant_id: getTenantId(),
+      },
     })
-    .select()
-    .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+    return NextResponse.json(serialize(data, 'business_partners'), { status: 201 })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
 }

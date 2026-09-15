@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { prisma } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -8,29 +8,24 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const user = await requireUser()
   if (!await checkPermission(user, 'users', 'edit')) return forbidden()
 
-  const supabase = createServerSupabase()
   const tid = getTenantId()
 
-  const [
-    { count: directReports },
-    { count: activeMeetings },
-    { count: pendingPlans },
-    { count: openOrders },
-  ] = await Promise.all([
-    supabase.from('users').select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tid).eq('manager_user_id', params.id).eq('status', 'Active'),
-    supabase.from('daily_visits').select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tid).eq('user_id', params.id).eq('status', 'In Progress'),
-    supabase.from('weekly_plans').select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tid).eq('user_id', params.id).eq('status', 'Submitted'),
-    supabase.from('orders').select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tid).eq('user_id', params.id).not('status', 'in', '("Delivered","Cancelled","Rejected")'),
+  // Four `count: 'exact', head: true` totals. The last one is the codebase's
+  // only .not(...,'in',...) — it becomes notIn (PLAN.md 8.4).
+  const [directReports, activeMeetings, pendingPlans, openOrders] = await Promise.all([
+    prisma.users.count({ where: { tenant_id: tid, manager_user_id: params.id, status: 'Active' } }),
+    prisma.daily_visits.count({ where: { tenant_id: tid, user_id: params.id, status: 'In Progress' } }),
+    prisma.weekly_plans.count({ where: { tenant_id: tid, user_id: params.id, status: 'Submitted' } }),
+    prisma.orders.count({
+      where: { tenant_id: tid, user_id: params.id, status: { notIn: ['Delivered', 'Cancelled', 'Rejected'] } },
+    }),
   ])
 
+  // All four are plain integers — no serialize() needed.
   return NextResponse.json({
-    direct_reports: directReports ?? 0,
-    active_meetings: activeMeetings ?? 0,
-    pending_plans: pendingPlans ?? 0,
-    open_orders: openOrders ?? 0,
+    direct_reports: directReports,
+    active_meetings: activeMeetings,
+    pending_plans: pendingPlans,
+    open_orders: openOrders,
   })
 }
