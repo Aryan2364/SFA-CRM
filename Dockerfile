@@ -20,6 +20,22 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
 COPY prisma.config.ts ./
+
+# The AWS RDS CA bundle, baked into the image at /app/certs/rds-global-bundle.pem,
+# which is the default DATABASE_CA_CERT_PATH in src/lib/db.ts. The app now REFUSES
+# TO START in production without it rather than falling back to an unverified
+# connection, so this COPY is load-bearing -- if it is removed the container will
+# fail fast at first query with a message naming the variable.
+#
+# Copied explicitly rather than left to the `COPY . .` below so that it is visible
+# here, and so reordering the build cannot quietly drop it.
+#
+# The bundle is a PUBLIC certificate from
+# https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -- nothing
+# secret, no build-time network fetch, reproducible. AWS DOES ROTATE IT: it will
+# need refreshing, and the failure mode when it expires is a refused connection,
+# not a silent downgrade.
+COPY certs ./certs
 RUN npm ci && npx prisma generate
 
 COPY . .

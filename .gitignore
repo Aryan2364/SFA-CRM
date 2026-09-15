@@ -17,6 +17,17 @@ node_modules/
 .DS_Store
 *.pem
 
+# ...but the RDS CA bundle is COMMITTED on purpose. It is a public certificate
+# (nothing secret), and the app now refuses to start in production without it,
+# so it must be in the image. The blanket *.pem above would otherwise swallow it
+# silently -- which it did on the first attempt. See src/lib/db.ts.
+!certs/rds-global-bundle.pem
+
+# Supabase's CA is NOT committed. It is a per-project download from the
+# dashboard (Settings -> Database -> SSL configuration) and is only needed for
+# development against Supabase, which this app is migrating off.
+certs/supabase-*.crt
+
 # debug
 npm-debug.log*
 yarn-debug.log*

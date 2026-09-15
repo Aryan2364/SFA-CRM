@@ -19,14 +19,21 @@ import {
 
 /**
  * Pool size (PLAN.md §6.2). The database is `db.t4g.micro` — 1 GB RAM — and is
- * SHARED BY FOUR APPLICATIONS. The binding constraint is memory, not the
- * ~112 max_connections: each Postgres backend costs ~5–10 MB, so 4 apps × 10
- * would be ~320 MB of backend memory on a box that also wants ~256 MB of
- * shared_buffers plus work_mem and the OS. 4 × 5 = 20 leaves real headroom.
+ * SHARED BY SEVEN APPLICATION DATABASES (gbd_webinar, hcrm_production,
+ * lbd_production, lbd_staging, sadbhavna_prod, v2e_prod, sfacrm) — measured on
+ * the instance, not the four this comment used to claim.
+ *
+ * The binding constraint is memory, but the connection ceiling is also tighter
+ * than it looked: `max_connections` is 79, not the ~112 previously recorded
+ * here. Each Postgres backend costs ~5–10 MB, so 7 apps × 10 would be ~560 MB of
+ * backend memory on a box that also wants ~256 MB of shared_buffers plus
+ * work_mem and the OS — and 7 × 10 = 70 would sit against a 79 ceiling with
+ * nothing spare for psql, pg_dump, or a deploy whose old container has not
+ * exited yet. 7 × 5 = 35 leaves real headroom on both limits.
  * Do not raise this without raising the instance class.
  *
  * The instance is also burstable: sustained load drains CPU credits and
- * throttles all four applications together, so CPU credit balance is the metric
+ * throttles all seven databases together, so CPU credit balance is the metric
  * to watch, not connection count.
  *
  * NOTE: we use the `@prisma/adapter-pg` driver adapter (same as v2e), which
@@ -38,6 +45,90 @@ import {
  * parameter entirely and inherit this default.
  */
 const DEFAULT_POOL_MAX = 5
+
+/**
+ * Where the CA bundle lives. The Dockerfile bakes the RDS bundle at
+ * `/app/certs/rds-global-bundle.pem`; DATABASE_CA_CERT_PATH overrides it, which
+ * is how development points at Supabase's CA instead.
+ */
+const DEFAULT_CA_PATH = '/app/certs/rds-global-bundle.pem'
+
+// Only SUCCESSFUL reads are cached, and they are keyed by path. Memoising a
+// MISS would be worse than useless: a miss always throws, so there is nothing to
+// save, and a process-wide `null` would make behaviour depend on the order in
+// which paths were tried. A test caught exactly that.
+const caCache = new Map<string, Buffer>()
+
+function readCa(path: string): Buffer | null {
+  const hit = caCache.get(path)
+  if (hit) return hit
+  const { readFileSync, existsSync } = require('node:fs') as typeof import('node:fs')
+  if (!existsSync(path)) return null
+  const buf = readFileSync(path)
+  caCache.set(path, buf)
+  return buf
+}
+
+/**
+ * TLS for the database connection — FAIL CLOSED (PLAN.md §5.9).
+ *
+ * This previously passed `{ rejectUnauthorized: false }`, which encrypts but
+ * verifies NOTHING: any certificate is accepted, so the connection is open to
+ * an active man-in-the-middle. It is the worst shape of defect this project has
+ * been hunting, because it CONNECTS FINE — every query works, every page loads,
+ * no gate we have goes red. It would have deployed looking perfectly healthy.
+ *
+ * The rule has no environment branch, deliberately. An `NODE_ENV !== 'production'`
+ * escape hatch is reachable in production by a single misconfigured variable,
+ * which is the same silent-success failure this exists to remove:
+ *
+ *   SSL not requested      -> no TLS, CA never read, no throw
+ *   SSL + CA present       -> verified: { ca, rejectUnauthorized: true }
+ *   SSL + CA absent        -> THROW at startup, naming the variable
+ *
+ * The throw is gated on SSL actually being required. The local scratch database
+ * (`postgresql://postgres:postgres@localhost:5432/sfacrm_local`) carries no
+ * `sslmode`, so it takes the first branch and needs no CA at all — the
+ * write-path suites must keep running with no certificate anywhere.
+ *
+ * Development against Supabase needs a DIFFERENT CA from production, not a
+ * weaker policy: Supabase presents a self-signed chain (`Supabase Root 2021 CA`)
+ * which the system trust store rejects with SELF_SIGNED_CERT_IN_CHAIN, so it
+ * needs `prod-ca-2021.crt` while RDS needs `global-bundle.pem`. Verified in both
+ * directions; see .env.example.
+ *
+ * NOTE: this cannot be fixed from outside the app. `sslmode` in the URL is a
+ * Prisma-engine parameter that node-postgres ignores, and even `sslmode=verify-full`
+ * would be stripped here — the `ssl` option below is the ONLY control. Do not
+ * try to fix a TLS problem by editing .env.production's connection string.
+ */
+function buildSslOption(needsSsl: boolean) {
+  if (!needsSsl) return undefined
+
+  const caPath = process.env.DATABASE_CA_CERT_PATH ?? DEFAULT_CA_PATH
+  const ca = readCa(caPath)
+
+  if (!ca) {
+    // Log BEFORE throwing. Every API route wraps its work in a try/catch, so this
+    // error would otherwise be swallowed into whatever that route returns -- the
+    // login route turns it into a plain 401 "Invalid phone or password", which is
+    // indistinguishable from a wrong password and leaves nothing in the log.
+    // Verified by doing it. A misconfigured CA must not look like a typo.
+    console.error(
+      `[db] FATAL: SSL is required but no CA certificate was found at "${caPath}". ` +
+        `Set DATABASE_CA_CERT_PATH. Every database query will fail until this is fixed.`
+    )
+    throw new Error(
+      `Refusing to connect: the database URL requires SSL but no CA certificate was found at ` +
+        `"${caPath}". Set DATABASE_CA_CERT_PATH to the CA bundle for this database ` +
+        `(RDS: certs/rds-global-bundle.pem, baked into the image at ${DEFAULT_CA_PATH}; ` +
+        `Supabase: prod-ca-2021.crt from the project dashboard). This is deliberate — ` +
+        `connecting without verifying the certificate is not an available fallback.`
+    )
+  }
+
+  return { ca, rejectUnauthorized: true }
+}
 
 function buildAdapter(): PrismaPg {
   const rawUrl = process.env.DATABASE_URL
@@ -58,9 +149,7 @@ function buildAdapter(): PrismaPg {
 
   return new PrismaPg({
     connectionString: url.toString(),
-    // RDS presents an Amazon-issued cert that is not in the default Node trust
-    // store. Same posture as v2e in production.
-    ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+    ssl: buildSslOption(needsSsl),
     max,
   })
 }

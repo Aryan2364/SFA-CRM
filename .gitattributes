@@ -5,3 +5,8 @@ Dockerfile      text eol=lf
 .dockerignore   text eol=lf
 *.yml           text eol=lf
 *.yaml          text eol=lf
+
+# Certificates are data, not source. Keep git's line-ending translation away
+# from them: a CA bundle's job is to be byte-exact, and it is committed from
+# Windows but read inside a Linux image.
+certs/** -text

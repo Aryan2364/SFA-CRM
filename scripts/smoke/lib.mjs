@@ -7,6 +7,24 @@ import fs from 'node:fs'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 
+// TLS for this harness. It reads LIVE production data, so it verifies the
+// certificate rather than passing rejectUnauthorized:false as it used to --
+// same policy and same variable as the app (src/lib/db.ts), so a CA that works
+// for one works for the other. Fails closed: no CA, no connection.
+function sslSetting(sslmode) {
+  if (!sslmode || sslmode === 'disable') return undefined
+  const caPath = process.env.DATABASE_CA_CERT_PATH ?? readEnv('DATABASE_CA_CERT_PATH')
+  if (!caPath || !fs.existsSync(caPath)) {
+    throw new Error(
+      `This connection requires SSL but no CA certificate was found` +
+        `${caPath ? ` at "${caPath}"` : ` (DATABASE_CA_CERT_PATH is not set)`}. ` +
+        `For Supabase use prod-ca-2021.crt from the dashboard; for RDS use ` +
+        `certs/rds-global-bundle.pem. See .env.example.`
+    )
+  }
+  return { ca: fs.readFileSync(caPath), rejectUnauthorized: true }
+}
+
 export const BASE = process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:3011'
 export const COOKIE_NAME = 'rgb_session'
 
@@ -26,7 +44,7 @@ export function db() {
   _prisma = new PrismaClient({
     adapter: new PrismaPg({
       connectionString: url.toString(),
-      ssl: sslmode && sslmode !== 'disable' ? { rejectUnauthorized: false } : undefined,
+      ssl: sslSetting(sslmode),
       max: 5,
     }),
   })

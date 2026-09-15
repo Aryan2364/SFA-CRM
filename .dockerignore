@@ -23,3 +23,8 @@ Dockerfile
 .dockerignore
 docker-compose*.yml
 deploy.sh
+
+# The Supabase CA is a DEVELOPMENT-only trust anchor (gitignored, downloaded
+# per-project from the dashboard). It must not travel into the production image.
+# The RDS bundle in certs/ is copied deliberately -- see Dockerfile.
+certs/supabase-*.crt
