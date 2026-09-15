@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { ToastProvider } from '@/contexts/ToastContext'
-import { Analytics } from '@vercel/analytics/next'
 
 export const metadata: Metadata = {
   title: 'RGB SFA Admin',
@@ -24,7 +23,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-gray-50 text-gray-900 antialiased">
         <ToastProvider>{children}</ToastProvider>
-        <Analytics />
       </body>
     </html>
   )

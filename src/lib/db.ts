@@ -184,7 +184,23 @@ function getClient(): PrismaClient {
     })
   }
 
-  if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = client
+  // Cache UNCONDITIONALLY, production included. This deliberately differs from
+  // the Prisma snippet everyone copies:
+  //
+  //     if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = client
+  //
+  // That snippet is correct only when the client is held in a module-scope
+  // `const`, which keeps the singleton alive in production and leaves globalThis
+  // to solve dev hot-reload. WE HAVE NO SUCH CONST — the lazy Proxy below calls
+  // getClient() on EVERY property access, so globalForPrisma is the only cache
+  // there is.
+  //
+  // With the guard in place, production cached nothing, and every single
+  // `prisma.x` access built a new PrismaClient with a new pg Pool. Connections
+  // multiplied per PROPERTY ACCESS, not per request, until Postgres answered
+  // "too many connections for role sfacrm_app" — observed in production on
+  // /api/dashboard/stats. `scripts/verify-prisma-singleton.mjs` guards it.
+  globalForPrisma.prisma = client
   return client
 }
 
