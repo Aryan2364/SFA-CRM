@@ -14,7 +14,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      TZ: Asia/Kolkata
+      # NO TZ HERE, DELIBERATELY. The app runs UTC, and so does RDS.
+      # node:20-alpine ships no tzdata, so a TZ value is silently IGNORED and
+      # the container runs UTC anyway -- which is what we want and what all the
+      # date logic was verified against. Adding tzdata to "fix" this would jump
+      # the container to IST while RDS stays UTC, shifting every timestamp by
+      # 5:30 and blanking the manager review grid entirely, with no error.
+      # See PLAN.md 5.8.
     ports:
       # Bound to LOOPBACK ONLY. A bare "3500:3000" publishes on 0.0.0.0, and
       # Docker writes its own nat/DOCKER-USER rules ahead of UFW — so the port
