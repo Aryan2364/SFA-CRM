@@ -35,6 +35,19 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const hasSession = Boolean(req.cookies.get(COOKIE_NAME)?.value)
 
+  // /kitchen-sink is the component reference page (AGENTS.md 2.2 brand swap
+  // test and 6.4 state matrix). It holds no data and needs no session, but it
+  // is NOT public: outside development it does not exist at all, so it can
+  // never be reached on a deployed environment even by an authenticated user.
+  // state-matrix-check.tsx compiles away outside development for the same
+  // reason.
+  if (pathname === '/kitchen-sink' || pathname.startsWith('/kitchen-sink/')) {
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.rewrite(new URL('/404', req.url))
+    }
+    return NextResponse.next()
+  }
+
   // ── Super Admin routes ──────────────────────────────────────────
   if (pathname === '/superadmin' || pathname.startsWith('/superadmin/')) {
     if (pathname === '/superadmin/login') return NextResponse.next()
