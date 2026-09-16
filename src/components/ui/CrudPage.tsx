@@ -2,7 +2,7 @@
 
 import { ReactNode, useState, useEffect } from 'react'
 import Toggle from './Toggle'
-import Pagination from './Pagination'
+import Pagination from './pagination'
 import { useToast } from '@/contexts/ToastContext'
 
 export interface Column {
