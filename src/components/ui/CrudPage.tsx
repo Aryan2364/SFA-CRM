@@ -2,7 +2,16 @@
 
 import { ReactNode, useState, useEffect } from 'react'
 import Toggle from './Toggle'
-import Pagination from './pagination'
+import {
+  Pagination,
+  PaginationBar,
+  PaginationContent,
+  PaginationCount,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from './pagination'
 import { useToast } from '@/contexts/ToastContext'
 
 export interface Column {
@@ -41,6 +50,16 @@ export default function CrudPage({
   showActive = true, addLabel = '+ Add', filterBar,
 }: CrudPageProps) {
   const { toast } = useToast()
+
+  // The page window the previous Pagination component computed internally.
+  // Kept identical so the 16 CrudPage screens paginate exactly as before;
+  // only the markup underneath it changed to the kit's component.
+  const pageWindow = Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+    if (totalPages <= 7) return i + 1
+    if (page <= 4) return i + 1
+    if (page >= totalPages - 3) return totalPages - 6 + i
+    return page - 3 + i
+  })
 
   // Local ordered rows for drag-and-drop (only used when onReorder is set)
   const [orderedRows, setOrderedRows] = useState<Record<string, unknown>[]>(rows)
@@ -171,7 +190,51 @@ export default function CrudPage({
         </table>
       </div>
 
-      <Pagination page={page} totalPages={totalPages} onPage={onPage} totalRows={allRowsCount} />
+      {totalPages > 1 && (
+        <PaginationBar>
+          <PaginationCount>
+            {allRowsCount != null ? `${allRowsCount} records` : ''}
+          </PaginationCount>
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  aria-disabled={page === 1}
+                  onClick={e => {
+                    e.preventDefault()
+                    if (page > 1) onPage(page - 1)
+                  }}
+                />
+              </PaginationItem>
+              {pageWindow.map(p => (
+                <PaginationItem key={p}>
+                  <PaginationLink
+                    href="#"
+                    isActive={p === page}
+                    onClick={e => {
+                      e.preventDefault()
+                      onPage(p)
+                    }}
+                  >
+                    {p}
+                  </PaginationLink>
+                </PaginationItem>
+              ))}
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  aria-disabled={page === totalPages}
+                  onClick={e => {
+                    e.preventDefault()
+                    if (page < totalPages) onPage(page + 1)
+                  }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </PaginationBar>
+      )}
     </div>
   )
 }
