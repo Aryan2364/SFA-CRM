@@ -303,7 +303,7 @@ export function BusinessPartnerFormFields({
       {showLeadStatus && (
         <>
           <div className="border-t border-gray-200 pt-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Lead Status</p>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wider mb-3">Lead Status</p>
           </div>
           <div>
             <label htmlFor="bp-stage" className="block text-sm font-medium text-gray-700 mb-1">Stage</label>
