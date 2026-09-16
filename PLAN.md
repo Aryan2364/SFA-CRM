@@ -1,7 +1,44 @@
 # PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
-**Status: DEPLOYED AND RUNNING on AWS (2026-09-15).** `sfacrm.rgbindia.com` serves the migrated
-app from RDS + R2.
+**Status: DEPLOYED AND RUNNING on AWS.** `sfacrm.rgbindia.com` serves the migrated app from
+RDS + R2. Head is `16f3eda`.
+
+> ### TWO PRODUCTION BUGS WERE FOUND *AFTER* THE FIRST DEPLOY — both Vercel-only assumptions
+>
+> **1. Login redirect loop (`c3d8a6c`).** Middleware runs in the **edge runtime**, and a
+> self-hosted `next start` does not inject `SESSION_SECRET` into the edge sandbox — the middleware
+> manifest allowlists only `__NEXT_*` keys. `verifySession()` threw, its own `try/catch` swallowed
+> it into `null`, and every valid login was redirected back to `/login`. Silently, with nothing in
+> the logs. **Vercel injects env into the edge runtime; nothing self-hosted does — so this code had
+> never worked outside Vercel.** No gate could catch it: the login API genuinely returns 200 with a
+> genuinely valid cookie, and it fails on the *next* request.
+> Fixed by moving verification to Node (`src/lib/session-node.ts`), having `getTenantId()` verify
+> the cookie itself, and **removing the `x-tenant-id` header from both sides** — middleware can no
+> longer verify, so a decoded-but-unverified payload would have let anyone forge a tenant id.
+> Guarded by `npm run verify:session`.
+>
+> **2. Connection leak (`16f3eda`).** `/api/dashboard/stats` returned *"too many connections for
+> role sfacrm_app"*. `prisma` is a lazy Proxy calling `getClient()` on **every property access**, so
+> `getClient()` is the only cache there is — but it cached behind
+> `if (NODE_ENV !== 'production')`, copied from the standard Prisma snippet, which is correct only
+> when a module-scope const holds the client. **Production cached nothing**, so every `prisma.x`
+> access built a new client with a new pool. Connections multiplied per *property access*, not per
+> request. Guarded by `npm run verify:singleton`.
+> The `CONNECTION LIMIT 10` caps contained this to one app; uncapped it would have taken
+> `lbd_production`, `hcrm_production` and `v2e_prod` down with it.
+
+> ### ⚠️ NOT VERIFIED — the last open item
+> A redeploy of `16f3eda` and a re-run of the five-step check (login → page load → `/api/auth/me`
+> → a real data call → tenant assertion) **was requested but never reported back.** The site
+> answers `/login` 200 and redirects unauthenticated API calls correctly, but **whether the
+> connection-leak fix is live and the dashboard loads has not been confirmed.** Verify before
+> treating this as finished.
+>
+> **Tenant-isolation assertion is also open.** `DEFAULT_TENANT_ID` equals the admin's own tenant,
+> so a correct result and a fallback result are indistinguishable for that account. Closing it
+> properly needs a login for the RCB tenant (`08bfa9da-…`, contact `1919191919`). Do **not**
+> substitute a weaker assertion — an earlier attempt compared two responses that were both 500s
+> and reported "forged header ignored", which was a pass for the wrong reason.
 
 > **⚠️ ONE ITEM OUTSTANDING.** The Caddy `/api/*` route still points at `localhost:4500`, so every
 > API call through the domain **502s** — pages render, nobody can log in. That edit touches a
