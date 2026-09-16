@@ -53,7 +53,7 @@ export default function ReviewPage() {
   if (loading) {
     return (
       <div className="max-w-2xl mx-auto">
-        <h2 className="text-xl font-bold text-gray-900 mb-6">Review</h2>
+        <h2 className="text-xl font-medium text-gray-900 mb-6">Review</h2>
         <div className="text-center py-16 text-gray-400">Loading...</div>
       </div>
     )
@@ -62,7 +62,7 @@ export default function ReviewPage() {
   if (cards.length === 0) {
     return (
       <div className="max-w-2xl mx-auto">
-        <h2 className="text-xl font-bold text-gray-900 mb-6">Review</h2>
+        <h2 className="text-xl font-medium text-gray-900 mb-6">Review</h2>
         <div className="text-center py-16">
           <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -79,7 +79,7 @@ export default function ReviewPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-xl font-bold text-gray-900">Review</h2>
+        <h2 className="text-xl font-medium text-gray-900">Review</h2>
         <span className="text-sm text-gray-500">{cards.length} team member{cards.length !== 1 ? 's' : ''}</span>
       </div>
 
@@ -92,7 +92,7 @@ export default function ReviewPage() {
             </svg>
           </div>
           <div>
-            <p className="text-sm font-semibold text-amber-800">{pendingCount} plan{pendingCount !== 1 ? 's' : ''} need your approval</p>
+            <p className="text-sm font-medium text-amber-800">{pendingCount} plan{pendingCount !== 1 ? 's' : ''} need your approval</p>
             <p className="text-xs text-amber-600 mt-0.5">Click a team member to review their details</p>
           </div>
         </div>
@@ -105,13 +105,13 @@ export default function ReviewPage() {
             <div className="px-5 py-4">
               <div className="flex items-start gap-3">
                 {/* Avatar */}
-                <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-medium text-sm shrink-0">
                   {card.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-gray-900">{card.name}</h3>
+                    <h3 className="font-medium text-gray-900">{card.name}</h3>
                     {card.level && <span className="text-[11px] text-gray-400 font-medium">{card.level}</span>}
                   </div>
 
@@ -130,7 +130,7 @@ export default function ReviewPage() {
                       <button
                         disabled={acting === card.plan.id}
                         onClick={(e) => { e.stopPropagation(); handleApprove(card.plan!.id, card.id) }}
-                        className="ml-1 text-[11px] font-semibold bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded-lg disabled:opacity-50 transition"
+                        className="ml-1 text-[11px] font-medium bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded-lg disabled:opacity-50 transition"
                       >
                         Approve
                       </button>

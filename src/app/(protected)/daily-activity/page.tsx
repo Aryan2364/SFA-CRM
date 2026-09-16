@@ -132,10 +132,10 @@ function WeekStrip({ selectedDate, onSelectDate, onPrevWeek, onNextWeek, calenda
                     : 'hover:bg-gray-50 text-gray-600'
                 }`}
               >
-                <span className={`text-[10px] font-semibold uppercase tracking-wide ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                <span className={`text-[10px] font-normal uppercase tracking-wide ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
                   {DAY_LABELS[i]}
                 </span>
-                <span className={`text-sm font-bold ${isSelected ? 'text-white' : isToday ? 'text-blue-600' : 'text-gray-700'}`}>
+                <span className={`text-sm font-medium ${isSelected ? 'text-white' : isToday ? 'text-blue-600' : 'text-gray-700'}`}>
                   {d.getDate()}
                 </span>
                 {isToday && (
@@ -222,11 +222,11 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${typeColor}`}>{visit.visit_type}</span>
-              {visit.is_new_entity && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">New</span>}
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusColor}`}>{visit.status}</span>
+              <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${typeColor}`}>{visit.visit_type}</span>
+              {visit.is_new_entity && <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">New</span>}
+              <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${statusColor}`}>{visit.status}</span>
             </div>
-            <h3 className="mt-1.5 text-base font-semibold text-gray-900 truncate">{visit.entity_name}</h3>
+            <h3 className="mt-1.5 text-base font-medium text-gray-900 truncate">{visit.entity_name}</h3>
           </div>
 
           <div className="flex flex-col items-center gap-1 shrink-0">
@@ -242,7 +242,7 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
                   className="w-12 h-12 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow transition">
                   <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z" /></svg>
                 </button>
-                <span className="text-xs font-mono font-bold text-amber-600 tabular-nums">{formatDuration(elapsed)}</span>
+                <span className="text-xs font-mono font-medium text-amber-600 tabular-nums">{formatDuration(elapsed)}</span>
               </>
             )}
             {visit.status === 'Completed' && (
@@ -321,7 +321,7 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
         {/* Meeting Notes expandable section */}
         {visit.status === 'Completed' && notesOpen && (
           <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Meeting Notes</p>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Meeting Notes</p>
             <textarea
               rows={4}
               value={notesText}
@@ -338,7 +338,7 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
                   setNotesOpen(false)
                 }}
                 disabled={notesSaving}
-                className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg transition disabled:opacity-60">
+                className="text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg transition disabled:opacity-60">
                 {notesSaving ? 'Saving…' : 'Save Notes'}
               </button>
             </div>
@@ -348,10 +348,10 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
         {/* Location expandable section */}
         {locationOpen && visit.latitude != null && (
           <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Location Details</p>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Location Details</p>
             <div className="space-y-2">
               <div className="bg-teal-50 rounded-lg px-3 py-2">
-                <p className="text-[10px] font-semibold text-teal-600 uppercase mb-0.5">Start Location</p>
+                <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">Start Location</p>
                 <p className="text-xs text-gray-700">{visit.address ?? `${visit.latitude}, ${visit.longitude}`}</p>
               </div>
               {visit.end_latitude != null && (
@@ -362,10 +362,10 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
                     : 'bg-teal-50'
                 }`}>
                   <div className="flex items-center gap-1.5">
-                    <p className="text-[10px] font-semibold text-teal-600 uppercase mb-0.5">End Location</p>
+                    <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">End Location</p>
                     {visit.latitude != null && visit.end_latitude != null &&
                       (Math.abs(visit.latitude - visit.end_latitude) > 0.001 || Math.abs((visit.longitude ?? 0) - (visit.end_longitude ?? 0)) > 0.001) && (
-                      <span className="text-[10px] font-semibold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">Mismatch</span>
+                      <span className="text-[10px] font-normal text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">Mismatch</span>
                     )}
                   </div>
                   <p className="text-xs text-gray-700">{visit.end_address ?? `${visit.end_latitude}, ${visit.end_longitude}`}</p>
@@ -507,8 +507,8 @@ function AddMeetingModal({ onClose, onAdd }: { onClose: () => void; onAdd: (v: P
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl">
-          <h3 className="font-semibold text-gray-900">New Meeting</h3>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 sticky top-0 bg-white rounded-t-2xl">
+          <h3 className="font-medium text-gray-900">New Meeting</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -636,7 +636,7 @@ function AddMeetingModal({ onClose, onAdd }: { onClose: () => void; onAdd: (v: P
             </div>
           )}
         </div>
-        <div className="px-5 pb-5 flex gap-2 sticky bottom-0 bg-white border-t pt-3">
+        <div className="px-5 pb-5 flex gap-2 sticky bottom-0 bg-white border-t border-gray-200 pt-3">
           <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
           <button onClick={handleAdd} disabled={!canAdd}
             className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium disabled:opacity-40 transition">
@@ -708,8 +708,8 @@ function AddExpenseModal({ onClose, onAdd }: { onClose: () => void; onAdd: (e: P
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold text-gray-900">Add Expense</h3>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h3 className="font-medium text-gray-900">Add Expense</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -840,9 +840,9 @@ function OrderEntryModal({ visit, onClose, onSaved }: { visit: Visit; onClose: (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
           <div>
-            <h3 className="font-semibold text-gray-900">Order Entry</h3>
+            <h3 className="font-medium text-gray-900">Order Entry</h3>
             <p className="text-xs text-gray-500 mt-0.5">{visit.entity_name}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100">
@@ -915,7 +915,7 @@ function OrderEntryModal({ visit, onClose, onSaved }: { visit: Visit; onClose: (
 
               <div className="mt-4 flex items-center justify-end gap-2 border-t border-gray-100 pt-3">
                 <span className="text-sm text-gray-600">Total:</span>
-                <span className="text-lg font-bold text-gray-900">₹{total.toFixed(0)}</span>
+                <span className="text-lg font-medium text-gray-900">₹{total.toFixed(0)}</span>
               </div>
             </>
           )}
@@ -966,7 +966,7 @@ function PlanTab({ selectedDate }: { selectedDate: string }) {
       {planDay.plan_status && (
         <div className="flex items-center gap-2 text-xs text-gray-500 mb-4 px-1">
           <span>Weekly Plan Status:</span>
-          <span className="font-semibold text-gray-700">{planDay.plan_status}</span>
+          <span className="font-medium text-gray-700">{planDay.plan_status}</span>
         </div>
       )}
       {planDay.items.map((item) => (
@@ -979,7 +979,7 @@ function PlanTab({ selectedDate }: { selectedDate: string }) {
               </svg>
             </div>
             <div className="flex-1">
-              <p className="font-semibold text-gray-900">{item.from_place || '—'}</p>
+              <p className="font-medium text-gray-900">{item.from_place || '—'}</p>
               {item.to_place && <p className="text-xs text-gray-500 mt-0.5">To: {item.to_place}</p>}
               <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-600">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" />Dist. target: <strong>{item.existing_dealers_goal}</strong></span>
@@ -1057,17 +1057,17 @@ function ExpensesTab({ selectedDate, onOpenRemarks, isFuture }: { selectedDate: 
           {/* Total bar */}
           <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl text-sm mb-2">
             <span className="text-gray-600">{expenses.length} expense{expenses.length !== 1 ? 's' : ''}</span>
-            <span className="font-semibold text-gray-800">Total: ₹{total.toFixed(0)}</span>
+            <span className="font-medium text-gray-800">Total: ₹{total.toFixed(0)}</span>
           </div>
           {expenses.map(exp => (
             <div key={exp.id} className="bg-white rounded-2xl border border-gray-200 px-5 py-4">
               <div className="flex items-start gap-3">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${CATEGORY_COLORS[exp.category] ?? 'bg-gray-100 text-gray-600'}`}>
+                    <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${CATEGORY_COLORS[exp.category] ?? 'bg-gray-100 text-gray-600'}`}>
                       {exp.category}
                     </span>
-                    <span className="text-base font-bold text-gray-900 ml-auto">₹{Number(exp.amount).toFixed(0)}</span>
+                    <span className="text-base font-medium text-gray-900 ml-auto">₹{Number(exp.amount).toFixed(0)}</span>
                   </div>
                   {exp.notes && <p className="text-sm text-gray-500 mt-1.5">{exp.notes}</p>}
                   {exp.photo_url && (
@@ -1121,7 +1121,7 @@ function SummaryTab({ selectedDate, visits, expenses, planDay }: {
     <div className="space-y-5">
       {/* Plan section */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
           <span className="w-1.5 h-4 bg-blue-500 rounded-full inline-block" />
           Planned
         </h3>
@@ -1144,14 +1144,14 @@ function SummaryTab({ selectedDate, visits, expenses, planDay }: {
 
       {/* Actual section */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
           <span className="w-1.5 h-4 bg-emerald-500 rounded-full inline-block" />
           Actual
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white border border-gray-200 rounded-2xl px-4 py-4">
             <p className="text-xs text-gray-500 mb-1">Meetings</p>
-            <p className="text-2xl font-bold text-gray-900">{visits.length}</p>
+            <p className="text-2xl font-medium text-gray-900">{visits.length}</p>
             <div className="flex gap-2 mt-1 text-xs">
               {completed > 0 && <span className="text-emerald-600">{completed} done</span>}
               {active > 0 && <span className="text-amber-600">{active} active</span>}
@@ -1160,7 +1160,7 @@ function SummaryTab({ selectedDate, visits, expenses, planDay }: {
           </div>
           <div className="bg-white border border-gray-200 rounded-2xl px-4 py-4">
             <p className="text-xs text-gray-500 mb-1">Expenses</p>
-            <p className="text-2xl font-bold text-gray-900">₹{totalExpenses.toFixed(0)}</p>
+            <p className="text-2xl font-medium text-gray-900">₹{totalExpenses.toFixed(0)}</p>
             <p className="text-xs text-gray-400 mt-1">{expenses.length} entr{expenses.length !== 1 ? 'ies' : 'y'}</p>
           </div>
         </div>
@@ -1257,14 +1257,14 @@ function AttendanceCard() {
         {checkedIn && (
           <div className="space-y-0.5">
             <p className="text-sm font-medium text-gray-800">
-              In: <span className="font-semibold">{fmtTime(record!.check_in_time!)}</span>
+              In: <span className="font-medium">{fmtTime(record!.check_in_time!)}</span>
               {fmtCoords(record!.check_in_latitude, record!.check_in_longitude) &&
                 <span className="ml-2 text-xs text-gray-500">{fmtCoords(record!.check_in_latitude, record!.check_in_longitude)}</span>
               }
             </p>
             {checkedOut && (
               <p className="text-sm text-gray-600">
-                Out: <span className="font-semibold">{fmtTime(record!.check_out_time!)}</span>
+                Out: <span className="font-medium">{fmtTime(record!.check_out_time!)}</span>
                 {fmtCoords(record!.check_out_latitude, record!.check_out_longitude) &&
                   <span className="ml-2 text-xs text-gray-500">{fmtCoords(record!.check_out_latitude, record!.check_out_longitude)}</span>
                 }
@@ -1277,13 +1277,13 @@ function AttendanceCard() {
       {/* Action button */}
       {!checkedIn && (
         <button onClick={handleCheckIn} disabled={acting}
-          className="flex-shrink-0 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50 transition">
+          className="flex-shrink-0 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 transition">
           {acting ? 'Locating…' : 'Check In'}
         </button>
       )}
       {checkedIn && !checkedOut && (
         <button onClick={handleCheckOut} disabled={acting}
-          className="flex-shrink-0 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50 transition">
+          className="flex-shrink-0 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 transition">
           {acting ? 'Locating…' : 'Check Out'}
         </button>
       )}
@@ -1512,7 +1512,7 @@ function DailyActivityInner() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Daily Activity</h2>
+          <h2 className="text-xl font-medium text-gray-900">Daily Activity</h2>
           <p className="text-xs text-gray-400 mt-0.5">{displayDate}</p>
         </div>
       </div>
@@ -1631,13 +1631,13 @@ function DailyActivityInner() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 text-base">Location Access Blocked</h3>
+                <h3 className="font-medium text-gray-900 text-base">Location Access Blocked</h3>
                 <p className="text-sm text-gray-500 mt-1">
                   Your browser has blocked location access. Please enable it to {locationDenied.action === 'start' ? 'start' : 'stop'} the meeting.
                 </p>
               </div>
               <div className="w-full bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-left text-xs text-amber-800 space-y-1">
-                <p className="font-semibold">How to enable location:</p>
+                <p className="font-medium">How to enable location:</p>
                 <p>• Tap the lock / info icon in your browser&apos;s address bar</p>
                 <p>• Find <strong>Location</strong> and set it to <strong>Allow</strong></p>
                 <p>• Then tap <strong>Try Again</strong> below</p>

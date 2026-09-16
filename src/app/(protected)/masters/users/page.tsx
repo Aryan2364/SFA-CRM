@@ -314,7 +314,7 @@ export default function UsersPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 mb-1">User Limit Reached</h3>
+                <h3 className="font-medium text-gray-900 mb-1">User Limit Reached</h3>
                 <p className="text-sm text-gray-600">
                   Active user limit reached ({license?.used}/{license?.limit}). To add more users, please contact{' '}
                   <span className="font-medium text-gray-900">My Prosys Support team</span> to upgrade your plan.
@@ -400,7 +400,7 @@ export default function UsersPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900">Deactivate {String(deactivateTarget.name)}?</h3>
+                <h3 className="font-medium text-gray-900">Deactivate {String(deactivateTarget.name)}?</h3>
                 <p className="text-sm text-gray-500 mt-0.5">This user will immediately lose login access. Their data stays intact.</p>
               </div>
             </div>
@@ -409,7 +409,7 @@ export default function UsersPage() {
               <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-500 text-center">Loading linked records…</div>
             ) : deactivateSummary ? (
               <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 mb-5">
-                <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide mb-3">Linked Records</p>
+                <p className="text-xs font-normal text-amber-800 uppercase tracking-wide mb-3">Linked Records</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { label: 'Direct reports', value: deactivateSummary.direct_reports },
@@ -419,7 +419,7 @@ export default function UsersPage() {
                   ].map(({ label, value }) => (
                     <div key={label} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-100">
                       <span className="text-xs text-gray-600">{label}</span>
-                      <span className={`text-sm font-semibold ${value > 0 ? 'text-amber-700' : 'text-gray-400'}`}>{value}</span>
+                      <span className={`text-sm font-medium ${value > 0 ? 'text-amber-700' : 'text-gray-400'}`}>{value}</span>
                     </div>
                   ))}
                 </div>
@@ -457,7 +457,7 @@ export default function UsersPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900">Reactivate {String(reactivateTarget.name)}?</h3>
+                <h3 className="font-medium text-gray-900">Reactivate {String(reactivateTarget.name)}?</h3>
                 <p className="text-sm text-gray-500 mt-0.5">Review and confirm the user&apos;s role and manager before reactivating.</p>
               </div>
             </div>
@@ -511,7 +511,7 @@ export default function UsersPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900">User Account Audit Log</h3>
+              <h3 className="font-medium text-gray-900">User Account Audit Log</h3>
               <button onClick={() => setShowAudit(false)} className="text-gray-400 hover:text-gray-600 transition">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

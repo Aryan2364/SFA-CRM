@@ -188,7 +188,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </svg>
           </div>
           <div>
-            <p className="font-bold text-white text-sm leading-tight">RGB SFA</p>
+            <p className="font-medium text-white text-sm leading-tight">RGB SFA</p>
             <p className="text-xs text-green-300 font-medium">{me?.tenantName ?? ''}</p>
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 pt-2 overflow-y-auto">
-        <p className="px-3 pb-2 text-[11px] font-semibold text-green-500 uppercase tracking-wider">Navigation</p>
+        <p className="px-3 pb-2 text-[11px] font-normal text-green-500 uppercase tracking-wider">Navigation</p>
         <div className="space-y-0.5">
           {NAV.map(item => (
             <Link key={item.href} href={item.href} onClick={() => { if (window.innerWidth < 768) onClose?.() }}
@@ -217,7 +217,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       <div className="px-4 py-4 border-t border-green-800">
         <div className="flex items-center justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{me?.name ?? 'Loading...'}</p>
+            <p className="text-sm font-medium text-white truncate">{me?.name ?? 'Loading...'}</p>
             <p className="text-xs text-green-300">{me?.phone ?? ''}</p>
           </div>
           <button onClick={handleLogout} className="p-2 rounded-lg text-green-300 hover:text-red-400 hover:bg-red-900/30 transition" title="Logout">

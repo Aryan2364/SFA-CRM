@@ -280,7 +280,7 @@ export default function TerritoryCanvasPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
             Back to Territory Mapping
           </a>
-          <h2 className="text-xl font-semibold text-gray-800">{user?.name ?? 'User'} — Territory</h2>
+          <h2 className="text-xl font-medium text-gray-800">{user?.name ?? 'User'} — Territory</h2>
           <p className="text-sm text-gray-500 mt-0.5">
             {totalSelected > 0
               ? `${stateIds.size} states · ${districtIds.size} districts · ${talukaIds.size} talukas · ${villageIds.size} villages selected`
@@ -288,7 +288,7 @@ export default function TerritoryCanvasPage() {
           </p>
         </div>
         <button type="button" onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl disabled:opacity-50 transition shadow-sm">
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl disabled:opacity-50 transition shadow-sm">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
           {saving ? 'Saving…' : 'Save Territory'}
         </button>
@@ -322,7 +322,7 @@ export default function TerritoryCanvasPage() {
 
                 {/* State name + expand button — positioned NEXT TO name */}
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <span className="font-semibold text-gray-800 truncate">{state.name}</span>
+                  <span className="font-medium text-gray-800 truncate">{state.name}</span>
                   {/* Expand/collapse button next to the name */}
                   {isStateSelected && (
                     <button
@@ -489,7 +489,7 @@ export default function TerritoryCanvasPage() {
       {/* Bottom save button */}
       <div className="mt-6 flex justify-end">
         <button type="button" onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-6 py-3 rounded-xl disabled:opacity-50 transition">
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-3 rounded-xl disabled:opacity-50 transition">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
           {saving ? 'Saving…' : 'Save Territory'}
         </button>
@@ -507,9 +507,9 @@ export default function TerritoryCanvasPage() {
               </svg>
             </div>
 
-            <h3 className="text-lg font-bold text-gray-900 mb-1">Territory Saved</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-1">Territory Saved</h3>
             <p className="text-sm text-gray-500 mb-1">
-              Territory for <span className="font-semibold text-gray-700">{user?.name}</span> has been updated successfully.
+              Territory for <span className="font-medium text-gray-700">{user?.name}</span> has been updated successfully.
             </p>
             <p className="text-xs text-gray-400 mb-6">
               {savedSummary.states} state{savedSummary.states !== 1 ? 's' : ''} · {savedSummary.districts} district{savedSummary.districts !== 1 ? 's' : ''} · {savedSummary.talukas} taluka{savedSummary.talukas !== 1 ? 's' : ''} · {savedSummary.villages} village{savedSummary.villages !== 1 ? 's' : ''}

@@ -107,7 +107,7 @@ export default function PointsConfigPage() {
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-yellow-100 rounded-xl flex items-center justify-center text-xl">⚙️</div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Points Configuration</h1>
+          <h1 className="text-2xl font-medium text-gray-900">Points Configuration</h1>
           <p className="text-sm text-gray-500">Define how points are awarded to your team</p>
         </div>
       </div>
@@ -115,7 +115,7 @@ export default function PointsConfigPage() {
       {/* Reset Period */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-5 flex items-center gap-4">
         <div className="flex-1">
-          <p className="text-sm font-semibold text-gray-700">Points Reset Period</p>
+          <p className="text-sm font-medium text-gray-700">Points Reset Period</p>
           <p className="text-xs text-gray-400 mt-0.5">How often the leaderboard and totals reset</p>
         </div>
         <select value={resetPeriod} onChange={e => setResetPeriod(e.target.value)}

@@ -28,7 +28,7 @@ function ToastItem({ t, onClose }: { t: Toast; onClose: () => void }) {
   return (
     <div className={`${s.wrap} border rounded-lg shadow-lg overflow-hidden`}>
       <div className="flex items-start gap-3 px-4 py-3">
-        <span className={`${s.text} text-sm font-bold mt-0.5 flex-shrink-0 w-4 text-center`}>{s.icon}</span>
+        <span className={`${s.text} text-sm font-medium mt-0.5 flex-shrink-0 w-4 text-center`}>{s.icon}</span>
         <p className={`${s.text} text-sm font-medium flex-1 leading-snug`}>{t.message}</p>
         <button
           onClick={onClose}

@@ -74,7 +74,7 @@ export default function PointsPage() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-yellow-100 rounded-xl flex items-center justify-center text-xl">🏆</div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">My Points</h1>
+            <h1 className="text-2xl font-medium text-gray-900">My Points</h1>
             <p className="text-sm text-gray-500">Track your performance score</p>
           </div>
         </div>
@@ -92,18 +92,18 @@ export default function PointsPage() {
       <div className={`grid gap-4 mb-6 ${canSeeLeaderboard && myRank ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <div className="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl p-5 text-white shadow-lg">
           <p className="text-yellow-100 text-sm font-medium mb-1">Total Points</p>
-          <p className="text-4xl font-bold">{loading ? '—' : total}</p>
+          <p className="text-4xl font-medium">{loading ? '—' : total}</p>
           <p className="text-yellow-100 text-xs mt-1">{PERIODS.find(p => p.value === period)?.label}</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
           <p className="text-gray-500 text-sm font-medium mb-1">Actions Taken</p>
-          <p className="text-4xl font-bold text-gray-900">{loading ? '—' : events.length}</p>
+          <p className="text-4xl font-medium text-gray-900">{loading ? '—' : events.length}</p>
           <p className="text-gray-400 text-xs mt-1">Point-earning activities</p>
         </div>
         {canSeeLeaderboard && myRank && (
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
             <p className="text-gray-500 text-sm font-medium mb-1">Your Rank</p>
-            <p className="text-4xl font-bold text-gray-900">
+            <p className="text-4xl font-medium text-gray-900">
               {loading ? '—' : `${myRank}${getRankSuffix(myRank)}`}
             </p>
             <p className="text-gray-400 text-xs mt-1">Out of {leaderboard.length} members</p>
@@ -139,7 +139,7 @@ export default function PointsPage() {
                 <p className="text-sm font-medium text-gray-800 truncate">{e.description ?? e.action_type.replace(/_/g, ' ')}</p>
                 <p className="text-xs text-gray-400">{formatDate(e.earned_at)}</p>
               </div>
-              <span className="text-sm font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full whitespace-nowrap">+{e.points} pts</span>
+              <span className="text-sm font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full whitespace-nowrap">+{e.points} pts</span>
             </div>
           ))}
         </div>
@@ -161,7 +161,7 @@ export default function PointsPage() {
                     <span className="text-xl">{ACTION_ICONS[key] ?? '⭐'}</span>
                     <span className="text-sm font-medium text-gray-800">{val.label}</span>
                   </div>
-                  <span className="text-sm font-bold text-green-600">{val.points} pts</span>
+                  <span className="text-sm font-medium text-green-600">{val.points} pts</span>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <div className="flex-1 bg-gray-100 rounded-full h-1.5">
@@ -184,7 +184,7 @@ export default function PointsPage() {
           ) : leaderboard.map(entry => (
             <div key={entry.user_id}
               className={`flex items-center gap-3 rounded-xl px-4 py-3 border shadow-sm ${entry.is_self ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${
                 entry.rank === 1 ? 'bg-yellow-400 text-white' :
                 entry.rank === 2 ? 'bg-gray-300 text-gray-700' :
                 entry.rank === 3 ? 'bg-orange-400 text-white' :
@@ -198,7 +198,7 @@ export default function PointsPage() {
                 </p>
                 <p className="text-xs text-gray-400 truncate">{entry.designation}</p>
               </div>
-              <span className="text-sm font-bold text-gray-800">{entry.points} pts</span>
+              <span className="text-sm font-medium text-gray-800">{entry.points} pts</span>
             </div>
           ))}
         </div>

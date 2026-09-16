@@ -38,9 +38,9 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
         <div className="flex items-center gap-2 mb-6">
-          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">R</div>
+          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white font-medium text-lg">R</div>
           <div>
-            <h1 className="text-lg font-bold text-gray-800 leading-none">RGB Admin</h1>
+            <h1 className="text-lg font-medium text-gray-800 leading-none">RGB Admin</h1>
             <p className="text-xs text-gray-400">SFA Management System</p>
           </div>
         </div>
@@ -137,7 +137,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
               </svg>
             </div>
-            <h3 className="text-base font-bold text-gray-900 mb-1">Email Sent</h3>
+            <h3 className="text-base font-medium text-gray-900 mb-1">Email Sent</h3>
             <p className="text-sm text-gray-500 mb-5">
               If an account exists for that phone number, an email with your credentials and a reset link has been sent.
             </p>
@@ -148,7 +148,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <>
-            <h3 className="text-base font-bold text-gray-900 mb-1">Reset Password</h3>
+            <h3 className="text-base font-medium text-gray-900 mb-1">Reset Password</h3>
             <p className="text-sm text-gray-400 mb-5">
               Enter your registered phone number. We&apos;ll send your current credentials and a reset link to your email.
             </p>

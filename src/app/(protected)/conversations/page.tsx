@@ -122,7 +122,7 @@ export default function ConversationsPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-xl font-bold text-gray-900">Conversations</h2>
+        <h2 className="text-xl font-medium text-gray-900">Conversations</h2>
         {conversations.length > 0 && (
           <span className="text-sm text-gray-500">{conversations.length} thread{conversations.length !== 1 ? 's' : ''}</span>
         )}
@@ -188,7 +188,7 @@ export default function ConversationsPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${SECTION_COLORS[conv.context_type] ?? 'bg-gray-100 text-gray-600'}`}>
+                      <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${SECTION_COLORS[conv.context_type] ?? 'bg-gray-100 text-gray-600'}`}>
                         {SECTION_LABELS[conv.context_type] ?? conv.context_type}
                       </span>
                       <span className="text-xs text-gray-400 ml-auto">{formatRelative(conv.updated_at)}</span>
@@ -200,7 +200,7 @@ export default function ConversationsPage() {
                         {conv.last_body}
                       </p>
                       {conv.unread_count > 0 && (
-                        <span className="shrink-0 ml-auto w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        <span className="shrink-0 ml-auto w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-medium flex items-center justify-center">
                           {conv.unread_count > 9 ? '9+' : conv.unread_count}
                         </span>
                       )}

@@ -90,7 +90,7 @@ function InfoPanel() {
         <div className="px-4 pb-4 space-y-4">
           {/* Points system */}
           <div>
-            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Activity Score — Weighted Points</p>
+            <p className="text-xs font-normal text-blue-700 uppercase tracking-wide mb-2">Activity Score — Weighted Points</p>
             <p className="text-xs text-blue-700 mb-2">Every action a user takes earns points. The <strong>30-day score</strong> is used for ranking and classification.</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {[
@@ -104,7 +104,7 @@ function InfoPanel() {
                 <div key={r.action} className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-blue-100">
                   <span className="text-sm">{r.icon}</span>
                   <span className="text-xs text-gray-600 flex-1">{r.action}</span>
-                  <span className="text-xs font-bold text-blue-700">+{r.pts}</span>
+                  <span className="text-xs font-medium text-blue-700">+{r.pts}</span>
                 </div>
               ))}
             </div>
@@ -112,7 +112,7 @@ function InfoPanel() {
 
           {/* Classification thresholds */}
           <div>
-            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Classification Thresholds</p>
+            <p className="text-xs font-normal text-blue-700 uppercase tracking-wide mb-2">Classification Thresholds</p>
             <div className="space-y-2">
               {[
                 { cls: 'actively_using',  label: 'Actively Using',   rule: 'Logged in within 7 days AND score ≥ 5 in last 7 days' },
@@ -142,7 +142,7 @@ function SummaryCard({ label, value, sub, color = 'text-gray-900' }: {
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <div className={`text-2xl font-bold ${color}`}>{value}</div>
+      <div className={`text-2xl font-medium ${color}`}>{value}</div>
       <div className="text-xs font-medium text-gray-500 mt-0.5">{label}</div>
       {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
@@ -236,7 +236,7 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
           {/* Power Users */}
           {summary.power_users.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Power Users — Top {summary.power_users.length} by Activity (30 days)</h3>
+              <h3 className="text-sm font-medium text-gray-900 mb-3">Power Users — Top {summary.power_users.length} by Activity (30 days)</h3>
               <div className="space-y-2">
                 {summary.power_users.map((u, i) => (
                   <div key={u.id} className="flex items-center gap-3">
@@ -253,7 +253,7 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
                         />
                       </div>
                     </div>
-                    <span className="text-xs font-semibold text-gray-700 w-12 text-right">{u.score_30d} pts</span>
+                    <span className="text-xs font-medium text-gray-700 w-12 text-right">{u.score_30d} pts</span>
                   </div>
                 ))}
               </div>
@@ -263,7 +263,7 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
           {/* Classification breakdown bar */}
           {summary.total_users > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Engagement Breakdown</h3>
+              <h3 className="text-sm font-medium text-gray-900 mb-3">Engagement Breakdown</h3>
               <div className="flex h-4 rounded-full overflow-hidden gap-px">
                 {[
                   { key: 'actively_using', count: summary.actively_using,  color: 'bg-emerald-400' },
@@ -374,7 +374,7 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(u.last_activity)}</td>
                     <td className="px-4 py-3 text-right">
-                      <span className={`font-semibold ${u.activity_score_30d >= 20 ? 'text-emerald-600' : u.activity_score_30d >= 5 ? 'text-amber-600' : 'text-gray-400'}`}>
+                      <span className={`font-medium ${u.activity_score_30d >= 20 ? 'text-emerald-600' : u.activity_score_30d >= 5 ? 'text-amber-600' : 'text-gray-400'}`}>
                         {u.activity_score_30d}
                       </span>
                     </td>
@@ -538,7 +538,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
           </svg>
         </button>
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">{company.name}</h1>
+          <h1 className="text-xl font-medium text-gray-900">{company.name}</h1>
           <div className="flex items-center gap-2 mt-0.5">
             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[company.payment_status]}`}>{company.payment_status}</span>
             {!company.is_active && <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Disabled</span>}
@@ -549,7 +549,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
       {/* Banners */}
       {admins.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between gap-4">
-          <div className="text-sm text-amber-800"><span className="font-semibold">No Administrator found.</span> This company has no admin user and cannot log in.</div>
+          <div className="text-sm text-amber-800"><span className="font-medium">No Administrator found.</span> This company has no admin user and cannot log in.</div>
           <button onClick={() => setShowCreateAdmin(true)} className="shrink-0 bg-amber-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors">Create Admin</button>
         </div>
       )}
@@ -562,17 +562,17 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
       {/* Quick stats */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900">{company.total_users}</div>
+          <div className="text-2xl font-medium text-gray-900">{company.total_users}</div>
           <div className="text-xs text-gray-500 mt-0.5">Total Users</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-          <div className={`text-2xl font-bold ${company.total_users >= company.license_count ? 'text-red-600' : 'text-gray-900'}`}>
+          <div className={`text-2xl font-medium ${company.total_users >= company.license_count ? 'text-red-600' : 'text-gray-900'}`}>
             {company.total_users} / {company.license_count}
           </div>
           <div className="text-xs text-gray-500 mt-0.5">License Usage</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{company.active_users}</div>
+          <div className="text-2xl font-medium text-green-600">{company.active_users}</div>
           <div className="text-xs text-gray-500 mt-0.5">Active Users</div>
         </div>
       </div>
@@ -698,7 +698,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
       {showCreateAdmin && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-semibold text-gray-900 mb-1">Create Admin User</h3>
+            <h3 className="font-medium text-gray-900 mb-1">Create Admin User</h3>
             <p className="text-xs text-gray-500 mb-4">This user will be the Administrator for {company.name}</p>
             <form onSubmit={handleCreateAdmin} className="space-y-3">
               {createAdminError && <div className="bg-red-50 text-red-700 text-xs px-3 py-2 rounded-lg">{createAdminError}</div>}
@@ -735,7 +735,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
       {revokeTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-semibold text-gray-900 mb-2">Revoke Admin Access?</h3>
+            <h3 className="font-medium text-gray-900 mb-2">Revoke Admin Access?</h3>
             <p className="text-sm text-gray-500 mb-1"><strong>{revokeTarget.name}</strong> will lose Administrator access immediately.</p>
             <p className="text-sm text-gray-500 mb-5">They can still log in but will see a &quot;role not configured&quot; screen until the company admin assigns them a role.</p>
             <div className="flex gap-3">
@@ -750,7 +750,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
       {confirmDisable && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-semibold text-gray-900 mb-2">Disable All Logins?</h3>
+            <h3 className="font-medium text-gray-900 mb-2">Disable All Logins?</h3>
             <p className="text-sm text-gray-500 mb-5">All users of <strong>{company.name}</strong> will be blocked from logging in immediately.</p>
             <div className="flex gap-3">
               <button onClick={confirmDisableAction} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">Disable</button>

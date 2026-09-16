@@ -19,7 +19,7 @@ export default function Modal({ title, isOpen, onClose, onSave, isSaving, saveLa
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className={`relative bg-white rounded-2xl shadow-2xl w-full ${widths[size]} max-h-[90vh] flex flex-col`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold text-gray-800">{title}</h3>
+          <h3 className="text-base font-medium text-gray-800">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <div className="px-6 py-4 overflow-y-auto space-y-4 flex-1">{children}</div>

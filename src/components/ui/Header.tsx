@@ -100,7 +100,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
           </svg>
           {unreadCount > 0 && (
-            <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+            <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-medium rounded-full flex items-center justify-center">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
@@ -111,7 +111,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
           <div className="absolute right-0 top-full mt-1 w-80 bg-white rounded-2xl border border-gray-200 shadow-2xl z-50 overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-800">Notifications</h3>
+              <h3 className="text-sm font-medium text-gray-800">Notifications</h3>
               {unreadCount > 0 && (
                 <button onClick={markAllRead} className="text-xs text-blue-600 hover:underline font-medium">
                   Mark all read
@@ -136,7 +136,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
                       )}
                       <div className={`flex-1 min-w-0 ${notif.is_read ? 'pl-3.5' : ''}`}>
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${SECTION_COLORS[notif.section] ?? 'bg-gray-100 text-gray-600'}`}>
+                          <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded-full ${SECTION_COLORS[notif.section] ?? 'bg-gray-100 text-gray-600'}`}>
                             {notif.section.replace('_', ' ')}
                           </span>
                           <span className="text-[10px] text-gray-400 ml-auto">{formatRelative(notif.created_at)}</span>

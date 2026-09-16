@@ -187,7 +187,7 @@ export default function MastersImportPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Import Master Data</h1>
+          <h1 className="text-xl font-medium text-gray-900">Import Master Data</h1>
           <p className="text-sm text-gray-500 mt-0.5">Bulk-create masters from a single Excel workbook</p>
         </div>
         <button
@@ -281,9 +281,9 @@ export default function MastersImportPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-12">#</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-normal text-gray-500 uppercase tracking-wide w-12">#</th>
                     {cfg.cols.map(c => (
-                      <th key={c} className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      <th key={c} className="text-left px-3 py-2.5 text-xs font-normal text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         {c}
                       </th>
                     ))}
@@ -328,13 +328,13 @@ export default function MastersImportPage() {
 
           {!result.error && (
             <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-              <p className="text-sm font-semibold text-green-800 mb-2">Import complete</p>
+              <p className="text-sm font-medium text-green-800 mb-2">Import complete</p>
               <div className="space-y-1">
                 {Object.entries(result.created).map(([key, count]) => (
                   <div key={key} className="flex items-center gap-2 text-sm">
                     <span className="text-green-600">✓</span>
                     <span className="capitalize text-gray-700 font-medium w-32">{key}:</span>
-                    <span className="text-green-700 font-semibold">{count} created</span>
+                    <span className="text-green-700 font-medium">{count} created</span>
                     {(result.existing[key] ?? 0) > 0 && (
                       <span className="text-gray-400">({result.existing[key]} already existed)</span>
                     )}
@@ -346,7 +346,7 @@ export default function MastersImportPage() {
 
           {result.skipped && result.skipped.length > 0 && (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-              <p className="text-sm font-semibold text-amber-800 mb-2">
+              <p className="text-sm font-medium text-amber-800 mb-2">
                 {result.skipped.length} row{result.skipped.length !== 1 ? 's' : ''} skipped
               </p>
               <div className="space-y-1 max-h-48 overflow-y-auto">

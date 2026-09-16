@@ -44,9 +44,9 @@ function ResetPasswordForm() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
         <div className="flex items-center gap-2 mb-6">
-          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">R</div>
+          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white font-medium text-lg">R</div>
           <div>
-            <h1 className="text-lg font-bold text-gray-800 leading-none">RGB Admin</h1>
+            <h1 className="text-lg font-medium text-gray-800 leading-none">RGB Admin</h1>
             <p className="text-xs text-gray-400">SFA Management System</p>
           </div>
         </div>
@@ -58,7 +58,7 @@ function ResetPasswordForm() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
               </svg>
             </div>
-            <h2 className="text-lg font-bold text-gray-900 mb-1">Password Updated</h2>
+            <h2 className="text-lg font-medium text-gray-900 mb-1">Password Updated</h2>
             <p className="text-sm text-gray-500 mb-6">Your password has been changed successfully.</p>
             <button onClick={() => router.push('/login')}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm transition">
@@ -67,7 +67,7 @@ function ResetPasswordForm() {
           </div>
         ) : (
           <>
-            <h2 className="text-lg font-bold text-gray-900 mb-1">Set New Password</h2>
+            <h2 className="text-lg font-medium text-gray-900 mb-1">Set New Password</h2>
             <p className="text-sm text-gray-400 mb-6">Enter your new password below.</p>
 
             <form onSubmit={handleSubmit} className="space-y-4">

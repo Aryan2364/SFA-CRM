@@ -101,7 +101,7 @@ export default function CrudPage({
       )}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-gray-800">{title}</h2>
+          <h2 className="text-xl font-medium text-gray-800">{title}</h2>
           {headerExtra}
         </div>
         {onAdd && (

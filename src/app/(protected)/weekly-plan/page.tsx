@@ -378,7 +378,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
         <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
         </svg>
-        <h2 className="text-xl font-bold text-gray-900">Weekly Plan</h2>
+        <h2 className="text-xl font-medium text-gray-900">Weekly Plan</h2>
         {plan && <StatusBadge status={plan.status} />}
         {plan && (
           <div className="flex items-center gap-3 ml-auto">
@@ -401,7 +401,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <span className="text-sm font-semibold text-gray-800">{formatWeekRange(monday)}</span>
+        <span className="text-sm font-medium text-gray-800">{formatWeekRange(monday)}</span>
         <button onClick={() => navigateWeek(1)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -411,7 +411,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
 
       {/* Week Goal */}
       <div className="mb-5 rounded-xl border border-gray-200 bg-white px-4 sm:px-5 py-4 shadow-sm">
-        <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+        <label className="block text-sm font-normal text-gray-700 mb-1.5">
           Upcoming week I want to Achieve
         </label>
         <textarea
@@ -428,7 +428,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       {plan && plan.status === 'Approved' && (
         <div className="mb-4 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-semibold text-green-700">
+            <div className="flex items-center gap-2 text-sm font-medium text-green-700">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Plan Approved
             </div>
@@ -442,7 +442,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       )}
       {plan && plan.status === 'Rejected' && (
         <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-red-700">
+          <div className="flex items-center gap-2 text-sm font-medium text-red-700">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             Plan Rejected — Please revise and resubmit
           </div>
@@ -451,7 +451,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       )}
       {plan && plan.status === 'Edited by Manager' && (
         <div className="mb-4 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-purple-700">
+          <div className="flex items-center gap-2 text-sm font-medium text-purple-700">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
             Plan Edited by Manager — Review changes and resubmit
           </div>
@@ -461,7 +461,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       {plan && plan.status === 'On Hold' && (
         <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-semibold text-yellow-700">
+            <div className="flex items-center gap-2 text-sm font-medium text-yellow-700">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
               Plan On Hold
             </div>
@@ -476,7 +476,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       {isSubmittedAwaitingReview && (
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
+            <div className="flex items-center gap-2 text-sm font-medium text-blue-700">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Awaiting manager review
             </div>
@@ -510,9 +510,9 @@ function MyPlanTab({ userId }: { userId: string | null }) {
                   {/* Day header */}
                   <div className="px-4 sm:px-5 pt-4 pb-2">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">{formatDayHeader(dateStr)}</h3>
+                      <h3 className="text-sm font-medium text-gray-900">{formatDayHeader(dateStr)}</h3>
                       {today && (
-                        <span className="text-[11px] font-semibold bg-blue-600 text-white px-2 py-0.5 rounded-md">Today</span>
+                        <span className="text-[11px] font-medium bg-blue-600 text-white px-2 py-0.5 rounded-md">Today</span>
                       )}
                     </div>
                   </div>
@@ -615,7 +615,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
 
                   {/* Day Focus / Remarks */}
                   <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-gray-100">
-                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Day Focus / Remarks</label>
+                    <label className="block text-xs font-normal text-gray-600 uppercase tracking-wide mb-1.5">Day Focus / Remarks</label>
                     <textarea
                       rows={2}
                       disabled={!canEdit}
@@ -636,14 +636,14 @@ function MyPlanTab({ userId }: { userId: string | null }) {
             {canEdit && (
               <>
                 <button onClick={handleSaveDraft} disabled={saving}
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 border border-gray-300 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition sm:min-w-[180px]">
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition sm:min-w-[180px]">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                   </svg>
                   Save Draft
                 </button>
                 <button onClick={handleSubmit} disabled={saving}
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition sm:min-w-[180px]">
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-sm font-medium disabled:opacity-50 transition sm:min-w-[180px]">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
                   </svg>
@@ -660,8 +660,8 @@ function MyPlanTab({ userId }: { userId: string | null }) {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40" onClick={() => setLogsOpen(false)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[70vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <h3 className="font-semibold text-gray-800">Audit Log</h3>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h3 className="font-medium text-gray-800">Audit Log</h3>
               <button onClick={() => setLogsOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
             </div>
             <div className="overflow-y-auto px-6 py-4 space-y-3">
@@ -687,7 +687,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40" onClick={() => { setReopenModal(false); setReopenMessage('') }} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h3 className="font-semibold text-gray-800 mb-1">Request Plan Reopen</h3>
+            <h3 className="font-medium text-gray-800 mb-1">Request Plan Reopen</h3>
             <p className="text-xs text-gray-500 mb-4">Explain why you need to edit this plan. Your manager will be notified.</p>
             <textarea
               value={reopenMessage}

@@ -58,7 +58,7 @@ type DashData = ManagerData | PersonalData | null
 function KPICard({ label, value, sub, color = 'text-gray-900', subColor = 'text-gray-500' }: { label: string; value: string | number; sub?: string; color?: string; subColor?: string }) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
+      <p className={`text-2xl font-medium ${color}`}>{value}</p>
       <p className="text-xs font-medium text-gray-500 mt-0.5 uppercase tracking-wide">{label}</p>
       {sub && <p className={`text-xs mt-1 ${subColor}`}>{sub}</p>}
     </div>
@@ -92,7 +92,7 @@ function PlanBadge({ status }: { status: string | null }) {
     'Draft': 'bg-gray-100 text-gray-600',
     'Edited by Manager': 'bg-purple-100 text-purple-700',
   }
-  return <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${map[status] ?? 'bg-gray-100 text-gray-600'}`}>{status}</span>
+  return <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${map[status] ?? 'bg-gray-100 text-gray-600'}`}>{status}</span>
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -192,18 +192,18 @@ export default function DashboardPage() {
   if (!data || !('isManager' in data) || !data.isManager) {
     return (
       <div>
-        <h2 className="text-xl font-bold text-gray-900 mb-6">Dashboard</h2>
+        <h2 className="text-xl font-medium text-gray-900 mb-6">Dashboard</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div onClick={() => router.push('/weekly-plan')} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm cursor-pointer hover:border-blue-300 transition">
-            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Weekly Plan</p>
+            <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-1">Weekly Plan</p>
             <p className="text-sm text-gray-700">View and submit your weekly plan</p>
           </div>
           <div onClick={() => router.push('/daily-activity')} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm cursor-pointer hover:border-blue-300 transition">
-            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Daily Activity</p>
+            <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-1">Daily Activity</p>
             <p className="text-sm text-gray-700">Log meetings and expenses</p>
           </div>
           <div onClick={() => router.push('/orders')} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm cursor-pointer hover:border-blue-300 transition">
-            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Orders</p>
+            <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-1">Orders</p>
             <p className="text-sm text-gray-700">View and create orders</p>
           </div>
         </div>
@@ -248,7 +248,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">{greeting()}{me?.name ? `, ${me.name}` : ''}</h2>
+          <h2 className="text-xl font-medium text-gray-900">{greeting()}{me?.name ? `, ${me.name}` : ''}</h2>
           <p className="text-sm text-gray-500 mt-0.5">Team performance overview</p>
         </div>
         <div className="flex items-center gap-2">
@@ -258,7 +258,7 @@ export default function DashboardPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
           </button>
-          <span className="text-sm font-semibold text-gray-700 px-2 min-w-[180px] text-center">{formatWeekRange(weekMonday)}</span>
+          <span className="text-sm font-medium text-gray-700 px-2 min-w-[180px] text-center">{formatWeekRange(weekMonday)}</span>
           <button onClick={() => setWeekMonday(d => addDays(d, 7))}
             className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 transition">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -289,7 +289,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Bar Chart */}
         <div className="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4">Daily Meeting Activity — Team Total</h3>
+          <h3 className="text-sm font-medium text-gray-800 mb-4">Daily Meeting Activity — Team Total</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} barCategoryGap="30%">
               <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
@@ -308,9 +308,9 @@ export default function DashboardPage() {
         {/* Pending Actions */}
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm flex flex-col">
           <div className="flex items-center gap-2 mb-4">
-            <h3 className="text-sm font-semibold text-gray-800">Needs Attention</h3>
+            <h3 className="text-sm font-medium text-gray-800">Needs Attention</h3>
             {pendingCount > 0 && (
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{pendingCount}</span>
+              <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{pendingCount}</span>
             )}
           </div>
           {pendingCount === 0 ? (
@@ -327,7 +327,7 @@ export default function DashboardPage() {
                 <div key={pp.id} className={`rounded-xl p-3 border ${pp.reopen_requested ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div>
-                      <p className="text-sm font-semibold text-gray-800">{pp.userName}</p>
+                      <p className="text-sm font-medium text-gray-800">{pp.userName}</p>
                       <p className="text-xs text-gray-500">
                         {pp.reopen_requested ? 'Reopen request' : 'Awaiting approval'} · {new Date(pp.weekStartDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                       </p>
@@ -346,22 +346,22 @@ export default function DashboardPage() {
                     {pp.reopen_requested ? (
                       <>
                         <button disabled={acting} onClick={() => handleReopen(pp.id, 'accept-reopen')}
-                          className="flex-1 text-[11px] font-semibold py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition">
+                          className="flex-1 text-[11px] font-medium py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition">
                           Accept
                         </button>
                         <button disabled={acting} onClick={() => handleReopen(pp.id, 'decline-reopen')}
-                          className="flex-1 text-[11px] font-semibold py-1.5 bg-white hover:bg-gray-50 text-red-600 border border-red-200 rounded-lg disabled:opacity-50 transition">
+                          className="flex-1 text-[11px] font-normal py-1.5 bg-white hover:bg-gray-50 text-red-600 border border-red-200 rounded-lg disabled:opacity-50 transition">
                           Decline
                         </button>
                       </>
                     ) : (
                       <>
                         <button disabled={acting} onClick={() => approvePlan(pp.id)}
-                          className="flex-1 text-[11px] font-semibold py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition">
+                          className="flex-1 text-[11px] font-medium py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition">
                           Approve
                         </button>
                         <button disabled={acting} onClick={() => { setCommentModal({ planId: pp.id, action: 'reject' }); setComment('') }}
-                          className="flex-1 text-[11px] font-semibold py-1.5 bg-white hover:bg-gray-50 text-red-600 border border-red-200 rounded-lg disabled:opacity-50 transition">
+                          className="flex-1 text-[11px] font-normal py-1.5 bg-white hover:bg-gray-50 text-red-600 border border-red-200 rounded-lg disabled:opacity-50 transition">
                           Reject
                         </button>
                       </>
@@ -377,8 +377,8 @@ export default function DashboardPage() {
       {/* Plan Compliance Bar */}
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-800">Plan Compliance This Week</h3>
-          <span className="text-sm font-bold text-gray-700">
+          <h3 className="text-sm font-medium text-gray-800">Plan Compliance This Week</h3>
+          <span className="text-sm font-medium text-gray-700">
             {planTotal > 0 ? Math.round(((planStats.approved) / planTotal) * 100) : 0}% approved
           </span>
         </div>
@@ -402,34 +402,34 @@ export default function DashboardPage() {
       {/* Team Performance Table */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-800">Team Performance</h3>
+          <h3 className="text-sm font-medium text-gray-800">Team Performance</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="px-4 py-3 text-left">
-                  <button onClick={() => toggleSort('name')} className="text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center">
+                  <button onClick={() => toggleSort('name')} className="text-xs font-medium text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center">
                     Member <SortIcon col="name" />
                   </button>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Activity</th>
+                <th className="px-4 py-3 text-left text-xs font-normal text-gray-500 uppercase tracking-wide">Plan</th>
+                <th className="px-4 py-3 text-center text-xs font-normal text-gray-500 uppercase tracking-wide">Activity</th>
                 {DAY_LABELS.map(d => (
-                  <th key={d} className="px-2 py-3 text-center text-xs font-semibold text-gray-400 w-8">{d}</th>
+                  <th key={d} className="px-2 py-3 text-center text-xs font-normal text-gray-400 w-8">{d}</th>
                 ))}
                 <th className="px-4 py-3 text-right">
-                  <button onClick={() => toggleSort('meetings')} className="text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center ml-auto">
+                  <button onClick={() => toggleSort('meetings')} className="text-xs font-medium text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center ml-auto">
                     Meetings <SortIcon col="meetings" />
                   </button>
                 </th>
                 <th className="px-4 py-3 text-right">
-                  <button onClick={() => toggleSort('orders')} className="text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center ml-auto">
+                  <button onClick={() => toggleSort('orders')} className="text-xs font-medium text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center ml-auto">
                     Orders <SortIcon col="orders" />
                   </button>
                 </th>
                 <th className="px-4 py-3 text-right">
-                  <button onClick={() => toggleSort('expenses')} className="text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center ml-auto">
+                  <button onClick={() => toggleSort('expenses')} className="text-xs font-medium text-gray-500 uppercase tracking-wide hover:text-gray-700 flex items-center ml-auto">
                     Expenses <SortIcon col="expenses" />
                   </button>
                 </th>
@@ -442,7 +442,7 @@ export default function DashboardPage() {
                   className={`border-b border-gray-50 cursor-pointer hover:bg-blue-50/50 transition ${idx % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center shrink-0">
+                      <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-medium flex items-center justify-center shrink-0">
                         {m.userName.charAt(0).toUpperCase()}
                       </div>
                       <div>
@@ -494,7 +494,7 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40" onClick={() => setCommentModal(null)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h3 className="font-semibold text-gray-800 mb-4">Reject Plan</h3>
+            <h3 className="font-medium text-gray-800 mb-4">Reject Plan</h3>
             <textarea value={comment} onChange={e => setComment(e.target.value)}
               rows={4} placeholder="Reason for rejection (required)…"
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-400 mb-4" />

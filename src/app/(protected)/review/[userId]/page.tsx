@@ -97,8 +97,8 @@ function WeekStrip({ selectedDate, onSelectDate, onPrevWeek, onNextWeek, calenda
             return (
               <button key={ds} onClick={() => onSelectDate(ds)}
                 className={`flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-xl flex-1 transition relative ${isSelected ? 'bg-blue-600 text-white' : 'hover:bg-gray-50 text-gray-600'}`}>
-                <span className={`text-[10px] font-semibold uppercase tracking-wide ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>{DAY_LABELS[i]}</span>
-                <span className={`text-sm font-bold ${isSelected ? 'text-white' : isToday ? 'text-blue-600' : 'text-gray-700'}`}>{d.getDate()}</span>
+                <span className={`text-[10px] font-normal uppercase tracking-wide ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>{DAY_LABELS[i]}</span>
+                <span className={`text-sm font-medium ${isSelected ? 'text-white' : isToday ? 'text-blue-600' : 'text-gray-700'}`}>{d.getDate()}</span>
                 {isToday && <span className={`w-1.5 h-1.5 rounded-full absolute bottom-1 ${isSelected ? 'bg-blue-200' : 'bg-blue-500'}`} />}
               </button>
             )
@@ -207,7 +207,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={p.status} />
                       {p.reopen_requested && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Reopen Req.</span>
+                        <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Reopen Req.</span>
                       )}
                     </div>
                   </td>
@@ -227,9 +227,9 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSelected(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <div>
-                <h3 className="font-semibold text-gray-800">Week of {selected.week_start_date}</h3>
+                <h3 className="font-medium text-gray-800">Week of {selected.week_start_date}</h3>
                 <div className="flex items-center gap-2 mt-1"><StatusBadge status={selected.status} /></div>
               </div>
               <div className="flex items-center gap-2">
@@ -268,7 +268,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
               {/* Day Focus / Remarks */}
               {selected.day_notes && Object.entries(selected.day_notes).filter(([, v]) => v?.trim()).length > 0 && (
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">Day Focus / Remarks</div>
+                  <div className="bg-gray-50 px-3 py-2 text-xs font-normal text-gray-600 uppercase tracking-wide">Day Focus / Remarks</div>
                   {Object.entries(selected.day_notes)
                     .filter(([, v]) => v?.trim())
                     .sort(([a], [b]) => a.localeCompare(b))
@@ -283,7 +283,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
               )}
             </div>
             {['Submitted', 'Resubmitted', 'On Hold'].includes(selected.status) && (
-              <div className="px-6 py-4 border-t flex flex-wrap gap-2">
+              <div className="px-6 py-4 border-t border-gray-200 flex flex-wrap gap-2">
                 <button disabled={acting} onClick={() => { setCommentModal({ action: 'approve', planId: selected.id }); setComment('') }} className="bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Approve</button>
                 <button disabled={acting} onClick={() => { setCommentModal({ action: 'reject', planId: selected.id }); setComment('') }} className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Reject</button>
                 <button disabled={acting} onClick={() => { setCommentModal({ action: 'hold', planId: selected.id }); setComment('') }} className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Hold</button>
@@ -292,8 +292,8 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
             )}
             {/* Item 8: Accept / Decline reopen request */}
             {selected.reopen_requested && (
-              <div className="px-6 py-4 border-t bg-orange-50">
-                <p className="text-xs font-semibold text-orange-700 mb-1">Reopen Request</p>
+              <div className="px-6 py-4 border-t border-gray-200 bg-orange-50">
+                <p className="text-xs font-medium text-orange-700 mb-1">Reopen Request</p>
                 {selected.reopen_request_message && (
                   <p className="text-xs text-orange-600 mb-3 bg-white rounded-lg px-3 py-2 border border-orange-200">{selected.reopen_request_message}</p>
                 )}
@@ -356,11 +356,11 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
       {v.status === 'Completed' && <div className="h-1 bg-emerald-400" />}
       <div className="px-5 py-4">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${typeColor(v.visit_type)}`}>{v.visit_type}</span>
-          {v.is_new_entity && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">New</span>}
-          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusColor(v.status)}`}>{v.status}</span>
+          <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${typeColor(v.visit_type)}`}>{v.visit_type}</span>
+          {v.is_new_entity && <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">New</span>}
+          <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${statusColor(v.status)}`}>{v.status}</span>
         </div>
-        <p className="font-semibold text-gray-900">{v.entity_name}</p>
+        <p className="font-medium text-gray-900">{v.entity_name}</p>
         <div className="flex gap-4 mt-2 text-xs text-gray-500">
           {v.start_time && <span>Started {new Date(v.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>}
           {v.end_time && <span>Ended {new Date(v.end_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>}
@@ -399,7 +399,7 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
         {/* Meeting Notes (read-only) */}
         {notesOpen && hasNotes && (
           <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Meeting Notes</p>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Meeting Notes</p>
             <p className="text-sm text-gray-800 whitespace-pre-wrap bg-amber-50 rounded-xl px-3 py-2.5">{v.notes}</p>
           </div>
         )}
@@ -407,17 +407,17 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
         {/* Location (read-only) */}
         {locationOpen && hasLocation && (
           <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Location Details</p>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Location Details</p>
             <div className="space-y-2">
               <div className="bg-teal-50 rounded-lg px-3 py-2">
-                <p className="text-[10px] font-semibold text-teal-600 uppercase mb-0.5">Start Location</p>
+                <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">Start Location</p>
                 <p className="text-xs text-gray-700">{v.address ?? `${v.latitude}, ${v.longitude}`}</p>
               </div>
               {v.end_latitude != null && (
                 <div className={`rounded-lg px-3 py-2 ${endMismatch ? 'bg-red-50 border border-red-200' : 'bg-teal-50'}`}>
                   <div className="flex items-center gap-1.5">
-                    <p className="text-[10px] font-semibold text-teal-600 uppercase mb-0.5">End Location</p>
-                    {endMismatch && <span className="text-[10px] font-semibold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">Mismatch</span>}
+                    <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">End Location</p>
+                    {endMismatch && <span className="text-[10px] font-normal text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">Mismatch</span>}
                   </div>
                   <p className="text-xs text-gray-700">{v.end_address ?? `${v.end_latitude}, ${v.end_longitude}`}</p>
                 </div>
@@ -531,13 +531,13 @@ function ExpensesTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks:
         <div className="space-y-3">
           <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl text-sm">
             <span className="text-gray-600">{expenses.length} expense{expenses.length !== 1 ? 's' : ''}</span>
-            <span className="font-semibold text-gray-800">Total: ₹{total.toFixed(0)}</span>
+            <span className="font-medium text-gray-800">Total: ₹{total.toFixed(0)}</span>
           </div>
           {expenses.map(exp => (
             <div key={exp.id} className="bg-white rounded-2xl border border-gray-200 px-5 py-4">
               <div className="flex items-center gap-2">
-                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${CATEGORY_COLORS[exp.category] ?? 'bg-gray-100 text-gray-600'}`}>{exp.category}</span>
-                <span className="text-base font-bold text-gray-900 ml-auto">₹{Number(exp.amount).toFixed(0)}</span>
+                <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${CATEGORY_COLORS[exp.category] ?? 'bg-gray-100 text-gray-600'}`}>{exp.category}</span>
+                <span className="text-base font-medium text-gray-900 ml-auto">₹{Number(exp.amount).toFixed(0)}</span>
               </div>
               {exp.notes && <p className="text-sm text-gray-500 mt-1.5">{exp.notes}</p>}
               {exp.photo_url && (
@@ -610,7 +610,7 @@ function ReviewUserInner() {
           </svg>
         </button>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">{userName || 'Team Member'}</h2>
+          <h2 className="text-xl font-medium text-gray-900">{userName || 'Team Member'}</h2>
           {userLevel && <p className="text-xs text-gray-400">{userLevel}</p>}
         </div>
       </div>

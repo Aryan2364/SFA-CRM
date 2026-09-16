@@ -35,7 +35,7 @@ export default function TerritoryMappingPage() {
 
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-xl font-semibold text-gray-800">Territory Mapping</h2>
+          <h2 className="text-xl font-medium text-gray-800">Territory Mapping</h2>
           <p className="text-sm text-gray-500 mt-0.5">Assign geographical territories to users</p>
         </div>
       </div>

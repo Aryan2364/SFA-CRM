@@ -40,7 +40,7 @@ function AccessControlContent() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold text-gray-900">Access Control</h1>
+        <h1 className="text-xl font-medium text-gray-900">Access Control</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           Configure roles, permissions, and who can view which users
         </p>
@@ -269,7 +269,7 @@ function RolesPermissions() {
       {/* Left: Role list */}
       <div className="w-56 flex-shrink-0">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Roles</span>
+          <span className="text-xs font-normal text-gray-500 uppercase tracking-wide">Roles</span>
           <button
             onClick={() => setShowNewRole(v => !v)}
             className="text-xs text-blue-600 hover:text-blue-800 font-medium"
@@ -315,7 +315,7 @@ function RolesPermissions() {
               {!role.is_system && selectedRole?.id === role.id && (
                 deleteConfirm === role.id ? (
                   <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => handleDeleteRole(role)} className="text-[10px] text-red-600 font-bold">Yes</button>
+                    <button onClick={() => handleDeleteRole(role)} className="text-[10px] text-red-600 font-medium">Yes</button>
                     <button onClick={() => setDeleteConfirm(null)} className="text-[10px] text-gray-400">No</button>
                   </div>
                 ) : (
@@ -339,7 +339,7 @@ function RolesPermissions() {
         {selectedRole && (
           <>
             <div className="flex items-center gap-3 mb-4">
-              <h2 className="text-sm font-semibold text-gray-800">{selectedRole.name} — Permissions</h2>
+              <h2 className="text-sm font-medium text-gray-800">{selectedRole.name} — Permissions</h2>
               {isAdmin && (
                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
                   Administrator always has full access
@@ -368,13 +368,13 @@ function RolesPermissions() {
                     <>
                       {showModuleSep && (
                         <tr key={`mod-${g.module}`} className="bg-blue-600 border-t-2 border-blue-700">
-                          <td colSpan={7} className="px-4 py-2 text-xs font-bold text-white uppercase tracking-wider">
+                          <td colSpan={7} className="px-4 py-2 text-xs font-normal text-white uppercase tracking-wider">
                             {g.module}
                           </td>
                         </tr>
                       )}
                       <tr key={g.group} className="bg-gray-50 border-t border-gray-200">
-                        <td colSpan={7} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide pl-6">
+                        <td colSpan={7} className="px-4 py-1.5 text-xs font-normal text-gray-500 uppercase tracking-wide pl-6">
                           {g.group}
                         </td>
                       </tr>
@@ -598,7 +598,7 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
         {/* Left panel */}
         <div className="border border-gray-200 rounded-xl overflow-hidden flex flex-col">
           <div className="p-3 border-b border-gray-200 bg-gray-50">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Select User</p>
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Select User</p>
             <input
               type="text"
               value={userSearch}
@@ -618,7 +618,7 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
               >
                 <Avatar name={u.name} />
                 <span className="text-sm font-medium flex-1 truncate">{u.name}</span>
-                {selectedUser?.id === u.id && <span className="text-blue-500 text-xs font-bold">●</span>}
+                {selectedUser?.id === u.id && <span className="text-blue-500 text-xs font-medium">●</span>}
               </button>
             ))}
             {filteredUsers.length === 0 && (
@@ -630,7 +630,7 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
         {/* Right panel */}
         <div className="border border-gray-200 rounded-xl overflow-hidden flex flex-col">
           <div className="p-3 border-b border-gray-200 bg-gray-50">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">
               Can View &amp; Interact With
             </p>
             {selectedUser && (
@@ -772,14 +772,14 @@ function OrgChart() {
       {/* Standalone users */}
       {filteredStandalone.length > 0 && (
         <div className="mt-8 pt-6 border-t border-dashed border-gray-200">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          <p className="text-xs font-normal text-gray-400 uppercase tracking-wider mb-4">
             Standalone — not in any reporting chain
           </p>
           <div className="flex flex-wrap gap-3">
             {filteredStandalone.map(u => (
               <div key={u.id} className="w-36 rounded-lg overflow-hidden border border-gray-200 shadow-sm opacity-75">
                 <div className="bg-gray-500 px-3 py-1.5 text-center">
-                  <p className="text-[11px] font-semibold text-white truncate">{u.role || 'No Role'}</p>
+                  <p className="text-[11px] font-medium text-white truncate">{u.role || 'No Role'}</p>
                 </div>
                 <div className="bg-white px-3 py-2 text-center">
                   <p className="text-xs text-gray-700 font-medium truncate">{u.name}</p>
@@ -809,7 +809,7 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
         isMatch ? 'border-yellow-400 shadow-yellow-100' : 'border-blue-700'
       }`}>
         <div className="bg-blue-800 px-3 py-2 text-center">
-          <p className="text-[11px] font-bold text-white leading-tight truncate">{node.role || 'No Role'}</p>
+          <p className="text-[11px] font-medium text-white leading-tight truncate">{node.role || 'No Role'}</p>
         </div>
         <div className="bg-white px-3 py-2.5 text-center border-t border-blue-100">
           <p className="text-xs font-medium text-gray-800 truncate">{node.name}</p>
@@ -881,7 +881,7 @@ function Avatar({ name }: { name: string }) {
   const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const color = AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length]
   return (
-    <div className={`w-6 h-6 ${color} rounded-full flex items-center justify-center text-white text-[10px] font-semibold flex-shrink-0`}>
+    <div className={`w-6 h-6 ${color} rounded-full flex items-center justify-center text-white text-[10px] font-medium flex-shrink-0`}>
       {initials}
     </div>
   )
