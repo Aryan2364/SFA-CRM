@@ -116,7 +116,7 @@ class Unmapped(Exception):
 
 
 def migrate(path, protect=(), protect_lines=(), exceptions=(), white=(),
-            fill=(), hover_fill=(), dry_run=False):
+            fill=(), hover_fill=(), manual=(), dry_run=False):
     """
     protect        {(line, base)}  one site left as-is  -- section 11.6, occurrence-level
     protect_lines  {line}          the WHOLE line left as-is -- section 11.6, line-level
@@ -126,7 +126,8 @@ def migrate(path, protect=(), protect_lines=(), exceptions=(), white=(),
     hover_fill     {(line, base)}  its hover half -> bg-<role>-hover
     """
     protect, exceptions = set(protect), set(exceptions)
-    protect_lines = set(protect_lines)
+    protect_lines = set(protect_lines) | set(manual)   # manual lines are
+    # converted by hand afterwards; the engine must not touch them
     white, fill, hover_fill = set(white), set(fill), set(hover_fill)
 
     lines = io.open(path, encoding='utf-8').read().split('\n')

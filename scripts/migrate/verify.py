@@ -28,7 +28,7 @@ if len(old) != len(new):
     fails.append('line count moved: %d -> %d' % (len(old), len(new)))
 
 # 1. protected sites byte-identical
-for n in sorted(set(cfg.get('protect_lines', ()))):
+for n in sorted(set(cfg.get('protect_lines', ())) - set(cfg.get('manual', ()))):
     if old[n - 1] != new[n - 1]:
         fails.append('line-level protected line %d changed' % n)
 for n in sorted(set(n for n, _ in cfg.get('protect', ()))):
@@ -47,8 +47,16 @@ for n in cfg.get('protect_lines', ()):
     for m in T.TOKEN.finditer(old[n - 1]):
         declared.add((n, m.group('base')))
 
+manual = set(cfg.get('manual', ()))
 survivors = []
 for i, line in enumerate(new):
+    if i + 1 in manual:
+        # converted by a rule the engine does not implement. It must hold NO
+        # palette class afterwards -- that is the check, not byte-identity.
+        left = [m.group('base') for m in T.TOKEN.finditer(line)]
+        if left:
+            fails.append('manual line %d still holds %s' % (i + 1, ','.join(left)))
+        continue
     for m in T.TOKEN.finditer(line):
         if (i + 1, m.group('base')) not in declared:
             survivors.append((i + 1, m.group('base')))

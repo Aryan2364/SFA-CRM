@@ -167,3 +167,21 @@ SITES[RV] = dict(
     fill=[(288, 'bg-red-600'), (306, 'bg-red-600')],
     hover_fill=[(288, 'bg-red-700'), (306, 'bg-red-700')],
 )
+
+# ---------------------------------------------------------------- file 4: OR
+SITES[OR] = dict(
+    protect=[],
+    protect_lines=[
+        # Section 11.9
+        250, 717,
+    ],
+    # CONVERTED, not deferred: section 11.5's chart tokens, applied by hand
+    # because the engine has no chart rule and the branch order is a trap --
+    # `direct` is the PURPLE branch and `meeting` is the BLUE one, so blue
+    # becomes chart-2, not chart-1. 11.5: "not to be reordered".
+    manual=[518, 711],
+    exceptions=[233, 262, 300, 306, 317, 331, 339, 429, 526, 685, 686],
+    white=[446, 636],       # :250's text-white is on an 11.9 line
+    fill=[],
+    hover_fill=[],
+)

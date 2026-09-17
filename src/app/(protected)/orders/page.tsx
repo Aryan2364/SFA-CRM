@@ -40,9 +40,9 @@ type OrderItem = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  Draft: 'bg-gray-100 text-gray-600',
-  Submitted: 'bg-blue-100 text-blue-700',
-  Confirmed: 'bg-green-100 text-green-700',
+  Draft: 'bg-surface-control text-text-secondary',
+  Submitted: 'bg-primary-subtle text-primary',
+  Confirmed: 'bg-success-bg text-success',
 }
 
 function fmtDate(d: string) {
@@ -212,12 +212,12 @@ function CreateOrderModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="absolute inset-0 bg-(--backdrop)" onClick={onClose} />
+      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
-          <h3 className="font-medium text-gray-900">Create Order</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border-light shrink-0">
+          <h3 className="font-medium text-text-primary">Create Order</h3>
+          <button onClick={onClose} className="text-text-muted hover:text-text-secondary w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-control">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -225,15 +225,15 @@ function CreateOrderModal({
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           {/* ── Section 1: Basic Info ── */}
           <div>
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wider mb-3">Basic Information</p>
+            <p className="text-xs font-normal text-text-muted uppercase tracking-wider mb-3">Basic Information</p>
             <div className="space-y-3">
 
               {/* Lead Type dropdown */}
               <div>
-                <label htmlFor="order-lead-type" className="block text-xs text-gray-500 mb-1">Lead Type <span className="text-red-500">*</span></label>
+                <label htmlFor="order-lead-type" className="block text-xs text-text-secondary mb-1">Lead Type <span className="text-danger">*</span></label>
                 <select id="order-lead-type" value={leadType}
                   onChange={e => { setLeadType(e.target.value); resetEntity() }}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                   <option value="">Select type…</option>
                   {leadTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                 </select>
@@ -242,7 +242,7 @@ function CreateOrderModal({
               {/* Mode chips */}
               {leadType && (
                 <div>
-                  <p className="text-xs text-gray-500 mb-1.5">Record Type</p>
+                  <p className="text-xs text-text-muted mb-1.5">Record Type</p>
                   <div className="flex gap-2">
                     {(['existing', 'lead', 'new'] as const).map(m => (
                       <button key={m} onClick={() => { setMode(m); resetEntity() }}
@@ -259,11 +259,11 @@ function CreateOrderModal({
               {/* Existing / Lead: searchable dropdown */}
               {leadType && mode !== 'new' && (
                 <div>
-                  <label htmlFor="order-entity-search" className="block text-xs text-gray-500 mb-1">
-                    Select {mode === 'lead' ? 'Lead' : leadType} <span className="text-red-500">*</span>
+                  <label htmlFor="order-entity-search" className="block text-xs text-text-secondary mb-1">
+                    Select {mode === 'lead' ? 'Lead' : leadType} <span className="text-danger">*</span>
                   </label>
                   {entLoading ? (
-                    <div className="text-sm text-gray-400 py-2">Loading…</div>
+                    <div className="text-sm text-text-muted py-2">Loading…</div>
                   ) : (
                     <div className="relative">
                       <input id="order-entity-search" type="text" value={entityQuery}
@@ -271,15 +271,15 @@ function CreateOrderModal({
                         onFocus={() => setEntityDropOpen(true)}
                         onBlur={() => setTimeout(() => setEntityDropOpen(false), 150)}
                         placeholder="Search…"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                       {entityDropOpen && (
-                        <ul className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                        <ul className="absolute z-20 w-full mt-1 bg-surface border border-border-light rounded-xl shadow-lg max-h-48 overflow-y-auto">
                           {filteredEntities.length === 0 ? (
-                            <li className="px-3 py-2 text-sm text-gray-400">No matches</li>
+                            <li className="px-3 py-2 text-sm text-text-muted">No matches</li>
                           ) : filteredEntities.map(e => (
                             <li key={e.id}
                               onMouseDown={() => { setEntityId(e.id); setEntityName(e.name); setEntityQuery(e.name); setEntityDropOpen(false) }}
-                              className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 hover:text-blue-700 border-b border-gray-50 last:border-0">
+                              className="px-3 py-2 text-sm cursor-pointer hover:bg-primary-subtle hover:text-primary border-b border-border-light last:border-0">
                               {e.name}
                             </li>
                           ))}
@@ -288,7 +288,7 @@ function CreateOrderModal({
                     </div>
                   )}
                   {entities.length === 0 && !entLoading && (
-                    <p className="text-xs text-amber-600 mt-1">No records found for this type.</p>
+                    <p className="text-xs text-warning mt-1">No records found for this type.</p>
                   )}
                 </div>
               )}
@@ -297,16 +297,16 @@ function CreateOrderModal({
               {leadType && mode === 'new' && (
                 <div className="space-y-2">
                   <div>
-                    <label htmlFor="order-new-name" className="block text-xs text-gray-500 mb-1">Name <span className="text-red-500">*</span></label>
+                    <label htmlFor="order-new-name" className="block text-xs text-text-secondary mb-1">Name <span className="text-danger">*</span></label>
                     <input id="order-new-name" type="text" value={newName} onChange={e => setNewName(e.target.value)}
                       placeholder={`Enter ${leadType.toLowerCase()} name`}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                   </div>
                   <div>
-                    <label htmlFor="order-new-mobile" className="block text-xs text-gray-500 mb-1">Mobile</label>
+                    <label htmlFor="order-new-mobile" className="block text-xs text-text-secondary mb-1">Mobile</label>
                     <input id="order-new-mobile" type="tel" value={newMobile} onChange={e => setNewMobile(e.target.value)}
                       placeholder="10-digit number" maxLength={10}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                   </div>
                 </div>
               )}
@@ -314,31 +314,31 @@ function CreateOrderModal({
               <div className="grid grid-cols-2 gap-3">
                 {/* Sales Executive */}
                 <div>
-                  <label htmlFor="order-sales-exec" className="block text-xs text-gray-500 mb-1">Sales Executive <span className="text-red-500">*</span></label>
+                  <label htmlFor="order-sales-exec" className="block text-xs text-text-secondary mb-1">Sales Executive <span className="text-danger">*</span></label>
                   {hasSubordinates ? (
                     <select id="order-sales-exec" value={salesUserId} onChange={e => setSalesUserId(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                       {salesExecs.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                     </select>
                   ) : (
                     <input id="order-sales-exec" type="text" value="You" readOnly
-                      className="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-600 cursor-not-allowed" />
+                      className="w-full border border-border-light rounded-lg px-3 py-2 text-sm bg-surface-sunken text-text-secondary cursor-not-allowed" />
                   )}
                 </div>
 
                 {/* Order Date */}
                 <div>
-                  <label htmlFor="order-date" className="block text-xs text-gray-500 mb-1">Order Date <span className="text-red-500">*</span></label>
+                  <label htmlFor="order-date" className="block text-xs text-text-secondary mb-1">Order Date <span className="text-danger">*</span></label>
                   <input id="order-date" type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                 </div>
               </div>
 
               {/* Status */}
               <div>
-                <label htmlFor="order-status" className="block text-xs text-gray-500 mb-1">Order Status <span className="text-red-500">*</span></label>
+                <label htmlFor="order-status" className="block text-xs text-text-secondary mb-1">Order Status <span className="text-danger">*</span></label>
                 <select id="order-status" value={status} onChange={e => setStatus(e.target.value as typeof status)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                   <option value="Draft">Draft</option>
                   <option value="Submitted">Submitted</option>
                   <option value="Confirmed">Confirmed</option>
@@ -349,9 +349,9 @@ function CreateOrderModal({
 
           {/* ── Section 2: Products ── */}
           <div>
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wider mb-3">Products</p>
+            <p className="text-xs font-normal text-text-muted uppercase tracking-wider mb-3">Products</p>
 
-            <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-gray-500 px-1">
+            <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-text-muted px-1">
               <div className="col-span-5">Product</div>
               <div className="col-span-2 text-center">Unit Price</div>
               <div className="col-span-1 text-center">Qty</div>
@@ -367,35 +367,35 @@ function CreateOrderModal({
                     <select value={item.product_id ?? ''} onChange={e => {
                       if (e.target.value === '') { updateRow(idx, 'product_id', null) }
                       else { onProductSelect(idx, e.target.value) }
-                    }} className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                    }} className="w-full border border-border-light rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                       <option value="">Select product...</option>
                       {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                     {!item.product_id && (
                       <input type="text" value={item.product_name} onChange={e => updateRow(idx, 'product_name', e.target.value)}
                         placeholder="Or type name..."
-                        className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="w-full mt-1 border border-border-light rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                     )}
                   </div>
-                  <div className="col-span-2 text-center text-xs text-gray-400">
+                  <div className="col-span-2 text-center text-xs text-text-muted">
                     {item.product_id ? `₹${Number(products.find(p => p.id === item.product_id)?.price ?? 0).toFixed(0)}` : '—'}
                   </div>
                   <div className="col-span-1">
                     <input type="number" min="1" value={item.qty}
                       onChange={e => updateRow(idx, 'qty', Math.max(1, Number(e.target.value)))}
-                      className="w-full border border-gray-200 rounded-lg px-1 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-border-light rounded-lg px-1 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                   </div>
                   <div className="col-span-2">
                     <input type="number" min="0" step="0.01" value={item.rate}
                       onChange={e => updateRow(idx, 'rate', Number(e.target.value))}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                   </div>
-                  <div className="col-span-1 text-right text-sm font-medium text-gray-700">
+                  <div className="col-span-1 text-right text-sm font-medium text-text-secondary">
                     ₹{(item.qty * item.rate).toFixed(0)}
                   </div>
                   <div className="col-span-1 flex justify-center">
                     {items.length > 1 && (
-                      <button onClick={() => removeRow(idx)} className="p-1 text-gray-400 hover:text-red-500 transition">
+                      <button onClick={() => removeRow(idx)} className="p-1 text-text-muted hover:text-danger transition">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                     )}
@@ -405,45 +405,45 @@ function CreateOrderModal({
             </div>
 
             <button onClick={addRow}
-              className="mt-3 w-full py-2 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-300 hover:text-blue-500 transition flex items-center justify-center gap-1">
+              className="mt-3 w-full py-2 border-2 border-dashed border-border-light rounded-lg text-sm text-text-muted hover:border-primary-border hover:text-primary transition flex items-center justify-center gap-1">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
               Add Row
             </button>
 
-            <div className="mt-3 flex items-center justify-end gap-2 border-t border-gray-100 pt-3">
-              <span className="text-sm text-gray-600">Total:</span>
-              <span className="text-lg font-medium text-gray-900">{fmtAmount(total)}</span>
+            <div className="mt-3 flex items-center justify-end gap-2 border-t border-border-light pt-3">
+              <span className="text-sm text-text-secondary">Total:</span>
+              <span className="text-lg font-medium text-text-primary">{fmtAmount(total)}</span>
             </div>
           </div>
 
           {/* ── Section 3: Summary ── */}
           {resolvedEntityName && validItems.length > 0 && (
-            <div className="rounded-xl bg-gray-50 border border-gray-200 p-4">
-              <p className="text-xs font-normal text-gray-500 uppercase tracking-wider mb-3">Order Summary</p>
+            <div className="rounded-xl bg-surface-sunken border border-border-light p-4">
+              <p className="text-xs font-normal text-text-muted uppercase tracking-wider mb-3">Order Summary</p>
               <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                <div><span className="text-gray-500">Entity: </span><span className="font-medium text-gray-800">{resolvedEntityName}</span></div>
-                <div><span className="text-gray-500">Sales Exec: </span><span className="font-medium text-gray-800">
+                <div><span className="text-text-muted">Entity: </span><span className="font-medium text-text-primary">{resolvedEntityName}</span></div>
+                <div><span className="text-text-muted">Sales Exec: </span><span className="font-medium text-text-primary">
                   {hasSubordinates ? salesExecs.find(m => m.id === salesUserId)?.name ?? '—' : 'You'}
                 </span></div>
-                <div><span className="text-gray-500">Items: </span><span className="font-medium text-gray-800">{validItems.length}</span></div>
-                <div><span className="text-gray-500">Total Qty: </span><span className="font-medium text-gray-800">{totalQty}</span></div>
+                <div><span className="text-text-muted">Items: </span><span className="font-medium text-text-primary">{validItems.length}</span></div>
+                <div><span className="text-text-secondary">Total Qty: </span><span className="font-medium text-text-primary">{totalQty}</span></div>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Total Order Value</span>
-                <span className="text-xl font-medium text-gray-900">{fmtAmount(total)}</span>
+                <span className="text-sm text-text-secondary">Total Order Value</span>
+                <span className="text-xl font-medium text-text-primary">{fmtAmount(total)}</span>
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-5 pb-5 flex gap-2 border-t border-gray-100 pt-4 shrink-0">
+        <div className="px-5 pb-5 flex gap-2 border-t border-border-light pt-4 shrink-0">
           <button onClick={onClose}
-            className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+            className="flex-1 py-2.5 border border-border-light rounded-xl text-sm font-medium text-text-secondary hover:bg-surface-sunken transition">
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium disabled:opacity-40 transition">
+            className="flex-1 py-2.5 bg-primary hover:bg-primary-hover text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-40 transition">
             {saving ? 'Creating...' : 'Create Order'}
           </button>
         </div>
@@ -483,17 +483,17 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-screen w-[480px] max-w-full bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col">
+      <div className="fixed inset-0 bg-(--backdrop) z-40" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-screen w-[480px] max-w-full bg-surface shadow-2xl border-l border-border-light z-50 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border-light shrink-0">
           <div>
-            <h3 className="font-medium text-gray-900">
+            <h3 className="font-medium text-text-primary">
               {order.entity_name ?? (order.visit_id ? 'Meeting Order' : 'Direct Order')}
             </h3>
-            <p className="text-xs text-gray-500 mt-0.5">{fmtDate(order.order_date)}</p>
+            <p className="text-xs text-text-muted mt-0.5">{fmtDate(order.order_date)}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100">
+          <button onClick={onClose} className="text-text-muted hover:text-text-secondary w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-control">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -502,20 +502,20 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
           {/* Meta */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <span className="text-xs text-gray-500 block mb-0.5">Entity</span>
-              <span className="font-medium text-gray-800">{order.entity_name ?? '(Meeting-based)'}</span>
+              <span className="text-xs text-text-muted block mb-0.5">Entity</span>
+              <span className="font-medium text-text-primary">{order.entity_name ?? '(Meeting-based)'}</span>
             </div>
             <div>
-              <span className="text-xs text-gray-500 block mb-0.5">Type</span>
-              <span className="font-medium text-gray-800">{order.entity_type ?? '—'}</span>
+              <span className="text-xs text-text-muted block mb-0.5">Type</span>
+              <span className="font-medium text-text-primary">{order.entity_type ?? '—'}</span>
             </div>
             <div>
-              <span className="text-xs text-gray-500 block mb-0.5">Sales Executive</span>
-              <span className="font-medium text-gray-800">{order.users?.name ?? '—'}</span>
+              <span className="text-xs text-text-muted block mb-0.5">Sales Executive</span>
+              <span className="font-medium text-text-primary">{order.users?.name ?? '—'}</span>
             </div>
             <div>
-              <span className="text-xs text-gray-500 block mb-0.5">Source</span>
-              <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${order.order_source === 'direct' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+              <span className="text-xs text-text-muted block mb-0.5">Source</span>
+              <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${order.order_source === 'direct' ? 'bg-chart-1 text-primary-foreground' : 'bg-chart-2 text-primary-foreground'}`}>
                 {order.order_source === 'direct' ? 'Direct' : 'Meeting'}
               </span>
             </div>
@@ -523,9 +523,9 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
 
           {/* Status */}
           <div>
-            <span className="text-xs text-gray-500 block mb-1">Status</span>
+            <span className="text-xs text-text-secondary block mb-1">Status</span>
             <select value={status} onChange={e => updateStatus(e.target.value as typeof status)} disabled={saving}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-50">
+              className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface disabled:opacity-50">
               <option value="Draft">Draft</option>
               <option value="Submitted">Submitted</option>
               <option value="Confirmed">Confirmed</option>
@@ -534,32 +534,32 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
 
           {/* Items table */}
           <div>
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wider mb-3">Products</p>
-            <div className="rounded-xl border border-gray-200 overflow-hidden">
-              <div className="grid grid-cols-10 gap-2 px-3 py-2 bg-gray-50 text-xs font-medium text-gray-500 border-b border-gray-200">
+            <p className="text-xs font-normal text-text-muted uppercase tracking-wider mb-3">Products</p>
+            <div className="rounded-xl border border-border-light overflow-hidden">
+              <div className="grid grid-cols-10 gap-2 px-3 py-2 bg-surface-sunken text-xs font-medium text-text-muted border-b border-border-light">
                 <div className="col-span-4">Product</div>
                 <div className="col-span-2 text-center">Qty</div>
                 <div className="col-span-2 text-center">Rate</div>
                 <div className="col-span-2 text-right">Amount</div>
               </div>
               {order.order_items.map(item => (
-                <div key={item.id} className="grid grid-cols-10 gap-2 px-3 py-2.5 border-b border-gray-100 last:border-0 text-sm">
-                  <div className="col-span-4 text-gray-800">{item.product_name}</div>
-                  <div className="col-span-2 text-center text-gray-600">{item.qty}</div>
-                  <div className="col-span-2 text-center text-gray-600">₹{Number(item.rate).toFixed(0)}</div>
-                  <div className="col-span-2 text-right font-medium text-gray-800">₹{Number(item.amount).toFixed(0)}</div>
+                <div key={item.id} className="grid grid-cols-10 gap-2 px-3 py-2.5 border-b border-border-light last:border-0 text-sm">
+                  <div className="col-span-4 text-text-primary">{item.product_name}</div>
+                  <div className="col-span-2 text-center text-text-secondary">{item.qty}</div>
+                  <div className="col-span-2 text-center text-text-secondary">₹{Number(item.rate).toFixed(0)}</div>
+                  <div className="col-span-2 text-right font-medium text-text-primary">₹{Number(item.amount).toFixed(0)}</div>
                 </div>
               ))}
               {order.order_items.length === 0 && (
-                <div className="px-3 py-4 text-sm text-gray-400 text-center">No items</div>
+                <div className="px-3 py-4 text-sm text-text-muted text-center">No items</div>
               )}
             </div>
           </div>
 
           {/* Total */}
-          <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-            <span className="text-sm font-medium text-gray-600">Total Order Value</span>
-            <span className="text-xl font-medium text-gray-900">{fmtAmount(Number(order.total_amount))}</span>
+          <div className="flex items-center justify-between bg-surface-sunken rounded-xl px-4 py-3">
+            <span className="text-sm font-medium text-text-secondary">Total Order Value</span>
+            <span className="text-xl font-medium text-text-primary">{fmtAmount(Number(order.total_amount))}</span>
           </div>
         </div>
       </div>
@@ -631,9 +631,9 @@ export default function OrdersPage() {
     <div>
       {/* Page Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-medium text-gray-900">Orders</h1>
+        <h1 className="text-2xl font-medium text-text-primary">Orders</h1>
         <button onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-sm transition">
+          className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm font-medium px-4 py-2.5 rounded-xl shadow-sm transition">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
           Create Order
         </button>
@@ -643,15 +643,15 @@ export default function OrdersPage() {
       <div className="flex flex-wrap gap-3 mb-5">
         <div className="flex items-center gap-2">
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <span className="text-gray-400 text-sm">to</span>
+            className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+          <span className="text-text-muted text-sm">to</span>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
         <input type="text" placeholder="Search entity..." value={q} onChange={e => setQ(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]" />
+          className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring min-w-[160px]" />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+          className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
           <option value="">All Statuses</option>
           <option value="Draft">Draft</option>
           <option value="Submitted">Submitted</option>
@@ -659,56 +659,56 @@ export default function OrdersPage() {
         </select>
         {hasSubordinates && (
           <select value={userFilter} onChange={e => setUserFilter(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+            className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
             <option value="">All Team</option>
             {teamMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         )}
         {(dateFrom || dateTo || q || statusFilter || userFilter) && (
           <button onClick={() => { setDateFrom(''); setDateTo(''); setQ(''); setStatusFilter(''); setUserFilter('') }}
-            className="text-sm text-gray-500 hover:text-gray-700 px-2">
+            className="text-sm text-text-muted hover:text-text-secondary px-2">
             Clear
           </button>
         )}
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-2xl border border-border-light bg-surface overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Date</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Entity</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Type</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Sales Exec</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Amount</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-500">Status</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-500">Source</th>
+              <tr className="border-b border-border-light bg-surface-sunken">
+                <th className="text-left px-4 py-3 font-medium text-text-muted">Date</th>
+                <th className="text-left px-4 py-3 font-medium text-text-muted">Entity</th>
+                <th className="text-left px-4 py-3 font-medium text-text-muted">Type</th>
+                <th className="text-left px-4 py-3 font-medium text-text-muted">Sales Exec</th>
+                <th className="text-right px-4 py-3 font-medium text-text-secondary">Amount</th>
+                <th className="text-center px-4 py-3 font-medium text-text-secondary">Status</th>
+                <th className="text-center px-4 py-3 font-medium text-text-muted">Source</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-border-light">
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">Loading orders...</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-text-muted">Loading orders...</td></tr>
               ) : orders.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No orders found</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-text-muted">No orders found</td></tr>
               ) : orders.map(order => (
-                <tr key={order.id} className="hover:bg-gray-50/50 transition">
-                  <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{fmtDate(order.order_date)}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{order.entity_name ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{order.entity_type ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{(order.users as { name?: string } | null)?.name ?? '—'}</td>
-                  <td className="px-4 py-3 text-right font-medium text-gray-900 whitespace-nowrap">
+                <tr key={order.id} className="hover:bg-surface-sunken/50 transition">
+                  <td className="px-4 py-3 text-text-secondary whitespace-nowrap">{fmtDate(order.order_date)}</td>
+                  <td className="px-4 py-3 font-medium text-text-primary">{order.entity_name ?? '—'}</td>
+                  <td className="px-4 py-3 text-text-secondary">{order.entity_type ?? '—'}</td>
+                  <td className="px-4 py-3 text-text-secondary">{(order.users as { name?: string } | null)?.name ?? '—'}</td>
+                  <td className="px-4 py-3 text-right font-medium text-text-primary whitespace-nowrap">
                     {fmtAmount(Number(order.total_amount))}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${STATUS_COLORS[order.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                    <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${STATUS_COLORS[order.status] ?? 'bg-surface-control text-text-secondary'}`}>
                       {order.status}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${order.order_source === 'direct' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                    <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${order.order_source === 'direct' ? 'bg-chart-1 text-primary-foreground' : 'bg-chart-2 text-primary-foreground'}`}>
                       {order.order_source === 'direct' ? 'Direct' : 'Meeting'}
                     </span>
                   </td>
