@@ -11,7 +11,7 @@
     "verify:data-layer": "tsc src/lib/db.ts --outDir .verify-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck --esModuleInterop && node scripts/verify-data-layer.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "audit:tenant": "node scripts/audit-tenant-scope.mjs",
-    "scratch:push": "prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss",
+    "scratch:push": "node scripts/scratch-push.mjs",
     "scratch:seed": "node scripts/seed-scratch.mjs",
     "dev:scratch": "next dev -p 3012",
     "test:write": "node scripts/seed-scratch.mjs && node scripts/write-path-tests.mjs",
