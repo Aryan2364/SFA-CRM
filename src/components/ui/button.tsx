@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -84,21 +85,53 @@ const buttonVariants = cva(
   }
 )
 
-function Button({
-  className,
-  variant = "primary",
-  size = "default",
-  ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
-  return (
-    <ButtonPrimitive
-      data-slot="button"
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
-  )
-}
+type ButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVariants>
+
+/**
+ * `forwardRef` IS LOAD-BEARING. It is not tidiness and it is not
+ * optional, and removing it breaks this kit on React 18 while leaving
+ * every test on React 19 green.
+ *
+ * Every Base UI trigger that takes `render={<Button/>}` - Tooltip,
+ * Popover, Menu, Sheet, Dialog, AlertDialog, and this kit's own
+ * `AlertDialogCancel` - ends up in Base UI's `evaluateRenderProp`,
+ * which does `cloneElement(render, {...props, ref})`.
+ *
+ *   React 19: `ref` is an ordinary prop on a function component, so the
+ *             spread below would carry it through even without this.
+ *   React 18: `ref` is a RESERVED key on the element. A function
+ *             component never receives it, the ref resolves to null,
+ *             and React warns "Function components cannot be given
+ *             refs".
+ *
+ * What a null ref costs is not a crash, which is why it survived so
+ * long: the popup still MOUNTS. It just has no anchor element to
+ * position against, so Base UI's positioner pins it at top:0 left:0
+ * with opacity:0 - invisible, while `aria-expanded` says "true". The
+ * tooltip does not appear at all, and dialogs mount without moving
+ * focus into themselves. Measured on React 18.3.1 before this ref
+ * existed; see `react-compat-harness`.
+ *
+ * The declared element type is `HTMLButtonElement` because that is what
+ * this renders by default. A caller using `render` to become something
+ * else (`render={<Link/>}`) narrows it at the call site.
+ */
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button(
+    { className, variant = "primary", size = "default", ...props },
+    ref
+  ) {
+    return (
+      <ButtonPrimitive
+        ref={ref}
+        data-slot="button"
+        data-variant={variant}
+        data-size={size}
+        className={cn(buttonVariants({ variant, size, className }))}
+        {...props}
+      />
+    )
+  }
+)
 
 export { Button, buttonVariants }

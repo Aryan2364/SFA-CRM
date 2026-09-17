@@ -58,6 +58,28 @@ function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
   return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
 }
 
+/**
+ * REQUIRES A `DropdownMenuGroup` PARENT. This renders Base UI's
+ * `Menu.GroupLabel`, which reads `MenuGroupContext` and THROWS when it
+ * is absent - it does not degrade, it takes the render down, React
+ * unwinds the tree and the page goes blank. The trigger disappears with
+ * it, so the symptom reads as "the menu will not open" rather than as a
+ * markup error, which is why this is worth a comment rather than a
+ * lesson each time.
+ *
+ * The reason it is not optional: the group is the thing the label is
+ * the accessible name OF. `Menu.Group` holds the `aria-labelledby`
+ * that this label's id fills in, so a label with no group is a name
+ * pointing at nothing.
+ *
+ *   <DropdownMenuGroup>
+ *     <DropdownMenuLabel>Halcyon Supplies</DropdownMenuLabel>
+ *     <DropdownMenuItem>...</DropdownMenuItem>
+ *   </DropdownMenuGroup>
+ *
+ * This kit's own kitchen sink got it wrong and crashed on open, on
+ * every React version, until 17 Sep 2026. It is not a React 18 issue.
+ */
 function DropdownMenuLabel({
   className,
   inset,

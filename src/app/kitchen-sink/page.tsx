@@ -28,7 +28,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import {
   Banner,
@@ -74,7 +74,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -104,7 +107,10 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -319,6 +325,13 @@ const SPACING_STEPS = [
   { token: "space-12", className: "w-12" },
 ]
 
+/** Drives the section 22 radio menu below; a radio group needs a value. */
+const SORT_KEYS = {
+  name: "Name",
+  added: "Date added",
+  value: "Order value",
+}
+
 const REGIONS = {
   north: "North",
   south: "South",
@@ -411,6 +424,7 @@ export default function KitchenSinkPage() {
     meridiem: "AM",
   })
   const [category, setCategory] = React.useState<string | undefined>("gaskets")
+  const [sortKey, setSortKey] = React.useState<string>("name")
 
   return (
     <main className="mx-auto w-full max-w-content-max p-6">
@@ -773,8 +787,22 @@ export default function KitchenSinkPage() {
               <Avatar size="lg">
                 <AvatarFallback>NC</AvatarFallback>
               </Avatar>
+              {/*
+                AvatarImage requires an Avatar parent - it reads Avatar's
+                context and throws without it. The fallback stays: it is
+                what renders while the image loads and if it never does,
+                which is why an avatar is never a bare img.
+              */}
+              <Avatar>
+                <AvatarImage src="/globe.svg" alt="" />
+                <AvatarFallback>IM</AvatarFallback>
+              </Avatar>
             </Row>
-            <Caption>Initials only. No images are loaded in this system yet.</Caption>
+            <Caption>
+              Initials are the fallback, and the fallback is what shows while
+              an image loads or when it fails. The last one carries an image;
+              a product supplies real ones and keeps the initials behind them.
+            </Caption>
           </div>
         </Section>
 
@@ -950,21 +978,67 @@ export default function KitchenSinkPage() {
               </div>
             </div>
 
+            <div className="w-64">
+              <Label htmlFor="ks-select-grouped">Grouped options</Label>
+              <div className="mt-1.5">
+                {/*
+                  SelectLabel requires a SelectGroup parent for the same
+                  reason DropdownMenuLabel requires a DropdownMenuGroup:
+                  it renders Base UI's GroupLabel, which throws without the
+                  group, and the group is what the label names. Nothing in
+                  this kit rendered it until 17 Sep 2026, so the first
+                  product to group a select would have found that out on a
+                  blank page.
+                */}
+                <Select defaultValue="north" items={REGIONS}>
+                  <SelectTrigger id="ks-select-grouped">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Inland</SelectLabel>
+                      <SelectItem value="north">North</SelectItem>
+                      <SelectItem value="south">South</SelectItem>
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel>Coastal</SelectLabel>
+                      <SelectItem value="east">East</SelectItem>
+                      <SelectItem value="west">West</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Caption>
+                Group labels are not options. They are 12px muted text and
+                they are not selectable.
+              </Caption>
+            </div>
+
             <div className="pt-6">
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={<Button variant="secondary">Row actions</Button>}
                 />
                 <DropdownMenuContent>
-                  <DropdownMenuLabel>Halcyon Supplies</DropdownMenuLabel>
-                  <DropdownMenuItem>
-                    <PencilIcon />
-                    Edit customer
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <DownloadIcon />
-                    Download orders
-                  </DropdownMenuItem>
+                  {/*
+                    DropdownMenuLabel renders Base UI's GroupLabel, which
+                    throws without a Group parent. It is not decoration:
+                    the group is what the label is the accessible name
+                    OF. Without this wrapper the menu threw on open and
+                    took the whole page down with it.
+                  */}
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Halcyon Supplies</DropdownMenuLabel>
+                    <DropdownMenuItem>
+                      <PencilIcon />
+                      Edit customer
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <DownloadIcon />
+                      Download orders
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="danger">
                     <TrashIcon />
@@ -972,6 +1046,42 @@ export default function KitchenSinkPage() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
+
+            <div className="pt-6">
+              {/*
+                DropdownMenuRadioItem requires a DropdownMenuRadioGroup
+                parent and throws without it. The RadioGroup also supplies
+                the group context the label needs, which is why the label
+                sits inside it rather than in a second DropdownMenuGroup -
+                Base UI's own error names either as the required parent.
+                A radio menu is for choosing ONE of a set, and the current
+                choice carries a tick; a menu of actions uses
+                DropdownMenuItem instead (section 16 decides which).
+              */}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={<Button variant="secondary">Sort by</Button>}
+                />
+                <DropdownMenuContent>
+                  <DropdownMenuRadioGroup
+                    value={sortKey}
+                    onValueChange={(value) => setSortKey(String(value))}
+                  >
+                    <DropdownMenuLabel>Sort this list by</DropdownMenuLabel>
+                    {Object.entries(SORT_KEYS).map(([value, label]) => (
+                      <DropdownMenuRadioItem key={value} value={value}>
+                        {label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Caption>
+                The chosen row is primary-subtle with a tick, exactly as a
+                select behaves. Hovered is neutral grey, so the two never
+                read as the same thing.
+              </Caption>
             </div>
 
             <div className="pt-6">
