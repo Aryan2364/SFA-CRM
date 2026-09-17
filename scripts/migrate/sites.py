@@ -228,3 +228,66 @@ SITES[AC] = dict(
     fill=[],
     hover_fill=[],
 )
+
+# ---------------------------------------------------------------- file 7: DB
+SITES[DB] = dict(
+    protect=[],
+    protect_lines=[
+        93,            # E: the "Edited by Manager" chip -- a seventh status
+        349, 360,      # 11.9: success fills, no success-hover token
+    ],
+    exceptions=[58, 85, 322, 463],
+    white=[505],                       # :505 a filled danger button
+    fill=[(505, 'bg-red-600')],
+    hover_fill=[(505, 'bg-red-700')],
+)
+
+# ---------------------------------------------------------------- file 8: US
+SITES[US] = dict(
+    protect=[],
+    protect_lines=[
+        324,                    # B: bg-gray-900 fill and its text-white
+        252, 261, 440, 500,     # 11.9
+    ],
+    exceptions=[422],
+    white=[],                   # :324 is B; :440 and :500 are on 11.9 lines
+    fill=[],
+    hover_fill=[],
+)
+
+# ---------------------------------------------------------------- file 9: TM
+SITES[TM] = dict(
+    protect=[
+        # open-for-author item 5: one categorical set across four hierarchy
+        # levels, and only the blue has a row. All seven raw.
+        (320, 'accent-blue-600'), (356, 'accent-blue-600'),
+        (378, 'accent-green-600'), (405, 'accent-green-600'),
+        (423, 'accent-purple-600'), (450, 'accent-purple-600'),
+        (462, 'accent-orange-500'),
+        # G2: the selection UI outside E's named lines
+        (440, 'text-purple-600'), (453, 'ring-purple-500'),
+    ],
+    protect_lines=[
+        421, 430,      # E: the territory-mapping selection state
+        330, 385,      # 11.9
+    ],
+    exceptions=[360, 409, 454],
+    white=[291, 492, 526],
+    fill=[],
+    hover_fill=[],
+)
+
+# --------------------------------------------------------------- file 10: LD
+SITES[LD] = dict(
+    protect=[],
+    protect_lines=[
+        14, 15,   # F: the cyan and indigo strays in the lead-status map
+        29,       # E: the leads type chip -- every type renders the same
+                  # purple, so it separates nothing; decoration, not category
+        152,      # 11.9
+    ],
+    exceptions=[],
+    white=[233],
+    fill=[],
+    hover_fill=[],
+)

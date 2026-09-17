@@ -1,8 +1,16 @@
 # Running log — 17 Sep 2026, phase 1
 
-Review session (sfacrm-01) driving the working session (sfacrm-25).
+Review session (sfacrm-01) overseeing two working sessions:
+
+| Phase | Session | Branch | Scope |
+|---|---|---|---|
+| **P1** | sfacrm-25 | `screens/phase-1-ten-files` | the ten §12 files, 1,735 occurrences |
+| **P2** | sfacrm-2b | `screens/phase-2-remaining` *(not yet created)* | the remaining 41 files, 957 occurrences |
+
 One line per exchange: what was reported, what was instructed, which section it
 came from. Read-only: I instruct and verify, I do not write code or commit.
+
+**Rows 1–27 below are P1.** P2 starts at row 28.
 
 | # | Reported / observed | Instructed | Source |
 |---|---|---|---|

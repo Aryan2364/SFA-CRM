@@ -259,3 +259,29 @@ rows both reach is an §11 question, not a conversion one.**
 Related, and also the author's: §33.3 says "Resting tabs are `text-secondary` and
 go `text-primary` on hover", which would settle the hover half outright — but
 that changes a hover colour visibly, so it is outside the three declared changes.
+
+## Item 5 — territory-mapping's four-level checkbox accent hierarchy
+
+Raised 17 Sep 2026 by the converting session, during file 9.
+
+`masters/territory-mapping/[userId]` colours its checkboxes by hierarchy level:
+
+```
+:320 :356  accent-blue-600     district  -- HAS a row (11.3 -> accent-primary)
+:378 :405  accent-green-600    taluka    -- G3, no row
+:423 :450  accent-purple-600   village   -- E / G2, no row
+:462       accent-orange-500             -- G3, no row
+```
+
+**One categorical set across four levels, and only the first level has a row.**
+Applying §11.3 to the blue alone paints level 1 in brand indigo while levels 2,
+3 and 4 stay raw — half-migrating a categorical set, which is the shape the
+one-element rule exists to stop, and which §11.8's exit check would read as clean
+because the blue would be correctly converted and the rest correctly declared.
+
+G3 already argues these are "categorical by hierarchy level, not status" and that
+`accent-` is not reachable by the token layer the way the four mapped prefixes
+are. That argument covers the blue exactly as much as the green.
+
+**All seven left raw.** Whether `accent-blue-600` keeps its §11.3 row when it is
+one level of a categorical hierarchy is an §11 question, not a conversion one.
