@@ -9,8 +9,8 @@ import { useMe } from '@/hooks/useMe'
 const COLS: Column[] = [
   { key: 'name', label: 'Stage Name' },
   { key: 'is_fixed', label: 'Type', render: r => r.is_fixed
-    ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Fixed</span>
-    : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">Custom</span>
+    ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-surface-control text-text-secondary">Fixed</span>
+    : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary-subtle text-primary">Custom</span>
   },
 ]
 
@@ -62,9 +62,9 @@ export default function LeadStagesPage() {
       />
       <Modal title={editing ? 'Edit Stage' : 'Add Stage'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
         <div>
-          <label htmlFor="lead-stage-name" className="block text-sm font-medium text-gray-700 mb-1">Stage Name <span className="text-red-500">*</span></label>
+          <label htmlFor="lead-stage-name" className="block text-sm font-medium text-text-secondary mb-1">Stage Name <span className="text-danger">*</span></label>
           <input id="lead-stage-name" name="name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Contacted, Interested…"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring"
             autoFocus />
         </div>
       </Modal>
