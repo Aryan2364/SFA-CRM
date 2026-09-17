@@ -37,17 +37,17 @@ type UserRow = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_STYLES = {
-  Active: 'bg-green-50 text-green-700',
-  Overdue: 'bg-yellow-50 text-yellow-700',
-  Suspended: 'bg-red-50 text-red-700',
+  Active: 'bg-success-bg text-success',
+  Overdue: 'bg-warning-bg text-warning',
+  Suspended: 'bg-danger-bg text-danger',
 }
 
 const CLS_STYLES: Record<string, string> = {
-  actively_using:  'bg-emerald-50 text-emerald-700 border border-emerald-200',
-  passive:         'bg-amber-50 text-amber-700 border border-amber-200',
-  low_usage:       'bg-blue-50 text-blue-700 border border-blue-200',
-  not_using:       'bg-red-50 text-red-600 border border-red-200',
-  dormant_enabled: 'bg-gray-100 text-gray-500 border border-gray-300',
+  actively_using:  'bg-success-bg text-success border border-success-border',
+  passive:         'bg-warning-bg text-warning border border-warning-border',
+  low_usage:       'bg-primary-subtle text-primary border border-primary-border',
+  not_using:       'bg-danger-bg text-danger border border-danger-border',
+  dormant_enabled: 'bg-surface-control text-text-muted border border-border',
 }
 
 const CLS_LABELS: Record<string, string> = {
@@ -72,16 +72,16 @@ function fmtDate(ts: string | null) {
 function InfoPanel() {
   const [open, setOpen] = useState(false)
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
+    <div className="bg-primary-subtle border border-primary-border rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-blue-100/60 transition-colors"
+        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-primary-subtle/60 transition-colors"
       >
-        <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
         </svg>
-        <span className="text-sm font-medium text-blue-800 flex-1">How are scores and classifications calculated?</span>
-        <svg className={`w-4 h-4 text-blue-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <span className="text-sm font-medium text-primary flex-1">How are scores and classifications calculated?</span>
+        <svg className={`w-4 h-4 text-primary transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
@@ -90,8 +90,8 @@ function InfoPanel() {
         <div className="px-4 pb-4 space-y-4">
           {/* Points system */}
           <div>
-            <p className="text-xs font-normal text-blue-700 uppercase tracking-wide mb-2">Activity Score — Weighted Points</p>
-            <p className="text-xs text-blue-700 mb-2">Every action a user takes earns points. The <strong>30-day score</strong> is used for ranking and classification.</p>
+            <p className="text-xs font-normal text-primary uppercase tracking-wide mb-2">Activity Score — Weighted Points</p>
+            <p className="text-xs text-primary mb-2">Every action a user takes earns points. The <strong>30-day score</strong> is used for ranking and classification.</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {[
                 { action: 'Meeting completed',      pts: 3, icon: '✓' },
@@ -101,10 +101,10 @@ function InfoPanel() {
                 { action: 'Expense logged',          pts: 1, icon: '💸' },
                 { action: 'Comment posted',          pts: 1, icon: '💬' },
               ].map(r => (
-                <div key={r.action} className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-blue-100">
+                <div key={r.action} className="flex items-center gap-2 bg-surface rounded-lg px-3 py-2 border border-primary-border">
                   <span className="text-sm">{r.icon}</span>
-                  <span className="text-xs text-gray-600 flex-1">{r.action}</span>
-                  <span className="text-xs font-medium text-blue-700">+{r.pts}</span>
+                  <span className="text-xs text-text-secondary flex-1">{r.action}</span>
+                  <span className="text-xs font-medium text-primary">+{r.pts}</span>
                 </div>
               ))}
             </div>
@@ -112,7 +112,7 @@ function InfoPanel() {
 
           {/* Classification thresholds */}
           <div>
-            <p className="text-xs font-normal text-blue-700 uppercase tracking-wide mb-2">Classification Thresholds</p>
+            <p className="text-xs font-normal text-primary uppercase tracking-wide mb-2">Classification Thresholds</p>
             <div className="space-y-2">
               {[
                 { cls: 'actively_using',  label: 'Actively Using',   rule: 'Logged in within 7 days AND score ≥ 5 in last 7 days' },
@@ -121,15 +121,15 @@ function InfoPanel() {
                 { cls: 'dormant_enabled', label: 'Dormant (Enabled)', rule: 'Account status is Active but no login and no activity in last 30 days — paying seat, zero use' },
                 { cls: 'not_using',       label: 'Not Using',         rule: 'No login and no activity in last 30 days, account is Inactive or conditions for other classes not met' },
               ].map(r => (
-                <div key={r.cls} className="flex items-start gap-3 bg-white rounded-lg px-3 py-2 border border-blue-100">
+                <div key={r.cls} className="flex items-start gap-3 bg-surface rounded-lg px-3 py-2 border border-primary-border">
                   <span className={`mt-0.5 shrink-0 inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${CLS_STYLES[r.cls]}`}>
                     {r.label}
                   </span>
-                  <span className="text-xs text-gray-500 leading-relaxed">{r.rule}</span>
+                  <span className="text-xs text-text-muted leading-relaxed">{r.rule}</span>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-blue-600 mt-2 italic">Classifications are re-evaluated on every page load. Data reflects the last 30 days.</p>
+            <p className="text-xs text-primary mt-2 italic">Classifications are re-evaluated on every page load. Data reflects the last 30 days.</p>
           </div>
         </div>
       )}
@@ -137,21 +137,21 @@ function InfoPanel() {
   )
 }
 
-function SummaryCard({ label, value, sub, color = 'text-gray-900' }: {
+function SummaryCard({ label, value, sub, color = 'text-text-primary' }: {
   label: string; value: string | number; sub?: string; color?: string
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-surface rounded-xl border border-border-light p-4">
       <div className={`text-2xl font-medium ${color}`}>{value}</div>
-      <div className="text-xs font-medium text-gray-500 mt-0.5">{label}</div>
-      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
+      <div className="text-xs font-medium text-text-muted mt-0.5">{label}</div>
+      {sub && <div className="text-xs text-text-muted mt-0.5">{sub}</div>}
     </div>
   )
 }
 
 function ClassBadge({ cls }: { cls: string }) {
   return (
-    <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${CLS_STYLES[cls] ?? 'bg-gray-100 text-gray-500'}`}>
+    <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${CLS_STYLES[cls] ?? 'bg-surface-control text-text-muted'}`}>
       {CLS_LABELS[cls] ?? cls}
     </span>
   )
@@ -211,7 +211,7 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
       {loadingS ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse h-20" />
+            <div key={i} className="bg-surface rounded-xl border border-border-light p-4 animate-pulse h-20" />
           ))}
         </div>
       ) : summary && (
@@ -219,41 +219,41 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <SummaryCard label="Total Users"      value={summary.total_users} />
             <SummaryCard label="Adoption Rate"    value={`${summary.adoption_rate}%`}
-              sub="Actively using" color={summary.adoption_rate >= 60 ? 'text-emerald-600' : summary.adoption_rate >= 30 ? 'text-amber-600' : 'text-red-600'} />
-            <SummaryCard label="Actively Using"   value={summary.actively_using}  color="text-emerald-600" />
-            <SummaryCard label="Dormant (Enabled)" value={summary.dormant_enabled} color={summary.dormant_enabled > 0 ? 'text-red-600' : 'text-gray-900'}
+              sub="Actively using" color={summary.adoption_rate >= 60 ? 'text-success' : summary.adoption_rate >= 30 ? 'text-warning' : 'text-danger'} />
+            <SummaryCard label="Actively Using"   value={summary.actively_using}  color="text-success" />
+            <SummaryCard label="Dormant (Enabled)" value={summary.dormant_enabled} color={summary.dormant_enabled > 0 ? 'text-danger' : 'text-text-primary'}
               sub={summary.dormant_enabled > 0 ? 'Paying but not using' : undefined} />
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <SummaryCard label="Passive Users"  value={summary.passive}       color="text-amber-600" sub="Logged in, no actions" />
-            <SummaryCard label="Low Usage"      value={summary.low_usage}     color="text-blue-600"  sub="Occasional activity" />
-            <SummaryCard label="Not Using"      value={summary.not_using}     color="text-red-600"   sub="No login in 30 days" />
+            <SummaryCard label="Passive Users"  value={summary.passive}       color="text-warning" sub="Logged in, no actions" />
+            <SummaryCard label="Low Usage"      value={summary.low_usage}     color="text-primary"  sub="Occasional activity" />
+            <SummaryCard label="Not Using"      value={summary.not_using}     color="text-danger"   sub="No login in 30 days" />
             <SummaryCard label="Account Status" value={`${summary.active_status} / ${summary.total_users}`}
               sub={`${summary.inactive_status} inactive`} />
           </div>
 
           {/* Power Users */}
           {summary.power_users.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-medium text-gray-900 mb-3">Power Users — Top {summary.power_users.length} by Activity (30 days)</h3>
+            <div className="bg-surface rounded-xl border border-border-light p-5">
+              <h3 className="text-sm font-medium text-text-primary mb-3">Power Users — Top {summary.power_users.length} by Activity (30 days)</h3>
               <div className="space-y-2">
                 {summary.power_users.map((u, i) => (
                   <div key={u.id} className="flex items-center gap-3">
-                    <span className="w-5 text-xs text-gray-400 font-mono text-right">{i + 1}</span>
+                    <span className="w-5 text-xs text-text-muted font-mono text-right">{i + 1}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900 truncate">{u.name}</span>
+                        <span className="text-sm font-medium text-text-primary truncate">{u.name}</span>
                         <ClassBadge cls={u.classification} />
                       </div>
-                      <div className="mt-0.5 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="mt-0.5 h-1.5 bg-surface-control rounded-full overflow-hidden">
                         <div
                           className="h-full bg-emerald-400 rounded-full transition-all"
                           style={{ width: `${Math.min(100, (u.score_30d / (summary.power_users[0]?.score_30d || 1)) * 100)}%` }}
                         />
                       </div>
                     </div>
-                    <span className="text-xs font-medium text-gray-700 w-12 text-right">{u.score_30d} pts</span>
+                    <span className="text-xs font-medium text-text-secondary w-12 text-right">{u.score_30d} pts</span>
                   </div>
                 ))}
               </div>
@@ -262,15 +262,15 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
 
           {/* Classification breakdown bar */}
           {summary.total_users > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-medium text-gray-900 mb-3">Engagement Breakdown</h3>
+            <div className="bg-surface rounded-xl border border-border-light p-5">
+              <h3 className="text-sm font-medium text-text-primary mb-3">Engagement Breakdown</h3>
               <div className="flex h-4 rounded-full overflow-hidden gap-px">
                 {[
                   { key: 'actively_using', count: summary.actively_using,  color: 'bg-emerald-400' },
                   { key: 'passive',        count: summary.passive,          color: 'bg-amber-400'   },
                   { key: 'low_usage',      count: summary.low_usage,        color: 'bg-blue-400'    },
-                  { key: 'dormant_enabled',count: summary.dormant_enabled,  color: 'bg-gray-300'    },
-                  { key: 'not_using',      count: summary.not_using,        color: 'bg-red-300'     },
+                  { key: 'dormant_enabled',count: summary.dormant_enabled,  color: 'bg-surface-control'    },
+                  { key: 'not_using',      count: summary.not_using,        color: 'bg-danger-bg'     },
                 ].filter(s => s.count > 0).map(s => (
                   <div key={s.key} className={`${s.color} transition-all`}
                     style={{ width: `${(s.count / summary.total_users) * 100}%` }}
@@ -282,12 +282,12 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
                   { key: 'actively_using', color: 'bg-emerald-400' },
                   { key: 'passive',        color: 'bg-amber-400'   },
                   { key: 'low_usage',      color: 'bg-blue-400'    },
-                  { key: 'dormant_enabled',color: 'bg-gray-300'    },
-                  { key: 'not_using',      color: 'bg-red-300'     },
+                  { key: 'dormant_enabled',color: 'bg-surface-control'    },
+                  { key: 'not_using',      color: 'bg-danger-bg'     },
                 ].map(s => (
                   <div key={s.key} className="flex items-center gap-1.5">
                     <div className={`w-2.5 h-2.5 rounded-full ${s.color}`} />
-                    <span className="text-xs text-gray-500">{CLS_LABELS[s.key]}</span>
+                    <span className="text-xs text-text-muted">{CLS_LABELS[s.key]}</span>
                   </div>
                 ))}
               </div>
@@ -297,18 +297,18 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
       )}
 
       {/* User table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-surface rounded-xl border border-border-light overflow-hidden">
         {/* Toolbar */}
-        <div className="p-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
+        <div className="p-4 border-b border-border-light flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-48">
             <input
               type="text" placeholder="Search name, phone, email…" value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring"
             />
           </div>
           <select value={filterCls} onChange={e => setFilterCls(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white">
+            className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
             <option value="">All Classifications</option>
             <option value="actively_using">Actively Using</option>
             <option value="passive">Passive</option>
@@ -316,23 +316,23 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
             <option value="dormant_enabled">Dormant</option>
             <option value="not_using">Not Using</option>
           </select>
-          <span className="text-xs text-gray-400">{total} user{total !== 1 ? 's' : ''}</span>
+          <span className="text-xs text-text-secondary">{total} user{total !== 1 ? 's' : ''}</span>
         </div>
 
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-medium">
+              <tr className="bg-surface-sunken border-b border-border-light text-xs text-text-muted font-medium">
                 <th className="text-left px-4 py-3">User</th>
                 <th className="text-left px-4 py-3">Status</th>
-                <th className="text-left px-4 py-3 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('last_login')}>
+                <th className="text-left px-4 py-3 cursor-pointer hover:text-text-secondary" onClick={() => toggleSort('last_login')}>
                   Last Login {sortBy === 'last_login' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                 </th>
-                <th className="text-left px-4 py-3 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('last_activity')}>
+                <th className="text-left px-4 py-3 cursor-pointer hover:text-text-secondary" onClick={() => toggleSort('last_activity')}>
                   Last Action {sortBy === 'last_activity' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                 </th>
-                <th className="text-right px-4 py-3 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('score_30d')}>
+                <th className="text-right px-4 py-3 cursor-pointer hover:text-text-secondary" onClick={() => toggleSort('score_30d')}>
                   Score 30d {sortBy === 'score_30d' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                 </th>
                 <th className="text-right px-4 py-3">Logins 30d</th>
@@ -343,49 +343,49 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
                 <th className="text-left px-4 py-3">Classification</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-border-light">
               {loadingU ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
                     {Array.from({ length: 10 }).map((__, j) => (
                       <td key={j} className="px-4 py-3">
-                        <div className="h-3 bg-gray-100 rounded animate-pulse" />
+                        <div className="h-3 bg-surface-control rounded animate-pulse" />
                       </td>
                     ))}
                   </tr>
                 ))
               ) : users.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">No users found</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-text-muted">No users found</td></tr>
               ) : (
                 users.map(u => (
-                  <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={u.id} className="hover:bg-surface-sunken transition-colors">
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{u.name}</div>
-                      <div className="text-xs text-gray-400">{u.contact}</div>
+                      <div className="font-medium text-text-primary">{u.name}</div>
+                      <div className="text-xs text-text-muted">{u.contact}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${u.status === 'Active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${u.status === 'Active' ? 'bg-success-bg text-success' : 'bg-surface-control text-text-secondary'}`}>
                         {u.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
+                    <td className="px-4 py-3 text-text-secondary">
                       <div>{fmtDate(u.last_login)}</div>
-                      {u.logins_7d > 0 && <div className="text-xs text-gray-400">{u.logins_7d}x this week</div>}
+                      {u.logins_7d > 0 && <div className="text-xs text-text-muted">{u.logins_7d}x this week</div>}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{fmtDate(u.last_activity)}</td>
+                    <td className="px-4 py-3 text-text-secondary">{fmtDate(u.last_activity)}</td>
                     <td className="px-4 py-3 text-right">
-                      <span className={`font-medium ${u.activity_score_30d >= 20 ? 'text-emerald-600' : u.activity_score_30d >= 5 ? 'text-amber-600' : 'text-gray-400'}`}>
+                      <span className={`font-medium ${u.activity_score_30d >= 20 ? 'text-success' : u.activity_score_30d >= 5 ? 'text-warning' : 'text-text-muted'}`}>
                         {u.activity_score_30d}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600">{u.logins_30d}</td>
+                    <td className="px-4 py-3 text-right text-text-secondary">{u.logins_30d}</td>
                     <td className="px-4 py-3 text-right">
-                      <div className="text-gray-700">{u.meetings_30d > 0 ? u.meetings_30d : '—'}</div>
-                      {u.meetings_completed_30d > 0 && <div className="text-xs text-gray-400">{u.meetings_completed_30d} done</div>}
+                      <div className="text-text-secondary">{u.meetings_30d > 0 ? u.meetings_30d : '—'}</div>
+                      {u.meetings_completed_30d > 0 && <div className="text-xs text-text-secondary">{u.meetings_completed_30d} done</div>}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-700">{u.orders_30d > 0 ? u.orders_30d : '—'}</td>
-                    <td className="px-4 py-3 text-right text-gray-700">{u.expenses_30d > 0 ? u.expenses_30d : '—'}</td>
-                    <td className="px-4 py-3 text-right text-gray-700">{u.plans_submitted_30d > 0 ? u.plans_submitted_30d : '—'}</td>
+                    <td className="px-4 py-3 text-right text-text-secondary">{u.orders_30d > 0 ? u.orders_30d : '—'}</td>
+                    <td className="px-4 py-3 text-right text-text-secondary">{u.expenses_30d > 0 ? u.expenses_30d : '—'}</td>
+                    <td className="px-4 py-3 text-right text-text-secondary">{u.plans_submitted_30d > 0 ? u.plans_submitted_30d : '—'}</td>
                     <td className="px-4 py-3"><ClassBadge cls={u.classification} /></td>
                   </tr>
                 ))
@@ -396,17 +396,17 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
-            <span className="text-xs text-gray-400">
+          <div className="px-4 py-3 border-t border-border-light flex items-center justify-between">
+            <span className="text-xs text-text-muted">
               Page {page} of {totalPages} · {total} users
             </span>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => p - 1)} disabled={page === 1}
-                className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50 transition">
+                className="px-3 py-1.5 text-xs border border-border rounded-lg disabled:opacity-40 hover:bg-surface-sunken transition">
                 Previous
               </button>
               <button onClick={() => setPage(p => p + 1)} disabled={page === totalPages}
-                className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50 transition">
+                className="px-3 py-1.5 text-xs border border-border rounded-lg disabled:opacity-40 hover:bg-surface-sunken transition">
                 Next
               </button>
             </div>
@@ -525,64 +525,64 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
     if (res.ok) setCompany(c => c ? { ...c, is_active: false } : c)
   }
 
-  if (loading) return <div className="flex items-center justify-center h-48"><div className="text-sm text-gray-500">Loading…</div></div>
+  if (loading) return <div className="flex items-center justify-center h-48"><div className="text-sm text-text-muted">Loading…</div></div>
   if (!company) return null
 
   return (
     <div className="max-w-5xl space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <button onClick={() => router.push('/superadmin/companies')} className="text-gray-400 hover:text-gray-600 transition-colors">
+        <button onClick={() => router.push('/superadmin/companies')} className="text-text-muted hover:text-text-secondary transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         <div>
-          <h1 className="text-xl font-medium text-gray-900">{company.name}</h1>
+          <h1 className="text-xl font-medium text-text-primary">{company.name}</h1>
           <div className="flex items-center gap-2 mt-0.5">
             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[company.payment_status]}`}>{company.payment_status}</span>
-            {!company.is_active && <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Disabled</span>}
+            {!company.is_active && <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-surface-control text-text-secondary">Disabled</span>}
           </div>
         </div>
       </div>
 
       {/* Banners */}
       {admins.length === 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between gap-4">
-          <div className="text-sm text-amber-800"><span className="font-medium">No Administrator found.</span> This company has no admin user and cannot log in.</div>
+        <div className="bg-warning-bg border border-warning-border rounded-lg px-4 py-3 flex items-center justify-between gap-4">
+          <div className="text-sm text-warning"><span className="font-medium">No Administrator found.</span> This company has no admin user and cannot log in.</div>
           <button onClick={() => setShowCreateAdmin(true)} className="shrink-0 bg-amber-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors">Create Admin</button>
         </div>
       )}
       {(!company.is_active || company.payment_status === 'Suspended') && (
-        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+        <div className="bg-danger-bg border border-danger-border rounded-lg px-4 py-3 text-sm text-danger">
           {!company.is_active ? 'This company is disabled. All users are blocked from logging in.' : "This company's payment is suspended. All users are blocked from logging in."}
         </div>
       )}
 
       {/* Quick stats */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-medium text-gray-900">{company.total_users}</div>
-          <div className="text-xs text-gray-500 mt-0.5">Total Users</div>
+        <div className="bg-surface rounded-xl border border-border-light p-4 text-center">
+          <div className="text-2xl font-medium text-text-primary">{company.total_users}</div>
+          <div className="text-xs text-text-secondary mt-0.5">Total Users</div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-          <div className={`text-2xl font-medium ${company.total_users >= company.license_count ? 'text-red-600' : 'text-gray-900'}`}>
+        <div className="bg-surface rounded-xl border border-border-light p-4 text-center">
+          <div className={`text-2xl font-medium ${company.total_users >= company.license_count ? 'text-danger' : 'text-text-primary'}`}>
             {company.total_users} / {company.license_count}
           </div>
-          <div className="text-xs text-gray-500 mt-0.5">License Usage</div>
+          <div className="text-xs text-text-muted mt-0.5">License Usage</div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-medium text-green-600">{company.active_users}</div>
-          <div className="text-xs text-gray-500 mt-0.5">Active Users</div>
+        <div className="bg-surface rounded-xl border border-border-light p-4 text-center">
+          <div className="text-2xl font-medium text-success">{company.active_users}</div>
+          <div className="text-xs text-text-secondary mt-0.5">Active Users</div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-border-light">
         <div className="flex gap-6">
           {(['settings', 'analytics'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-primary text-text-primary' : 'border-transparent text-text-secondary hover:text-text-secondary'}`}>
               {tab === 'settings' ? 'Company Settings' : 'Users & Analytics'}
             </button>
           ))}
@@ -591,82 +591,82 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
 
       {/* Settings tab */}
       {activeTab === 'settings' && (
-        <form onSubmit={handleSave} className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-          {error   && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-lg">{error}</div>}
-          {success && <div className="bg-green-50 text-green-700 text-sm px-3 py-2 rounded-lg">{success}</div>}
+        <form onSubmit={handleSave} className="bg-surface rounded-xl border border-border-light p-5 space-y-4">
+          {error   && <div className="bg-danger-bg text-danger text-sm px-3 py-2 rounded-lg">{error}</div>}
+          {success && <div className="bg-success-bg text-success text-sm px-3 py-2 rounded-lg">{success}</div>}
 
           <div>
-            <label htmlFor="co-name" className="block text-sm font-medium text-gray-700 mb-1">Company Name <span className="text-red-500">*</span></label>
-            <input id="co-name" name="name" type="text" value={form.name} onChange={F('name')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+            <label htmlFor="co-name" className="block text-sm font-medium text-text-secondary mb-1">Company Name <span className="text-danger">*</span></label>
+            <input id="co-name" name="name" type="text" value={form.name} onChange={F('name')} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="co-email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input id="co-email" name="email" type="email" value={form.email} onChange={F('email')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              <label htmlFor="co-email" className="block text-sm font-medium text-text-secondary mb-1">Email</label>
+              <input id="co-email" name="email" type="email" value={form.email} onChange={F('email')} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
             </div>
             <div>
-              <label htmlFor="co-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-              <input id="co-phone" name="phone" type="tel" value={form.phone} onChange={F('phone')} maxLength={10} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              <label htmlFor="co-phone" className="block text-sm font-medium text-text-secondary mb-1">Phone</label>
+              <input id="co-phone" name="phone" type="tel" value={form.phone} onChange={F('phone')} maxLength={10} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
             </div>
           </div>
           <div>
-            <label htmlFor="co-address" className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-            <textarea id="co-address" name="address" value={form.address} onChange={F('address')} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none" />
+            <label htmlFor="co-address" className="block text-sm font-medium text-text-secondary mb-1">Address</label>
+            <textarea id="co-address" name="address" value={form.address} onChange={F('address')} rows={2} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
           </div>
           <div>
-            <label htmlFor="co-gstin" className="block text-sm font-medium text-gray-700 mb-1">GSTIN</label>
-            <input id="co-gstin" name="gstin" type="text" value={form.gstin} onChange={F('gstin')} maxLength={15} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 uppercase" />
+            <label htmlFor="co-gstin" className="block text-sm font-medium text-text-secondary mb-1">GSTIN</label>
+            <input id="co-gstin" name="gstin" type="text" value={form.gstin} onChange={F('gstin')} maxLength={15} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring uppercase" />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label htmlFor="co-license-count" className="block text-sm font-medium text-gray-700 mb-1">License Count</label>
-              <input id="co-license-count" name="license_count" type="number" value={form.license_count} onChange={F('license_count')} min={1} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              <label htmlFor="co-license-count" className="block text-sm font-medium text-text-secondary mb-1">License Count</label>
+              <input id="co-license-count" name="license_count" type="number" value={form.license_count} onChange={F('license_count')} min={1} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
             </div>
             <div>
-              <label htmlFor="co-payment-status" className="block text-sm font-medium text-gray-700 mb-1">Payment Status</label>
-              <select id="co-payment-status" name="payment_status" value={form.payment_status} onChange={F('payment_status')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white">
+              <label htmlFor="co-payment-status" className="block text-sm font-medium text-text-secondary mb-1">Payment Status</label>
+              <select id="co-payment-status" name="payment_status" value={form.payment_status} onChange={F('payment_status')} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                 <option value="Active">Active</option>
                 <option value="Overdue">Overdue</option>
                 <option value="Suspended">Suspended</option>
               </select>
             </div>
             <div>
-              <label htmlFor="co-due-date" className="block text-sm font-medium text-gray-700 mb-1">Payment Due Date</label>
-              <input id="co-due-date" name="payment_due_date" type="date" value={form.payment_due_date} onChange={F('payment_due_date')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              <label htmlFor="co-due-date" className="block text-sm font-medium text-text-secondary mb-1">Payment Due Date</label>
+              <input id="co-due-date" name="payment_due_date" type="date" value={form.payment_due_date} onChange={F('payment_due_date')} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
             </div>
           </div>
 
           {/* Administrators section */}
-          <div className="border-t border-gray-100 pt-4">
+          <div className="border-t border-border-light pt-4">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h2 className="font-medium text-gray-900">Administrators</h2>
-                <p className="text-xs text-gray-500 mt-0.5">Users with full access to this company</p>
+                <h2 className="font-medium text-text-primary">Administrators</h2>
+                <p className="text-xs text-text-muted mt-0.5">Users with full access to this company</p>
               </div>
-              <button type="button" onClick={() => setShowCreateAdmin(true)} className="text-sm font-medium text-gray-900 hover:underline">+ Add Admin</button>
+              <button type="button" onClick={() => setShowCreateAdmin(true)} className="text-sm font-medium text-text-primary hover:underline">+ Add Admin</button>
             </div>
             {admins.length === 0 ? (
-              <p className="text-sm text-gray-400 py-2">No administrators yet.</p>
+              <p className="text-sm text-text-muted py-2">No administrators yet.</p>
             ) : (
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="rounded-xl border border-border-light overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-100">
+                  <thead className="bg-surface-sunken border-b border-border-light">
                     <tr>
-                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Name</th>
-                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Phone</th>
-                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Email</th>
-                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Status</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-text-muted">Name</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-text-muted">Phone</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-text-muted">Email</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-text-secondary">Status</th>
                       <th className="px-4 py-2.5" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
+                  <tbody className="divide-y divide-border-light">
                     {admins.map(a => (
-                      <tr key={a.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2.5 font-medium text-gray-900">{a.name}</td>
-                        <td className="px-4 py-2.5 text-gray-600">{a.contact}</td>
-                        <td className="px-4 py-2.5 text-gray-500">{a.email ?? '—'}</td>
+                      <tr key={a.id} className="hover:bg-surface-sunken">
+                        <td className="px-4 py-2.5 font-medium text-text-primary">{a.name}</td>
+                        <td className="px-4 py-2.5 text-text-secondary">{a.contact}</td>
+                        <td className="px-4 py-2.5 text-text-muted">{a.email ?? '—'}</td>
                         <td className="px-4 py-2.5">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${a.status === 'Active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{a.status}</span>
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${a.status === 'Active' ? 'bg-success-bg text-success' : 'bg-surface-control text-text-secondary'}`}>{a.status}</span>
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           <button type="button" onClick={() => setRevokeTarget(a)} className="text-xs text-red-600 hover:text-red-800 font-medium">Revoke</button>
@@ -684,7 +684,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
             <button type="button" onClick={toggleActive}
-              className={`px-5 py-2 rounded-lg text-sm font-medium border transition-colors ${company.is_active ? 'border-red-300 text-red-600 hover:bg-red-50' : 'border-green-300 text-green-600 hover:bg-green-50'}`}>
+              className={`px-5 py-2 rounded-lg text-sm font-medium border transition-colors ${company.is_active ? 'border-danger-border text-danger hover:bg-danger-bg' : 'border-success-border text-success hover:bg-success-bg'}`}>
               {company.is_active ? 'Disable All Logins' : 'Re-enable Logins'}
             </button>
           </div>
@@ -696,33 +696,33 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
 
       {/* Create Admin modal */}
       {showCreateAdmin && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-medium text-gray-900 mb-1">Create Admin User</h3>
-            <p className="text-xs text-gray-500 mb-4">This user will be the Administrator for {company.name}</p>
+        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
+          <div className="bg-surface rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="font-medium text-text-primary mb-1">Create Admin User</h3>
+            <p className="text-xs text-text-muted mb-4">This user will be the Administrator for {company.name}</p>
             <form onSubmit={handleCreateAdmin} className="space-y-3">
-              {createAdminError && <div className="bg-red-50 text-red-700 text-xs px-3 py-2 rounded-lg">{createAdminError}</div>}
+              {createAdminError && <div className="bg-danger-bg text-danger text-xs px-3 py-2 rounded-lg">{createAdminError}</div>}
               <div>
-                <label htmlFor="ca-name" className="block text-sm font-medium text-gray-700 mb-1">Name <span className="text-red-500">*</span></label>
-                <input id="ca-name" name="ca_name" type="text" value={createAdminForm.name} onChange={CAF('name')} placeholder="Admin's full name" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                <label htmlFor="ca-name" className="block text-sm font-medium text-text-secondary mb-1">Name <span className="text-danger">*</span></label>
+                <input id="ca-name" name="ca_name" type="text" value={createAdminForm.name} onChange={CAF('name')} placeholder="Admin's full name" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
               </div>
               <div>
-                <label htmlFor="ca-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label>
-                <input id="ca-phone" name="ca_contact" type="tel" value={createAdminForm.contact} onChange={CAF('contact')} placeholder="10-digit login phone" maxLength={10} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                <label htmlFor="ca-phone" className="block text-sm font-medium text-text-secondary mb-1">Phone <span className="text-danger">*</span></label>
+                <input id="ca-phone" name="ca_contact" type="tel" value={createAdminForm.contact} onChange={CAF('contact')} placeholder="10-digit login phone" maxLength={10} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
               </div>
               <div>
-                <label htmlFor="ca-email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input id="ca-email" name="ca_email" type="email" value={createAdminForm.email} onChange={CAF('email')} placeholder="admin@company.com" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                <label htmlFor="ca-email" className="block text-sm font-medium text-text-secondary mb-1">Email</label>
+                <input id="ca-email" name="ca_email" type="email" value={createAdminForm.email} onChange={CAF('email')} placeholder="admin@company.com" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
               </div>
               <div>
-                <label htmlFor="ca-password" className="block text-sm font-medium text-gray-700 mb-1">Password <span className="text-red-500">*</span></label>
-                <input id="ca-password" name="ca_password" type="text" value={createAdminForm.password} onChange={CAF('password')} placeholder="Set a strong password" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                <label htmlFor="ca-password" className="block text-sm font-medium text-text-secondary mb-1">Password <span className="text-danger">*</span></label>
+                <input id="ca-password" name="ca_password" type="text" value={createAdminForm.password} onChange={CAF('password')} placeholder="Set a strong password" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
               </div>
               <div className="flex gap-3 pt-1">
                 <button type="submit" disabled={createAdminSaving} className="flex-1 bg-gray-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
                   {createAdminSaving ? 'Creating…' : 'Create Admin'}
                 </button>
-                <button type="button" onClick={() => { setShowCreateAdmin(false); setCreateAdminError('') }} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                <button type="button" onClick={() => { setShowCreateAdmin(false); setCreateAdminError('') }} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">
                   Cancel
                 </button>
               </div>
@@ -733,14 +733,14 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
 
       {/* Revoke admin confirmation */}
       {revokeTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-medium text-gray-900 mb-2">Revoke Admin Access?</h3>
-            <p className="text-sm text-gray-500 mb-1"><strong>{revokeTarget.name}</strong> will lose Administrator access immediately.</p>
-            <p className="text-sm text-gray-500 mb-5">They can still log in but will see a &quot;role not configured&quot; screen until the company admin assigns them a role.</p>
+        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
+          <div className="bg-surface rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="font-medium text-text-primary mb-2">Revoke Admin Access?</h3>
+            <p className="text-sm text-text-muted mb-1"><strong>{revokeTarget.name}</strong> will lose Administrator access immediately.</p>
+            <p className="text-sm text-text-muted mb-5">They can still log in but will see a &quot;role not configured&quot; screen until the company admin assigns them a role.</p>
             <div className="flex gap-3">
               <button onClick={handleRevokeAdmin} disabled={revokeSaving} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors">{revokeSaving ? 'Revoking…' : 'Revoke'}</button>
-              <button onClick={() => setRevokeTarget(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">Cancel</button>
+              <button onClick={() => setRevokeTarget(null)} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">Cancel</button>
             </div>
           </div>
         </div>
@@ -748,13 +748,13 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
 
       {/* Confirm disable dialog */}
       {confirmDisable && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-medium text-gray-900 mb-2">Disable All Logins?</h3>
-            <p className="text-sm text-gray-500 mb-5">All users of <strong>{company.name}</strong> will be blocked from logging in immediately.</p>
+        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
+          <div className="bg-surface rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="font-medium text-text-primary mb-2">Disable All Logins?</h3>
+            <p className="text-sm text-text-muted mb-5">All users of <strong>{company.name}</strong> will be blocked from logging in immediately.</p>
             <div className="flex gap-3">
               <button onClick={confirmDisableAction} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">Disable</button>
-              <button onClick={() => setConfirmDisable(false)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">Cancel</button>
+              <button onClick={() => setConfirmDisable(false)} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">Cancel</button>
             </div>
           </div>
         </div>

@@ -96,3 +96,26 @@ SITES[DA] = dict(
     fill=[],
     hover_fill=[],
 )
+
+# ---------------------------------------------------------------- file 2: CO
+SITES[CO] = dict(
+    protect=[
+        # G6 progress-bar fill (magnitude, not status -- section 21's ramp)
+        (251, 'bg-emerald-400'),
+        # G6 legend dots, 3 categories fixed in code, two copies of the same map
+        (269, 'bg-emerald-400'), (270, 'bg-amber-400'), (271, 'bg-blue-400'),
+        (282, 'bg-emerald-400'), (283, 'bg-amber-400'), (284, 'bg-blue-400'),
+    ],
+    protect_lines=[
+        # B: the dark-surface hole. bg-gray-900 fill, its text-white foreground
+        # and its hover:bg-gray-800 are all one deferred element.
+        683, 722,
+        # Section 11.9
+        553, 672, 742, 756,
+    ],
+    exceptions=[319, 367, 384, 566, 576, 585, 658, 669],
+    # every text-white in this file sits on a B or 11.9 line, so none converts
+    white=[],
+    fill=[],
+    hover_fill=[],
+)
