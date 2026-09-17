@@ -1,63 +1,297 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import CrudPage, { Column } from '@/components/ui/CrudPage'
+import { PencilIcon, PlusIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+
 import Modal from '@/components/ui/Modal'
-import { useCrud } from '@/hooks/useCrud'
 import { useMe } from '@/hooks/useMe'
 import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/BusinessPartnerForm'
 import { useToast } from '@/contexts/ToastContext'
+import {
+  LEAD_STAGE,
+  LEAD_TEMPERATURE,
+  StatusBadge,
+} from '@/components/status-badge'
+import {
+  ListPage,
+  type ListColumn,
+  type ListFilter,
+  type ListPageProps,
+} from '@/components/templates/list-page'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-const STAGE_COLORS: Record<string, string> = {
-  Prospect:    'bg-gray-100 text-gray-600',
-  Contacted:   'bg-blue-50 text-blue-700',
-  Interested:  'bg-cyan-50 text-cyan-700',
-  Qualified:   'bg-indigo-50 text-indigo-700',
-  Proposal:    'bg-amber-50 text-amber-700',
-  Negotiation: 'bg-orange-50 text-orange-700',
+type LeadRow = {
+  id: string
+  name: string
+  type: string | null
+  mobile_1: string | null
+  stage: string | null
+  temperature: string | null
+  next_follow_up_date: string | null
+  is_active: boolean | null
+  districts: { name: string } | null
+  talukas: { name: string } | null
+  created_by: { name: string } | null
 }
 
-const TEMP_COLORS: Record<string, string> = {
-  Cold: 'bg-blue-50 text-blue-700',
-  Warm: 'bg-amber-50 text-amber-700',
-  Hot:  'bg-red-50 text-red-700',
+/*
+ * Section 27.1: the tooltip on the search field carries the full list of
+ * fields the box covers, so nobody concludes a record does not exist
+ * when they simply searched a field the box does not reach.
+ *
+ * `/api/leads` matches on `name` and nothing else. That is the route as
+ * it stands and this conversion did not change the server, so the hint
+ * states the truth rather than the ambition — see the report.
+ */
+const SEARCH_HINT = 'Searches the lead name. Type, place, stage and temperature are filters.'
+
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
 }
 
-const COLS: Column[] = [
-  { key: 'name', label: 'Name' },
-  { key: 'type', label: 'Type', render: r => r.type
-    ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">{r.type as string}</span>
-    : <span className="text-text-muted">—</span>
-  },
-  { key: 'mobile_1', label: 'Mobile', render: r => String(r.mobile_1 ?? '—') },
-  { key: 'place', label: 'Place', render: r => {
-    const dist = (r.districts as { name: string } | null)?.name
-    const talu = (r.talukas  as { name: string } | null)?.name
-    if (!dist && !talu) return <span className="text-text-muted">—</span>
-    return <span className="text-sm">{[dist && `District: ${dist}`, talu && `Taluka: ${talu}`].filter(Boolean).join(', ')}</span>
-  }},
-  { key: 'stage', label: 'Stage', render: r => {
-    const v = r.stage as string
-    if (!v) return <span className="text-text-muted">—</span>
-    const cls = STAGE_COLORS[v] ?? 'bg-surface-control text-text-secondary'
-    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{v}</span>
-  }},
-  { key: 'temperature', label: 'Temp', render: r => {
-    const v = r.temperature as string
-    if (!v) return <span className="text-text-muted">—</span>
-    const cls = TEMP_COLORS[v] ?? 'bg-surface-control text-text-secondary'
-    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{v}</span>
-  }},
-  { key: 'next_follow_up_date', label: 'Follow-up', render: r => {
-    const d = r.next_follow_up_date as string | null
-    if (!d) return <span className="text-text-muted">—</span>
-    return <span className="text-sm">{new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-  }},
-  { key: 'created_by', label: 'Created By', render: r => {
-    const u = r.created_by as { name: string } | null
-    return u ? <span className="text-sm">{u.name}</span> : <span className="text-text-muted">—</span>
-  }},
-]
+function place(lead: LeadRow) {
+  const district = lead.districts?.name
+  const taluka = lead.talukas?.name
+  if (!district && !taluka) return '—'
+  return [district && `District: ${district}`, taluka && `Taluka: ${taluka}`]
+    .filter(Boolean)
+    .join(', ')
+}
+
+/**
+ * Section 10 rule 4: every column declares its tier.
+ *
+ * Name grows and truncates — section 8 wants exactly one column taking
+ * the table's slack, and the identifier is the one that can afford to.
+ * Mobile, Stage and Temperature survive every width: a lead is a phone
+ * number plus where it has got to plus how warm it is, which is the
+ * whole point of the screen. Active and the row actions are controls,
+ * not data, so they cannot drop either — a toggle that disappears at
+ * 1024 is a capability that disappears.
+ *
+ * Created By and Place go first at 1024: provenance, and a geography
+ * that is long text and is on the record's own form anyway. Type and
+ * Follow-up survive to 768 — Type qualifies the name the way it does on
+ * Orders, and the follow-up date is the one column somebody works
+ * FROM. Nothing that drops becomes unreachable; all four are on the
+ * edit form.
+ *
+ * Ten columns at 1280, eight at 768. Measured at both — see the report
+ * for `scrollWidth` against `clientWidth`.
+ */
+function leadColumns({
+  canEdit,
+  canDelete,
+  onEdit,
+  onToggleActive,
+  onDelete,
+}: {
+  canEdit: boolean
+  canDelete: boolean
+  onEdit: (lead: LeadRow) => void
+  onToggleActive: (lead: LeadRow, value: boolean) => void
+  onDelete: (lead: LeadRow) => void
+}): ListColumn<LeadRow>[] {
+  return [
+    {
+      id: 'name',
+      header: 'Name',
+      truncate: true,
+      /*
+       * Section 10 rule 2's second half. Ten columns at 1280 is past
+       * its own "more than eight columns at desktop width" threshold
+       * and the table scrolls sideways at every supported width
+       * (measurements in the report), so the first column freezes.
+       *
+       * `grow` is deliberately NOT set: `w-full max-w-0` only takes
+       * slack when there is slack, and on a table that overflows it
+       * collapses the identifier to nothing — measured at 32px before
+       * this changed. A capped, truncating column is the honest one
+       * here.
+       *
+       * The head needs no background of its own: `thead` carries
+       * `bg-surface-sunken` across the full table width and scrolls
+       * under this cell. A body row carries none, so the cell brings
+       * `bg-surface` and re-states the row hover itself — the template
+       * puts no group on `tr`, so there is no group-hover to use. See
+       * the report: a frozen column is a template capability this
+       * screen is standing in for.
+       */
+      className: 'sticky left-0 z-20 border-r border-border-light',
+      cellClassName:
+        'bg-surface [tr:hover_&]:bg-surface-sunken font-medium text-text-primary',
+      skeletonWidth: 'w-40',
+      cell: lead => lead.name,
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      tier: 'hide-below-768',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-20',
+      /* Not a status — a category. Section 11.1's "status is always a
+         badge" does not reach it, and section 2.4 has no colour for a
+         category, so it reads as text like Orders' own Type column. */
+      cell: lead => lead.type ?? '—',
+    },
+    {
+      id: 'mobile',
+      header: 'Mobile',
+      className: 'whitespace-nowrap',
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-24',
+      cell: lead => lead.mobile_1 ?? '—',
+      truncate: true,
+    },
+    {
+      id: 'place',
+      header: 'Place',
+      tier: 'hide-below-1024',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-32',
+      cell: place,
+    },
+    {
+      id: 'stage',
+      header: 'Stage',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-24',
+      /* An absent stage is not a status, so it is a dash rather than
+         the vocabulary's Unknown badge — which is for a word this file
+         has not been told about, not for no word at all. */
+      cell: lead =>
+        lead.stage ? (
+          <StatusBadge vocabulary={LEAD_STAGE} status={lead.stage} />
+        ) : (
+          <span className="text-text-muted">—</span>
+        ),
+    },
+    {
+      id: 'temperature',
+      header: 'Temp',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-20',
+      cell: lead =>
+        lead.temperature ? (
+          <StatusBadge
+            vocabulary={LEAD_TEMPERATURE}
+            status={lead.temperature}
+          />
+        ) : (
+          <span className="text-text-muted">—</span>
+        ),
+    },
+    {
+      id: 'followUp',
+      header: 'Follow-up',
+      tier: 'hide-below-768',
+      className: 'whitespace-nowrap',
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-24',
+      cell: lead =>
+        lead.next_follow_up_date ? fmtDate(lead.next_follow_up_date) : '—',
+      truncate: true,
+    },
+    {
+      id: 'createdBy',
+      header: 'Created By',
+      tier: 'hide-below-1024',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-28',
+      cell: lead => lead.created_by?.name ?? '—',
+    },
+    /*
+     * Section 15.2: once anything points at a master record it is
+     * deactivated rather than deleted, so this is the action that is
+     * always available and Delete is the one that often is not. The
+     * template has no slot for it because it is not chrome — it is a
+     * per-ROW control, and a per-row control is a column. It sits
+     * immediately before the row actions for that reason.
+     */
+    {
+      id: 'active',
+      header: 'Active',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'h-5 w-9',
+      /* Section 26: someone without edit rights sees the same screen
+         with the control disabled, not a screen missing a column — the
+         value is data they are entitled to read. */
+      cell: lead => (
+        <Switch
+          aria-label={`Active — ${lead.name}`}
+          checked={Boolean(lead.is_active)}
+          disabled={!canEdit}
+          onCheckedChange={
+            canEdit ? value => onToggleActive(lead, value) : undefined
+          }
+        />
+      ),
+    },
+    {
+      id: 'actions',
+      header: '',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'h-control w-20',
+      cell: lead => (
+        <div className="flex items-center justify-end gap-2">
+          {canEdit && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    onClick={() => onEdit(lead)}
+                  />
+                }
+              >
+                <PencilIcon />
+                <span className="sr-only">Edit {lead.name}</span>
+              </TooltipTrigger>
+              <TooltipContent>Edit</TooltipContent>
+            </Tooltip>
+          )}
+          {canDelete && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="danger"
+                    size="icon"
+                    onClick={() => onDelete(lead)}
+                  />
+                }
+              >
+                <Trash2Icon />
+                <span className="sr-only">Delete {lead.name}</span>
+              </TooltipTrigger>
+              <TooltipContent>Delete</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      ),
+    },
+  ]
+}
 
 // ── Template download (server-side, returns .xlsx with dropdowns) ─────────────
 async function downloadTemplate(onError: (msg: string) => void) {
@@ -242,7 +476,6 @@ function BulkUploadModal({ open, onClose, onDone }: { open: boolean; onClose: ()
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function LeadsPage() {
-  const crud = useCrud('/api/leads')
   const me = useMe()
   const { toast } = useToast()
   const isAdmin = me?.role === 'Administrator'
@@ -254,8 +487,11 @@ export default function LeadsPage() {
   const [editing, setEditing]   = useState<Record<string, unknown> | null>(null)
   const [saving, setSaving]     = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [deleting, setDeleting] = useState<LeadRow | null>(null)
   const savingRef               = useRef(false)
   const [leadTypes, setLeadTypes] = useState<{ id: string; name: string }[]>([])
+  /* Bumped when a create, an edit, a toggle or a delete makes the list stale. */
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     fetch('/api/masters/lead-types').then(r => r.json()).then(d => setLeadTypes(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead types', 'error'))
@@ -266,7 +502,11 @@ export default function LeadsPage() {
     bp.setF('stage')('Prospect')
     setEditing(null); setOpen(true)
   }
-  function openEdit(row: Record<string, unknown>) { bp.reset(row); setEditing(row); setOpen(true) }
+  function openEdit(row: LeadRow) {
+    bp.reset(row as unknown as Record<string, unknown>)
+    setEditing(row as unknown as Record<string, unknown>)
+    setOpen(true)
+  }
 
   async function handleSave() {
     if (savingRef.current) return
@@ -275,34 +515,169 @@ export default function LeadsPage() {
     savingRef.current = true
     setSaving(true)
     const body = { ...bp.buildBody(), type: bp.form.type || null }
-    const ok = editing ? await crud.update(editing.id as string, body) : await crud.create(body)
+    const path = editing ? `/api/leads/${editing.id as string}` : '/api/leads'
+    const res = await fetch(path, {
+      method: editing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json().catch(() => ({}))
     savingRef.current = false
     setSaving(false)
-    if (ok !== false && ok !== null) setOpen(false)
+    if (!res.ok) {
+      toast((data as { error?: string }).error ?? (editing ? 'Update failed' : 'Create failed'), 'error')
+      return
+    }
+    toast(editing ? 'Updated successfully' : 'Created successfully')
+    setRefreshKey(k => k + 1)
+    setOpen(false)
   }
 
-  const headerExtra = canEdit ? (
-    <button
-      onClick={() => setBulkOpen(true)}
-      className="flex items-center gap-1.5 text-sm font-medium text-text-secondary hover:text-text-primary border border-border-light hover:border-border px-3 py-1.5 rounded-lg transition"
-    >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-      Bulk Upload
-    </button>
-  ) : undefined
+  async function toggleActive(lead: LeadRow, value: boolean) {
+    const res = await fetch(`/api/leads/${lead.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: value }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      toast((data as { error?: string }).error ?? 'Update failed', 'error')
+      return
+    }
+    toast('Updated successfully')
+    setRefreshKey(k => k + 1)
+  }
+
+  async function confirmDelete() {
+    const lead = deleting
+    if (!lead) return
+    setDeleting(null)
+    const res = await fetch(`/api/leads/${lead.id}`, { method: 'DELETE' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      toast((data as { error?: string }).error ?? 'Delete failed', 'error')
+      return
+    }
+    toast('Deleted successfully')
+    setRefreshKey(k => k + 1)
+  }
+
+  /*
+   * Deliberately NOT memoised: the template holds `load` in a ref and
+   * never makes it an effect dependency. No deadline and no catch here
+   * either — the template races this against its own timer, so a
+   * rejection IS the failed state (section 14 rules 3 and 4).
+   *
+   * `/api/leads` takes `q` and `type` and nothing else, so the three
+   * remaining filters narrow the answer here rather than in SQL. The
+   * template counts, pages and empty-states off what this returns, so
+   * all four behave identically whichever side of the wire they run.
+   */
+  const load: ListPageProps<LeadRow>['load'] = async ({ search, filters, signal }) => {
+    const params = new URLSearchParams()
+    if (search) params.set('q', search)
+    if (filters.type) params.set('type', filters.type)
+    const query = params.toString()
+    const r = await fetch(`/api/leads${query ? `?${query}` : ''}`, { signal })
+    if (!r.ok) throw new Error(String(r.status))
+    const body = await r.json()
+    const rows: LeadRow[] = Array.isArray(body) ? body : []
+    return rows.filter(lead => {
+      if (filters.stage && lead.stage !== filters.stage) return false
+      if (filters.temperature && lead.temperature !== filters.temperature) return false
+      if (filters.active === 'active' && !lead.is_active) return false
+      if (filters.active === 'inactive' && lead.is_active) return false
+      return true
+    })
+  }
+
+  const filters: ListFilter[] = [
+    {
+      id: 'type',
+      label: 'Type',
+      kind: 'select',
+      /* Section 16.3: lead types run past six in a real tenant. */
+      searchable: leadTypes.length > 6,
+      options: {
+        '': 'Any type',
+        ...Object.fromEntries(leadTypes.map(t => [t.name, t.name])),
+      },
+    },
+    {
+      id: 'stage',
+      label: 'Stage',
+      kind: 'select',
+      options: {
+        '': 'Any stage',
+        ...Object.fromEntries(Object.keys(LEAD_STAGE).map(s => [s, s])),
+      },
+    },
+    {
+      id: 'temperature',
+      label: 'Temperature',
+      kind: 'select',
+      options: {
+        '': 'Any temperature',
+        ...Object.fromEntries(Object.keys(LEAD_TEMPERATURE).map(t => [t, t])),
+      },
+    },
+    {
+      id: 'active',
+      label: 'Active',
+      kind: 'select',
+      options: { '': 'Any', active: 'Active only', inactive: 'Inactive only' },
+    },
+  ]
 
   return (
     <>
-      <CrudPage
-        title="Leads" columns={COLS}
-        headerExtra={headerExtra}
-        rows={crud.rows} allRowsCount={crud.allRows.length}
-        isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
-        page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={canEdit ? openAdd : undefined}
-        onEdit={canEdit ? openEdit : undefined}
-        onToggleActive={canEdit ? (r, v) => crud.update(r.id as string, { is_active: v }) : undefined}
-        onDelete={canDelete ? r => crud.remove(r.id as string) : undefined}
+      <ListPage<LeadRow>
+        title="Leads"
+        noun={{ one: 'lead', many: 'leads' }}
+        /*
+         * Section 6.1 rules 1 and 2 are what license two buttons here:
+         * exactly ONE primary per screen, and everything else secondary.
+         * Add is the primary; Bulk Upload is a second way to do the same
+         * thing for many rows at once, so it belongs beside it rather
+         * than anywhere else on the page — and it is secondary, which is
+         * both what rule 2 requires and what it already looked like.
+         * Section 11.1's "one primary action button on the right" is
+         * satisfied: there is one primary, and it is on the right.
+         */
+        action={
+          canEdit ? (
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => setBulkOpen(true)}>
+                {/* Section 23.1 has no Upload row and the kit is read-only
+                    here, so this is `download`'s counterpart — see report. */}
+                <UploadIcon />
+                Bulk Upload
+              </Button>
+              <Button onClick={openAdd}>
+                <PlusIcon />
+                Add lead
+              </Button>
+            </div>
+          ) : undefined
+        }
+        columns={leadColumns({
+          canEdit,
+          canDelete,
+          onEdit: openEdit,
+          onToggleActive: toggleActive,
+          onDelete: setDeleting,
+        })}
+        rowKey={lead => lead.id}
+        filters={filters}
+        load={load}
+        refreshKey={refreshKey}
+        searchHint={SEARCH_HINT}
+        emptyYet={{
+          heading: 'No leads yet',
+          body: 'Prospects being worked towards becoming a dealer, distributor or farmer customer are listed here.',
+          actionLabel: 'Add lead',
+          onAction: canEdit ? openAdd : undefined,
+        }}
       />
 
       <Modal title={editing ? 'Edit Lead' : 'Add Lead'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
@@ -323,10 +698,35 @@ export default function LeadsPage() {
         />
       </Modal>
 
+      {/* Section 15: an irreversible action opens a confirmation dialog.
+          This replaces a native `confirm()`, which the template's screens
+          may not use. */}
+      <AlertDialog
+        open={deleting !== null}
+        onOpenChange={o => { if (!o) setDeleting(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the lead permanently. A lead that is already
+              referenced cannot be deleted — deactivate it instead, which
+              keeps its history and takes it out of new entry.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>
+              Delete lead
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <BulkUploadModal
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
-        onDone={() => { crud.refetch() }}
+        onDone={() => setRefreshKey(k => k + 1)}
       />
     </>
   )
