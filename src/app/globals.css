@@ -14,13 +14,11 @@
    and must not be retuned here; PRODUCT values are this product's,
    per AGENTS.md section 0.1.
 
-   TWO GROUPS ARE DELIBERATELY ABSENT, each with its reason at the
-   point it would have been declared:
-     - chart positions 2-6  (section 21)
-     - the three scrollbar tokens (section 10)
-   Both are per-product values whose derivation rule does not exist in
-   AGENTS.md yet. They are being written in the kit and land here in
-   the same commit as the rule. Nothing is guessed in the meantime.
+   The token set is COMPLETE. The two groups this file previously left
+   undeclared - chart positions 2-6 and the three scrollbar colours -
+   landed once AGENTS.md grew section 21.1 and the section 10
+   derivation. Both are per-product and both are worked out in the
+   brand block above, at the point the values are declared.
 
    The 36 existing screens still use raw Tailwind palette classes;
    the colour migration is a later phase and has not started.
@@ -43,6 +41,29 @@
   --primary-subtle: #edecf4;
   --primary-border: #d2d0e4;
   --primary-foreground: #ffffff;
+
+  /* Section 21.1 — the eighth value in this block.
+     This brand collides with chart position 3. Measured CIEDE2000 against
+     positions 2-6: 55.50, 13.13, 27.99, 45.49, 31.57. The threshold is
+     24.28, so position 3 (#3b5a9a indigo) FAILS at 13.13 — the brand and
+     that position would read as one series.
+     The substitute clears 24.28 against position 1 and all four remaining
+     system positions: 29.79, 53.46, 38.97, 29.49, 32.48 — worst 29.49.
+     It is also 48.42 from the nearest status colour, because section 21
+     forbids a series that reads as status; a green substitute was rejected
+     for sitting 7 from --success. Positions 2, 4, 5 and 6 keep their
+     system values and are NOT redeclared here. */
+  --chart-3-substitute: #2481e8;
+
+  /* Section 10 + section 0.1 item 6 — the scrollbar belongs to the brand.
+     Derivation: keep the primary's hue exactly, drop saturation into the
+     12-15% band, set lightness absolutely at 95 / 70 / 54. Saturation and
+     lightness are absolute, never scaled from the primary.
+     This primary is hue 243.5, saturation 31%, lightness 32.9% — at
+     neither extreme of lightness, so it takes the band as written. */
+  --scroll-track: #f1f0f4;        /* hue 243, 15%, 95% */
+  --scroll-thumb: #a9a8bd;        /* hue 243, 14%, 70% */
+  --scroll-thumb-hover: #7d7c98;  /* hue 243, 12%, 54% */
 
   /* Neutrals - 2.3. --text-muted is never set lighter than this. */
   --text-primary: #171717;
@@ -80,30 +101,15 @@
      most charts carry only two or three series. Never use status
      colours in a chart unless the chart is about status. */
   --chart-1: var(--primary);
-
-  /* POSITIONS 2-6 ARE DELIBERATELY NOT DECLARED. See the note at the
-     top of this file. The kit's values are tuned to its teal brand:
-     position 3 is #3b5a9a indigo, which sits next to this product's
-     #3d3a6e at position 1, and positions 5 and 6 (#6fa8a4 light teal,
-     #7a7268 warm grey) are teal-derived too. Section 21 exists to keep
-     series distinguishable side by side, so copying them would break
-     the one thing the section is for. The kit session is writing a
-     threshold rule into section 21; these land when it does.
-     UNTIL THEN bg-chart-2 .. bg-chart-6 do not resolve and
-     bar-chart.tsx renders series 2-6 unpainted. */
-
-  /* SCROLLBAR TOKENS - section 10 - ARE DELIBERATELY NOT DECLARED.
-     The kit's --scroll-track #f0f4f3, --scroll-thumb #a8bdba and
-     --scroll-thumb-hover #7d9895 are visibly tinted to its teal brand
-     but are not listed in section 0.1 as per-product, so there is no
-     rule saying how they follow a brand change. The kit session is
-     writing that derivation into sections 10 and 0.1. Copying the teal
-     values would put teal furniture in an indigo product; inventing a
-     derivation would pre-empt the rule. Neither is done here.
-     UNTIL THEN section 10's styled scrollbar is unimplemented and the
-     browser default shows, which section 10 forbids. The rules that
-     consumed these tokens are removed from @layer base below rather
-     than left pointing at undeclared variables. */
+  --chart-2: #c2841d;
+  /* Position 3 is substituted for this product only, per section 21.1.
+     The value and its working are in the brand block above, because a
+     substitution is a fact about this brand in the way the seven tokens
+     are. It is never written back to the kit. */
+  --chart-3: var(--chart-3-substitute);
+  --chart-4: #a34a5e;
+  --chart-5: #6fa8a4;
+  --chart-6: #7a7268;
 
   /* Overlay - 24. The backdrop behind a dialog, sheet or alert
      dialog. Derived from the neutral so no new colour enters the
@@ -319,7 +325,11 @@
   --color-danger-pressed: var(--danger-pressed);
 
   --color-chart-1: var(--chart-1);
-  /* --color-chart-2 .. -6 omitted: their source tokens are blocked. */
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
 
   /* Colours, shadcn vocabulary (components/ui) */
   --color-background: var(--background);
@@ -360,13 +370,31 @@
     @apply bg-surface-sunken text-body text-text-primary antialiased;
   }
 
-  /* Section 10's scrollbar rules are REMOVED, not commented out with
-     dangling var()s: --scroll-track, --scroll-thumb and
-     --scroll-thumb-hover are blocked (see the :root note above). An
-     unresolved var() makes the declaration invalid and the browser
-     default shows anyway, so keeping the rules would have looked
-     implemented while behaving exactly as if it were not.
-     These come back in the same commit as the three tokens. */
+  /* Scrollbars - section 10. Styled everywhere; the browser default
+     is never used. 10px, fully rounded. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--scroll-track);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-hover);
+  }
 
   /* Section 18: numbers, amounts and dates line up in tables. */
   th,
