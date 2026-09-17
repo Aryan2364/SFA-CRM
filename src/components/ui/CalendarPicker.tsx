@@ -79,17 +79,17 @@ export default function CalendarPicker({ selectedDate, onSelectDate, onClose, ca
   return (
     <div
       ref={panelRef}
-      className="absolute z-50 top-full mt-2 right-0 bg-white rounded-2xl border border-gray-200 shadow-2xl p-4 w-72 select-none"
+      className="absolute z-50 top-full mt-2 right-0 bg-surface rounded-2xl border border-border-light shadow-2xl p-4 w-72 select-none"
     >
       {/* Month navigation */}
       <div className="flex items-center justify-between mb-3">
-        <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+        <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-surface-control text-text-muted transition">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <span className="text-sm font-medium text-gray-800">{MONTHS[viewMonth]} {viewYear}</span>
-        <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+        <span className="text-sm font-medium text-text-primary">{MONTHS[viewMonth]} {viewYear}</span>
+        <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-surface-control text-text-muted transition">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
           </svg>
@@ -99,7 +99,7 @@ export default function CalendarPicker({ selectedDate, onSelectDate, onClose, ca
       {/* Day labels */}
       <div className="grid grid-cols-7 mb-1">
         {DAYS.map(d => (
-          <div key={d} className="text-center text-[10px] font-normal text-gray-400 py-1">{d}</div>
+          <div key={d} className="text-center text-[10px] font-normal text-text-muted py-1">{d}</div>
         ))}
       </div>
 
@@ -118,10 +118,10 @@ export default function CalendarPicker({ selectedDate, onSelectDate, onClose, ca
               onClick={() => { onSelectDate(dateStr); onClose() }}
               className={`relative flex flex-col items-center justify-center h-8 w-full rounded-lg text-xs font-medium transition
                 ${isSelected
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-primary text-primary-foreground'
                   : isToday
-                    ? 'bg-blue-50 text-blue-700 font-medium'
-                    : 'hover:bg-gray-100 text-gray-700'
+                    ? 'bg-primary-subtle text-primary font-medium'
+                    : 'hover:bg-surface-control text-text-secondary'
                 }`}
             >
               {day}
@@ -139,14 +139,14 @@ export default function CalendarPicker({ selectedDate, onSelectDate, onClose, ca
 
       {/* Legend */}
       {calendarApiBase && (
-        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border-light">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span className="text-[10px] text-gray-500">Has activity</span>
+            <span className="text-[10px] text-text-muted">Has activity</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-gray-200" />
-            <span className="text-[10px] text-gray-500">No activity</span>
+            <span className="text-[10px] text-text-muted">No activity</span>
           </div>
         </div>
       )}
