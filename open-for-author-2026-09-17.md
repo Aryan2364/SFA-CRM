@@ -1099,3 +1099,111 @@ reader will rely on.
 - **`scripts/migrate/sites.py` ∩ these 41 files is empty**, asserted in code
   against all ten of its file constants. No phase-1 protected site is reachable
   from phase 2.
+
+---
+
+## P12. `superadmin/companies/page.tsx:20` — §2.4 names Overdue under danger, and it renders warning
+
+**Status: OPEN. Left exactly as committed. Found by the review session at the
+end of phase 2, by reading the call site against §2.4 rather than against the
+row.**
+
+```
+before   Overdue: 'bg-yellow-50 text-yellow-700'
+after    Overdue: 'bg-warning-bg text-warning'
+```
+
+`AGENTS.md` §2.4, verbatim:
+
+| Meaning | Text | Background | Used for |
+|---------|------|------------|----------|
+| success | `#166534` | `#DCFCE7` | Paid, Approved, Active, Completed |
+| warning | `#92400E` | `#FEF3C7` | Pending, Due soon, Needs review |
+| danger  | `#991B1B` | `#FEE2E2` | **Overdue**, Failed, Rejected, Delete |
+
+**§2.4 names Overdue under danger. This renders it warning.**
+
+**No row was misapplied.** The source was `bg-yellow-50 text-yellow-700`, §11.4's
+row sends the yellow family to `warning`, and the row did exactly what it says.
+**The pre-existing code was already off-spec against §2.4 and the mechanical
+mapping preserved the mis-assignment faithfully** — it converted a wrong colour
+into the correctly-tokenised form of the same wrong colour.
+
+This is §11.4's own caveat landing: *"Every call site still has to be read for
+whether it meant the status at all."* This one meant a status. It meant the
+wrong one, and it meant it before phase 2 touched it.
+
+It is also the exact class §15 says nothing mechanical can catch, found the way
+§15 says it has to be — by reading the call site against the rule rather than the
+row. No check in this phase could have flagged it: the occurrence is gone, the
+token is valid, the set moved as a unit, the line count held.
+
+**Not changed, because the remedy is a fourth visible change.** Amber to red on
+a live status chip is outside the three §11 declares, so it is the author's. The
+other two entries in the same map:
+
+- `Active: 'bg-success-bg text-success'` — **correct**, §2.4 lists Active under
+  success.
+- `Suspended: 'bg-danger-bg text-danger'` — not listed in §2.4 either way, and
+  defensible.
+
+Worth deciding once rather than per site: §2.4's fourth column is a **list of
+words**, and this is the first time a word in it has disagreed with the colour a
+screen actually used. Whether that column is normative — so that any chip whose
+label appears in it takes that role regardless of what the code did — is a
+question about §2.4, not about this file.
+
+---
+
+## P13. `components/ui/CalendarPicker.tsx:121–133` — the ground converted and the indicator on it did not
+
+**Status: OPEN, and it is a ruling rather than a lookup, because two rules in
+§11.6 reach it and point opposite ways. Left as committed.**
+
+The day cell and the dot drawn on it, after phase 2:
+
+```
+:121   isSelected  ? 'bg-primary text-primary-foreground'     CONVERTED
+:123   isToday     ? 'bg-primary-subtle text-primary'         CONVERTED
+:124               : 'hover:bg-surface-control text-text-secondary'   CONVERTED
+:130   isFilled && !isSelected   <span ... bg-emerald-500 />  DEFERRED (G6)
+:133   isFilled &&  isSelected   <span ... bg-blue-200   />   DEFERRED (G6)
+```
+
+**Before**, the pair was a `bg-blue-600` cell carrying a `bg-blue-200` dot — one
+family, visibly related. **After**, it is a `#3D3A6E` indigo ground carrying a
+raw Tailwind `blue-200` dot, and the two no longer relate to each other at all.
+
+**The two rules, both of which apply:**
+
+- **§11.6 B's principle** — *"a fill and the text on it are one decision"* — and
+  a fill and the indicator drawn on it is the same argument. On that reading the
+  ground should have deferred with the dots.
+- **§11.6 G6 reasoned about this exact shape once and exempted it.** Its closing
+  note: *"Not in this group: `daily-activity:142` and `review/[userId]:102`. The
+  day-cell 'has activity' dot is `bg-blue-500`, going `bg-blue-200` when the cell
+  is selected. `bg-primary` on white and `bg-primary-subtle` on the primary fill
+  is coherent in both states, so it maps normally."* On that reading `:133`
+  should have converted to `bg-primary-subtle` and the pair would be coherent.
+
+**Why `:133` did not convert, and why that was not a free choice.** `:130` and
+`:133` are the same indicator in its two states. `:130` is `bg-emerald-500`,
+which G6 defers because `success-bg` is a 4px dot at 1.10:1 on white — G6's
+exemption was written for a **blue** dot in both states and does not carry to an
+emerald one. Converting `:133` alone would have split a state pair, which is the
+half-migration the line-level rule exists to stop. So the choice was: split the
+pair, or leave the ground unrelated to the dot on it. **Phase 2 took the second,
+because the first is forbidden by a rule and the second is not.**
+
+Three ways out, none of them phase 2's to take:
+
+1. Convert `:133` only — coherent ground and dot, at the cost of a split state
+   pair. Requires G6's exemption to be read as overriding the state-pair rule.
+2. Defer the day-cell ternary as well — everything stays raw and related, at the
+   cost of deferring three lines that convert cleanly and are not a G6 shape.
+3. Settle what the "has activity" indicator *is* — it is presence-of-data, not
+   status and not category — and give the whole element one vocabulary. This is
+   the real answer and it is a screen decision.
+
+Related and already recorded: the same file's legend at `:144`/`:148` is a
+two-item swatch pair under G6 for the same reason as `:130`.
