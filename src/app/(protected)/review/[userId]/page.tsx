@@ -87,8 +87,8 @@ function WeekStrip({ selectedDate, onSelectDate, onPrevWeek, onNextWeek, calenda
   const [showCalendar, setShowCalendar] = useState(false)
   return (
     <div className="relative mb-4">
-      <div className="flex items-center gap-1 bg-white rounded-2xl border border-gray-200 px-2 py-2 shadow-sm">
-        <button onClick={onPrevWeek} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition shrink-0">
+      <div className="flex items-center gap-1 bg-surface rounded-2xl border border-border-light px-2 py-2 shadow-sm">
+        <button onClick={onPrevWeek} className="p-1.5 rounded-lg hover:bg-surface-control text-text-muted transition shrink-0">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
         </button>
         <div className="flex-1 flex items-center justify-between gap-0.5">
@@ -96,20 +96,20 @@ function WeekStrip({ selectedDate, onSelectDate, onPrevWeek, onNextWeek, calenda
             const ds = toDateStr(d); const isSelected = ds === selectedDate; const isToday = ds === todayStr
             return (
               <button key={ds} onClick={() => onSelectDate(ds)}
-                className={`flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-xl flex-1 transition relative ${isSelected ? 'bg-blue-600 text-white' : 'hover:bg-gray-50 text-gray-600'}`}>
-                <span className={`text-[10px] font-normal uppercase tracking-wide ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>{DAY_LABELS[i]}</span>
-                <span className={`text-sm font-medium ${isSelected ? 'text-white' : isToday ? 'text-blue-600' : 'text-gray-700'}`}>{d.getDate()}</span>
-                {isToday && <span className={`w-1.5 h-1.5 rounded-full absolute bottom-1 ${isSelected ? 'bg-blue-200' : 'bg-blue-500'}`} />}
+                className={`flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-xl flex-1 transition relative ${isSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-surface-sunken text-text-secondary'}`}>
+                <span className={`text-[10px] font-normal uppercase tracking-wide ${isSelected ? 'text-primary-foreground' : 'text-text-muted'}`}>{DAY_LABELS[i]}</span>
+                <span className={`text-sm font-medium ${isSelected ? 'text-primary-foreground' : isToday ? 'text-primary' : 'text-text-secondary'}`}>{d.getDate()}</span>
+                {isToday && <span className={`w-1.5 h-1.5 rounded-full absolute bottom-1 ${isSelected ? 'bg-primary-subtle' : 'bg-primary'}`} />}
               </button>
             )
           })}
         </div>
-        <button onClick={onNextWeek} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition shrink-0">
+        <button onClick={onNextWeek} className="p-1.5 rounded-lg hover:bg-surface-control text-text-muted transition shrink-0">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
         </button>
         <button
           onClick={() => setShowCalendar(v => !v)}
-          className={`p-1.5 rounded-lg transition shrink-0 ${showCalendar ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-400'}`}
+          className={`p-1.5 rounded-lg transition shrink-0 ${showCalendar ? 'bg-primary-subtle text-primary' : 'hover:bg-surface-control text-text-muted'}`}
           title="Open calendar"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -176,44 +176,44 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
       {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-4">
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          className="border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring">
           {STATUS_OPTS.map(s => <option key={s} value={s}>{s || 'All statuses'}</option>)}
         </select>
         <select value={filterWeek} onChange={e => setFilterWeek(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          className="border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring">
           <option value="">All weeks</option>
           {weekOptions.map(w => <option key={w} value={w}>{formatWeekRange(new Date(w + 'T00:00:00'))}</option>)}
         </select>
       </div>
 
-      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : plans.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">No plans found.</div>
+      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : plans.length === 0 ? (
+        <div className="text-center py-12 text-text-muted">No plans found.</div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-surface rounded-xl border border-border-light overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
+            <thead className="bg-surface-sunken border-b border-border-light">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Week</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Submitted</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-600">Actions</th>
+                <th className="px-4 py-3 text-left font-medium text-text-secondary">Week</th>
+                <th className="px-4 py-3 text-left font-medium text-text-secondary">Status</th>
+                <th className="px-4 py-3 text-left font-medium text-text-secondary">Submitted</th>
+                <th className="px-4 py-3 text-right font-medium text-text-secondary">Actions</th>
               </tr>
             </thead>
             <tbody>
               {plans.map(p => (
-                <tr key={p.id} className="border-t border-gray-50 hover:bg-gray-50">
-                  <td className="px-4 py-3 text-xs text-gray-600">{formatWeekRange(new Date(p.week_start_date + 'T00:00:00'))}</td>
+                <tr key={p.id} className="border-t border-border-light hover:bg-surface-sunken">
+                  <td className="px-4 py-3 text-xs text-text-secondary">{formatWeekRange(new Date(p.week_start_date + 'T00:00:00'))}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={p.status} />
                       {p.reopen_requested && (
-                        <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Reopen Req.</span>
+                        <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-full bg-warning-bg text-warning">Reopen Req.</span>
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{p.submitted_at ? new Date(p.submitted_at).toLocaleString('en-IN') : '—'}</td>
+                  <td className="px-4 py-3 text-xs text-text-secondary">{p.submitted_at ? new Date(p.submitted_at).toLocaleString('en-IN') : '—'}</td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => setSelected(p)} className="text-blue-600 hover:underline text-xs font-medium">View</button>
+                    <button onClick={() => setSelected(p)} className="text-primary hover:underline text-xs font-medium">View</button>
                   </td>
                 </tr>
               ))}
@@ -225,11 +225,11 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
       {/* Plan Detail Modal */}
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setSelected(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div className="absolute inset-0 bg-(--backdrop)" onClick={() => setSelected(null)} />
+          <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
               <div>
-                <h3 className="font-medium text-gray-800">Week of {selected.week_start_date}</h3>
+                <h3 className="font-medium text-text-primary">Week of {selected.week_start_date}</h3>
                 <div className="flex items-center gap-2 mt-1"><StatusBadge status={selected.status} /></div>
               </div>
               <div className="flex items-center gap-2">
@@ -242,20 +242,20 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
                   </svg>
                   Chat
                 </button>
-                <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+                <button onClick={() => setSelected(null)} className="text-text-muted hover:text-text-secondary text-xl">&times;</button>
               </div>
             </div>
             {selected.manager_comment && (
-              <div className="mx-6 mt-4 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-sm text-yellow-800">
+              <div className="mx-6 mt-4 bg-warning-bg border border-warning-border rounded-lg px-3 py-2 text-sm text-warning">
                 Comment: {selected.manager_comment}
               </div>
             )}
             <div className="overflow-x-auto px-6 py-4 flex-1 overflow-y-auto space-y-4">
               <table className="w-full text-xs">
-                <thead className="bg-gray-50"><tr>{['Date', 'Place', 'Dist.', 'Dealer', 'Others'].map(h => <th key={h} className="px-3 py-2 text-left font-medium text-gray-600">{h}</th>)}</tr></thead>
+                <thead className="bg-surface-sunken"><tr>{['Date', 'Place', 'Dist.', 'Dealer', 'Others'].map(h => <th key={h} className="px-3 py-2 text-left font-medium text-text-secondary">{h}</th>)}</tr></thead>
                 <tbody>
                   {selected.weekly_plan_items.sort((a, b) => a.plan_date.localeCompare(b.plan_date)).map((item, i) => (
-                    <tr key={i} className="border-t border-gray-50">
+                    <tr key={i} className="border-t border-border-light">
                       <td className="px-3 py-2 font-medium">{formatDayHeader(item.plan_date)}</td>
                       <td className="px-3 py-2">{item.from_place || '—'}</td>
                       <td className="px-3 py-2">{item.existing_dealers_goal}</td>
@@ -267,15 +267,15 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
               </table>
               {/* Day Focus / Remarks */}
               {selected.day_notes && Object.entries(selected.day_notes).filter(([, v]) => v?.trim()).length > 0 && (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-3 py-2 text-xs font-normal text-gray-600 uppercase tracking-wide">Day Focus / Remarks</div>
+                <div className="border border-border-light rounded-lg overflow-hidden">
+                  <div className="bg-surface-sunken px-3 py-2 text-xs font-normal text-text-secondary uppercase tracking-wide">Day Focus / Remarks</div>
                   {Object.entries(selected.day_notes)
                     .filter(([, v]) => v?.trim())
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([date, note]) => (
-                      <div key={date} className="px-3 py-2 border-t border-gray-100 flex gap-3 text-xs">
-                        <span className="font-medium text-gray-600 whitespace-nowrap">{formatDayHeader(date)}</span>
-                        <span className="text-gray-700">{note}</span>
+                      <div key={date} className="px-3 py-2 border-t border-border-light flex gap-3 text-xs">
+                        <span className="font-medium text-text-secondary whitespace-nowrap">{formatDayHeader(date)}</span>
+                        <span className="text-text-secondary">{note}</span>
                       </div>
                     ))
                   }
@@ -283,19 +283,19 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
               )}
             </div>
             {['Submitted', 'Resubmitted', 'On Hold'].includes(selected.status) && (
-              <div className="px-6 py-4 border-t border-gray-200 flex flex-wrap gap-2">
+              <div className="px-6 py-4 border-t border-border-light flex flex-wrap gap-2">
                 <button disabled={acting} onClick={() => { setCommentModal({ action: 'approve', planId: selected.id }); setComment('') }} className="bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Approve</button>
-                <button disabled={acting} onClick={() => { setCommentModal({ action: 'reject', planId: selected.id }); setComment('') }} className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Reject</button>
+                <button disabled={acting} onClick={() => { setCommentModal({ action: 'reject', planId: selected.id }); setComment('') }} className="bg-danger hover:bg-danger-hover text-primary-foreground text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Reject</button>
                 <button disabled={acting} onClick={() => { setCommentModal({ action: 'hold', planId: selected.id }); setComment('') }} className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Hold</button>
                 <button disabled={acting} onClick={() => { setCommentModal({ action: 'suggest', planId: selected.id }); setComment('') }} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Suggest Changes</button>
               </div>
             )}
             {/* Item 8: Accept / Decline reopen request */}
             {selected.reopen_requested && (
-              <div className="px-6 py-4 border-t border-gray-200 bg-orange-50">
-                <p className="text-xs font-medium text-orange-700 mb-1">Reopen Request</p>
+              <div className="px-6 py-4 border-t border-border-light bg-warning-bg">
+                <p className="text-xs font-medium text-warning mb-1">Reopen Request</p>
                 {selected.reopen_request_message && (
-                  <p className="text-xs text-orange-600 mb-3 bg-white rounded-lg px-3 py-2 border border-orange-200">{selected.reopen_request_message}</p>
+                  <p className="text-xs text-warning mb-3 bg-surface rounded-lg px-3 py-2 border border-warning-border">{selected.reopen_request_message}</p>
                 )}
                 <div className="flex gap-2">
                   <button disabled={acting} onClick={() => action(selected.id, 'accept-reopen')}
@@ -303,7 +303,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
                     Accept (Allow Edit)
                   </button>
                   <button disabled={acting} onClick={() => action(selected.id, 'decline-reopen')}
-                    className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">
+                    className="bg-danger hover:bg-danger-hover text-primary-foreground text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">
                     Decline
                   </button>
                 </div>
@@ -319,11 +319,11 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
         onSave={() => { if (commentModal) action(commentModal.planId, commentModal.action, { comment }) }}
         isSaving={acting} saveLabel="Confirm">
         <div>
-          <label htmlFor="review-comment" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="review-comment" className="block text-sm font-medium text-text-secondary mb-1">
             Comment {commentModal?.action === 'reject' || commentModal?.action === 'suggest' ? '(required)' : '(optional)'}
           </label>
           <textarea id="review-comment" name="comment" value={comment} onChange={e => setComment(e.target.value)} rows={3}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none"
             placeholder={commentModal?.action === 'approve' ? 'Add an optional note for approval…' : 'Enter your comment…'} />
         </div>
       </Modal>
@@ -343,7 +343,7 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
     t === 'Dealer' ? 'bg-blue-100 text-blue-700' :
     t === 'Distributor' ? 'bg-green-100 text-green-700' :
     'bg-purple-100 text-purple-700'
-  const statusColor = (s: string) => s === 'Active' ? 'bg-amber-100 text-amber-700' : s === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+  const statusColor = (s: string) => s === 'Active' ? 'bg-warning-bg text-warning' : s === 'Completed' ? 'bg-success-bg text-success' : 'bg-surface-control text-text-secondary'
 
   const hasNotes = !!v.notes?.trim()
   const hasLocation = v.latitude != null
@@ -351,7 +351,7 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
     (Math.abs(v.latitude - v.end_latitude) > 0.001 || Math.abs((v.longitude ?? 0) - (v.end_longitude ?? 0)) > 0.001)
 
   return (
-    <div className={`bg-white rounded-2xl border overflow-hidden ${v.status === 'Active' ? 'border-amber-300' : 'border-gray-200'}`}>
+    <div className={`bg-surface rounded-2xl border overflow-hidden ${v.status === 'Active' ? 'border-amber-300' : 'border-gray-200'}`}>
       {v.status === 'Active' && <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-400 animate-pulse" />}
       {v.status === 'Completed' && <div className="h-1 bg-emerald-400" />}
       <div className="px-5 py-4">
@@ -360,18 +360,18 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
           {v.is_new_entity && <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">New</span>}
           <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${statusColor(v.status)}`}>{v.status}</span>
         </div>
-        <p className="font-medium text-gray-900">{v.entity_name}</p>
-        <div className="flex gap-4 mt-2 text-xs text-gray-500">
+        <p className="font-medium text-text-primary">{v.entity_name}</p>
+        <div className="flex gap-4 mt-2 text-xs text-text-muted">
           {v.start_time && <span>Started {new Date(v.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>}
           {v.end_time && <span>Ended {new Date(v.end_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>}
-          {v.status === 'Completed' && v.duration_secs != null && <span className="text-emerald-600 font-medium">{formatDuration(v.duration_secs)}</span>}
+          {v.status === 'Completed' && v.duration_secs != null && <span className="text-success font-medium">{formatDuration(v.duration_secs)}</span>}
         </div>
 
         {/* Action row */}
-        <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2">
+        <div className="mt-2 pt-2 border-t border-border-light flex items-center gap-2">
           {hasNotes && (
             <button onClick={() => setNotesOpen(o => !o)}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${notesOpen ? 'bg-amber-50 text-amber-700' : 'text-gray-500 hover:text-amber-700 hover:bg-amber-50'}`}>
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${notesOpen ? 'bg-warning-bg text-warning' : 'text-text-muted hover:text-warning hover:bg-warning-bg'}`}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
               </svg>
@@ -389,7 +389,7 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
             </button>
           )}
           <button onClick={() => onOpenRemarks({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
-            className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition" title="Remarks">
+            className="ml-auto p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-subtle transition" title="Remarks">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
             </svg>
@@ -398,28 +398,28 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
 
         {/* Meeting Notes (read-only) */}
         {notesOpen && hasNotes && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Meeting Notes</p>
-            <p className="text-sm text-gray-800 whitespace-pre-wrap bg-amber-50 rounded-xl px-3 py-2.5">{v.notes}</p>
+          <div className="mt-3 pt-3 border-t border-border-light">
+            <p className="text-xs font-normal text-text-muted uppercase tracking-wide mb-2">Meeting Notes</p>
+            <p className="text-sm text-text-primary whitespace-pre-wrap bg-warning-bg rounded-xl px-3 py-2.5">{v.notes}</p>
           </div>
         )}
 
         {/* Location (read-only) */}
         {locationOpen && hasLocation && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Location Details</p>
+          <div className="mt-3 pt-3 border-t border-border-light">
+            <p className="text-xs font-normal text-text-muted uppercase tracking-wide mb-2">Location Details</p>
             <div className="space-y-2">
               <div className="bg-teal-50 rounded-lg px-3 py-2">
                 <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">Start Location</p>
-                <p className="text-xs text-gray-700">{v.address ?? `${v.latitude}, ${v.longitude}`}</p>
+                <p className="text-xs text-text-secondary">{v.address ?? `${v.latitude}, ${v.longitude}`}</p>
               </div>
               {v.end_latitude != null && (
                 <div className={`rounded-lg px-3 py-2 ${endMismatch ? 'bg-red-50 border border-red-200' : 'bg-teal-50'}`}>
                   <div className="flex items-center gap-1.5">
                     <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">End Location</p>
-                    {endMismatch && <span className="text-[10px] font-normal text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">Mismatch</span>}
+                    {endMismatch && <span className="text-[10px] font-normal text-danger bg-danger-bg px-1.5 py-0.5 rounded-full">Mismatch</span>}
                   </div>
-                  <p className="text-xs text-gray-700">{v.end_address ?? `${v.end_latitude}, ${v.end_longitude}`}</p>
+                  <p className="text-xs text-text-secondary">{v.end_address ?? `${v.end_latitude}, ${v.end_longitude}`}</p>
                 </div>
               )}
               <button onClick={() => setMapOpen(o => !o)}
@@ -430,7 +430,7 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
                 {mapOpen ? 'Hide Map' : 'View on Google Maps'}
               </button>
               {mapOpen && (
-                <div className="rounded-xl overflow-hidden border border-gray-200">
+                <div className="rounded-xl overflow-hidden border border-border-light">
                   <iframe
                     src={`https://www.google.com/maps?q=${v.latitude},${v.longitude}&z=15&output=embed`}
                     className="w-full h-48" loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Meeting start location" />
@@ -478,8 +478,8 @@ function DailyActivityTab({ userId, onOpenRemarks }: { userId: string; onOpenRem
         calendarApiBase={`/api/daily-activity/calendar?userId=${userId}`}
       />
 
-      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : visits.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">No meetings on this day.</div>
+      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : visits.length === 0 ? (
+        <div className="text-center py-12 text-text-muted">No meetings on this day.</div>
       ) : (
         <div className="space-y-3">
           {visits.map(v => <ReviewVisitCard key={v.id} v={v} onOpenRemarks={onOpenRemarks} />)}
@@ -525,29 +525,29 @@ function ExpensesTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks:
         calendarApiBase={`/api/expenses/calendar?userId=${userId}`}
       />
 
-      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : expenses.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">No expenses on this day.</div>
+      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : expenses.length === 0 ? (
+        <div className="text-center py-12 text-text-muted">No expenses on this day.</div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl text-sm">
-            <span className="text-gray-600">{expenses.length} expense{expenses.length !== 1 ? 's' : ''}</span>
-            <span className="font-medium text-gray-800">Total: ₹{total.toFixed(0)}</span>
+          <div className="flex items-center justify-between px-4 py-3 bg-surface-sunken rounded-xl text-sm">
+            <span className="text-text-secondary">{expenses.length} expense{expenses.length !== 1 ? 's' : ''}</span>
+            <span className="font-medium text-text-primary">Total: ₹{total.toFixed(0)}</span>
           </div>
           {expenses.map(exp => (
-            <div key={exp.id} className="bg-white rounded-2xl border border-gray-200 px-5 py-4">
+            <div key={exp.id} className="bg-surface rounded-2xl border border-border-light px-5 py-4">
               <div className="flex items-center gap-2">
                 <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${CATEGORY_COLORS[exp.category] ?? 'bg-gray-100 text-gray-600'}`}>{exp.category}</span>
-                <span className="text-base font-medium text-gray-900 ml-auto">₹{Number(exp.amount).toFixed(0)}</span>
+                <span className="text-base font-medium text-text-primary ml-auto">₹{Number(exp.amount).toFixed(0)}</span>
               </div>
-              {exp.notes && <p className="text-sm text-gray-500 mt-1.5">{exp.notes}</p>}
+              {exp.notes && <p className="text-sm text-text-muted mt-1.5">{exp.notes}</p>}
               {exp.photo_url && (
                 <a href={exp.photo_url} target="_blank" rel="noopener noreferrer" className="mt-2 block">
-                  <img src={exp.photo_url} alt="Receipt" className="h-20 w-auto rounded-lg border border-gray-200 object-cover hover:opacity-90 transition" />
+                  <img src={exp.photo_url} alt="Receipt" className="h-20 w-auto rounded-lg border border-border-light object-cover hover:opacity-90 transition" />
                 </a>
               )}
-              <div className="mt-2 pt-2 border-t border-gray-100 flex justify-end">
+              <div className="mt-2 pt-2 border-t border-border-light flex justify-end">
                 <button onClick={() => onOpenRemarks({ contextType: 'expense', contextId: exp.id, title: `${exp.category} — ₹${Number(exp.amount).toFixed(0)}` })}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition" title="Remarks">
+                  className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-subtle transition" title="Remarks">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
                   </svg>
@@ -604,22 +604,22 @@ function ReviewUserInner() {
     <div className="max-w-2xl mx-auto pb-24">
       {/* Back + Header */}
       <div className="flex items-center gap-3 mb-5">
-        <button onClick={() => router.push('/review')} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+        <button onClick={() => router.push('/review')} className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
         <div>
-          <h2 className="text-xl font-medium text-gray-900">{userName || 'Team Member'}</h2>
-          {userLevel && <p className="text-xs text-gray-400">{userLevel}</p>}
+          <h2 className="text-xl font-medium text-text-primary">{userName || 'Team Member'}</h2>
+          {userLevel && <p className="text-xs text-text-muted">{userLevel}</p>}
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-5 border-b border-gray-200">
+      <div className="flex items-center gap-1 mb-5 border-b border-border-light">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`pb-3 px-3 text-sm font-medium border-b-2 transition ${tab === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            className={`pb-3 px-3 text-sm font-medium border-b-2 transition ${tab === t.id ? 'border-primary-border text-primary' : 'border-transparent text-text-muted hover:text-text-secondary'}`}>
             {t.label}
           </button>
         ))}
@@ -649,7 +649,7 @@ function ReviewUserInner() {
 
 export default function ReviewUserPage() {
   return (
-    <Suspense fallback={<div className="text-center py-16 text-gray-400">Loading...</div>}>
+    <Suspense fallback={<div className="text-center py-16 text-text-muted">Loading...</div>}>
       <ReviewUserInner />
     </Suspense>
   )

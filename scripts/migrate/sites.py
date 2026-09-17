@@ -131,3 +131,39 @@ SITES[CO] = dict(
     fill=[(742, 'bg-red-600'), (756, 'bg-red-600')],
     hover_fill=[(742, 'bg-red-700'), (756, 'bg-red-700')],
 )
+
+# ---------------------------------------------------------------- file 3: RV
+SITES[RV] = dict(
+    protect=[
+        # G4 gradient stops / G6 the Completed stripe whose Active twin is G4
+        (355, 'from-amber-400'), (355, 'to-orange-400'), (356, 'bg-emerald-400'),
+        # :354's two border branches are one card's two states; bg-white on the
+        # same line is outside the ternary and converts (open-for-author item 3)
+        (354, 'border-amber-300'), (354, 'border-gray-200'),
+        # G1 teal location panel (:383 and :417 are line-level, below)
+        (412, 'bg-teal-50'), (413, 'text-teal-600'), (419, 'text-teal-600'),
+        # G2 the "New" entity badge
+        (360, 'bg-purple-100'), (360, 'text-purple-700'),
+    ],
+    protect_lines=[
+        # C: CATEGORY_COLORS and its fallback. Must match file 1's disposition
+        # exactly -- the two maps cannot diverge.
+        74, 75, 76, 539,
+        # G1: :383 is the location toggle, every class inside the ternary;
+        # :417 carries both branches of the mismatch pair on one line.
+        383, 417,
+        # G2: :290 the purple "Suggest Changes" button -- a seventh weekly-plan
+        # state with no status token -- and its text-white.
+        290,
+        # G2: typeColor, one 3-category map across three lines. :345 is the
+        # named site; converting :343 and :344 would half-migrate the set.
+        343, 344, 345,
+        # Section 11.9
+        238, 287, 289, 302, 426,
+    ],
+    exceptions=[214, 346],
+    # :99 :101 brand fills; :288 :306 filled danger buttons
+    white=[99, 101, 288, 306],
+    fill=[(288, 'bg-red-600'), (306, 'bg-red-600')],
+    hover_fill=[(288, 'bg-red-700'), (306, 'bg-red-700')],
+)
