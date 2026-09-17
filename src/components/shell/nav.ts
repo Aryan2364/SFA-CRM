@@ -1,0 +1,232 @@
+import {
+  CalendarDays,
+  ClipboardList,
+  Database,
+  LayoutDashboard,
+  MessageSquare,
+  Settings,
+  ShoppingCart,
+  UserRoundCheck,
+  UserRoundSearch,
+  type LucideIcon,
+} from 'lucide-react'
+
+import type { Me } from '@/hooks/useMe'
+
+/**
+ * The sidebar's destinations. One list, filtered by permission at
+ * render - never a second, reduced navigation for a lesser role
+ * (section 26, and section 4 rule 2).
+ *
+ * ---------------------------------------------------------------------
+ * SECTION 23.2 ICON MAP - this product's rows
+ *
+ * Section 23.2: "A product adds one row per top-level navigation section
+ * and one for its own product mark, in the same commit that adds the
+ * navigation item." AGENTS.md belongs to the kit, so this product's rows
+ * are recorded here, beside the items they name. Lucide only, and the
+ * meaning is fixed everywhere it appears.
+ *
+ *   | Meaning        | Icon                |
+ *   |----------------|---------------------|
+ *   | Product mark   | boxes               |  (in sidebar.tsx)
+ *   | Dashboard      | layout-dashboard    |  from 23.2's own table
+ *   | Daily Activity | calendar-days       |
+ *   | Weekly Plan    | clipboard-list      |
+ *   | Orders         | shopping-cart       |
+ *   | Leads          | user-round-search   |
+ *   | Review         | user-round-check    |
+ *   | Conversations  | message-square      |
+ *   | Masters        | database            |
+ *   | Settings       | settings            |  from 23.2's own table
+ *
+ * Weekly Plan and Review are deliberately not both clipboards. At 18px
+ * in a 64px rail with no labels, two clipboards are one icon, and the
+ * rail is the state where the icon is all there is.
+ *
+ * ---------------------------------------------------------------------
+ * THE SEVEN-ITEM CEILING
+ *
+ * Section 12.1 caps the top level at seven, and the cap is about what
+ * ONE USER SEES rather than about the union across every role. Section
+ * 26 is what brings it under seven: whole areas a user has no access to
+ * are hidden, not disabled.
+ *
+ * Nine entries are declared. A field rep sees six; a manager sees seven;
+ * an administrator sees all nine, which is the one role the cap does not
+ * hold for and the one role that is not scanning for a destination it
+ * has never used.
+ *
+ * Three destinations are deliberately NOT here, and none is lost:
+ *
+ *   - Users, /masters/users, is a child route of Masters and is reached
+ *     from the Masters page.
+ *   - Access Control and Points Config are children of Settings and are
+ *     reached from the Settings page.
+ *   - My Points, /points, is in the USER MENU in the top bar. It is a
+ *     page about the current user rather than a section of the product.
+ *
+ * ---------------------------------------------------------------------
+ * GATING
+ *
+ * Every predicate reads me.permissions, which /api/auth/me builds from
+ * the role_permissions table - the same table checkPermission() on the
+ * server reads. No entry gates on a role NAME, with the one stated
+ * exception below, because an administrator arrives here with every
+ * section already true.
+ */
+
+export type NavItem = {
+  label: string
+  href: string
+  icon: LucideIcon
+  /** Section 26. False hides the entry; there is no disabled state. */
+  visible: (me: Me) => boolean
+}
+
+function canView(me: Me, section: string): boolean {
+  return me.permissions?.[section]?.view ?? false
+}
+
+/*
+ * Masters is one entry over seventeen master sections. It appears when
+ * the user can view any of them, which is the same test the Masters page
+ * itself applies before deciding it has nothing to show.
+ */
+const MASTER_SECTIONS = [
+  'states',
+  'districts',
+  'talukas',
+  'villages',
+  'territory_mapping',
+  'dealers',
+  'distributors',
+  'institutions',
+  'product_categories',
+  'product_subcategories',
+  'products',
+  'departments',
+  'designations',
+  'expense_categories',
+  'lead_types',
+  'lead_stages',
+  'lead_temperatures',
+]
+
+/*
+ * THE ONE ROLE CHECK, and why it is not the thing CLAUDE.md forbids.
+ *
+ * Access Control has no row in role_permissions - there is no section
+ * key for it. Its API routes authorise with user.role !== 'Administrator'
+ * and return 403 to everyone else. Section 26 says never show a control
+ * that fails after being clicked, so the interface has to mirror what the
+ * server actually enforces, and for this one area that is the role.
+ *
+ * Mirroring the server is the opposite of inventing a role gate in place
+ * of the permission table. If Access Control ever gains a section key,
+ * this function is the single place that changes.
+ */
+export function canReachAccessControl(me: Me): boolean {
+  return me.role === 'Administrator'
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  {
+    label: 'Dashboard',
+    href: '/',
+    icon: LayoutDashboard,
+    visible: () => true,
+  },
+  {
+    label: 'Daily Activity',
+    href: '/daily-activity',
+    icon: CalendarDays,
+    visible: me => canView(me, 'meetings'),
+  },
+  {
+    label: 'Weekly Plan',
+    href: '/weekly-plan',
+    icon: ClipboardList,
+    visible: me => canView(me, 'weekly_plan'),
+  },
+  {
+    label: 'Orders',
+    href: '/orders',
+    icon: ShoppingCart,
+    visible: me => canView(me, 'orders'),
+  },
+  {
+    label: 'Leads',
+    href: '/leads',
+    icon: UserRoundSearch,
+    visible: me => canView(me, 'leads'),
+  },
+  {
+    /*
+     * Manager and above, expressed as the data rather than as a role
+     * name: the page reviews the people this user can see, so a user
+     * with nobody under them has nothing to review and would reach an
+     * empty page rather than a forbidden one.
+     */
+    label: 'Review',
+    href: '/review',
+    icon: UserRoundCheck,
+    visible: me => me.hasSubordinates,
+  },
+  {
+    label: 'Conversations',
+    href: '/conversations',
+    icon: MessageSquare,
+    visible: () => true,
+  },
+  {
+    label: 'Masters',
+    href: '/masters',
+    icon: Database,
+    visible: me => MASTER_SECTIONS.some(section => canView(me, section)),
+  },
+  {
+    /*
+     * Settings holds Access Control and Points Config, so it appears
+     * when either child is reachable. Showing it to a user who could
+     * open neither would be an empty page reached in one click.
+     */
+    label: 'Settings',
+    href: '/settings',
+    icon: Settings,
+    visible: me => canView(me, 'points_config') || canReachAccessControl(me),
+  },
+]
+
+export function visibleNavItems(me: Me | null): NavItem[] {
+  if (!me) return []
+  return NAV_ITEMS.filter(item => item.visible(me))
+}
+
+/**
+ * Which entry is highlighted for a given path.
+ *
+ * Section 12.1: "The sidebar never changes when the user drills into a
+ * record. The top-level section stays highlighted and the breadcrumb
+ * inside the page shows the depth."
+ *
+ * So a prefix match, and the LONGEST matching entry wins. That second
+ * part is load-bearing where one destination sits inside another:
+ * /masters/states highlights Masters, /review/<id> highlights Review,
+ * and /settings/points highlights Settings.
+ *
+ * The root is matched exactly, because every path starts with it.
+ */
+export function activeHref(pathname: string, items: NavItem[]): string | null {
+  let match: string | null = null
+  for (const item of items) {
+    const hit =
+      item.href === '/'
+        ? pathname === '/'
+        : pathname === item.href || pathname.startsWith(`${item.href}/`)
+    if (hit && (match === null || item.href.length > match.length)) {
+      match = item.href
+    }
+  }
+  return match
+}
