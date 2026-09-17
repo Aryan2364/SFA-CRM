@@ -149,7 +149,10 @@ SITES[CO] = dict(
     ],
     # Sets that must be byte-identical to the pre-phase blob AS A BLOCK.
     # Sampling named lines let a one-line miss through twice.
-    blocks=[(45, 51), (268, 274), (281, 288)],
+    # kept as corroboration of the derived spans. The legend read (281, 288)
+    # when declared by hand; the walker derived (281, 287) and was right --
+    # 288 is a JSX line, not part of the literal.
+    blocks=[(45, 51), (268, 274), (281, 287)],
     exceptions=[319, 367, 384, 566, 576, 585, 658, 669],
     # :742 and :756 are filled DANGER buttons -- 11.4's closing rule resolves
     # them and their text-white converts with them. :553 is warning and stays.
@@ -262,6 +265,12 @@ SITES[DB] = dict(
         93,            # E: the "Edited by Manager" chip -- a seventh status
         349, 360,      # 11.9: success fills, no success-hover token
     ],
+    # The weekly-plan status map. Six of seven states take 11.4 tokens; the
+    # seventh, "Edited by Manager", is E and stays raw because 2.4 has three
+    # roles against the workflow's seven. Mixed BY DECLARATION, not by a miss --
+    # and no new collision: Submitted and Resubmitted were already identical
+    # (bg-blue-100) before conversion and are identical after.
+    mixed_ok=[(86, 94)],
     exceptions=[58, 85, 322, 463],
     white=[505],                       # :505 a filled danger button
     fill=[(505, 'bg-red-600')],
@@ -333,6 +342,13 @@ SITES[LD] = dict(
                   # purple, so it separates nothing; decoration, not category
         152,      # 11.9
     ],
+    # :28-31 is the type-cell renderer: a chip when r.type is set, an em-dash
+    # placeholder when it is not. :29 is E and raw; :30's text-gray-400 ->
+    # text-text-muted converted. Whether a chip and its empty-state placeholder
+    # are "one element with two states" is open-for-author item 3, the same
+    # question as bg-white outside a ternary. Converted meanwhile, which is the
+    # reversible direction.
+    mixed_ok=[(28, 31)],
     exceptions=[],
     white=[233],
     fill=[],
