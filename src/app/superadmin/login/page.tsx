@@ -26,7 +26,7 @@ export default function SuperAdminLogin() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-surface-sunken flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-900 rounded-xl mb-4">
@@ -34,16 +34,16 @@ export default function SuperAdminLogin() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-medium text-gray-900">Super Admin</h1>
-          <p className="text-sm text-gray-500 mt-1">Platform management portal</p>
+          <h1 className="text-2xl font-medium text-text-primary">Super Admin</h1>
+          <p className="text-sm text-text-muted mt-1">Platform management portal</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="bg-surface rounded-2xl shadow-sm border border-border-light p-6 space-y-4">
           {error && (
-            <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-lg">{error}</div>
+            <div className="bg-danger-bg text-danger text-sm px-3 py-2 rounded-lg">{error}</div>
           )}
           <div>
-            <label htmlFor="sa-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <label htmlFor="sa-phone" className="block text-sm font-medium text-text-secondary mb-1">Phone</label>
             <input
               id="sa-phone" name="phone"
               type="tel"
@@ -51,11 +51,11 @@ export default function SuperAdminLogin() {
               onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
               placeholder="Phone number"
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring"
             />
           </div>
           <div>
-            <label htmlFor="sa-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label htmlFor="sa-password" className="block text-sm font-medium text-text-secondary mb-1">Password</label>
             <div className="relative">
               <input
                 id="sa-password" name="password"
@@ -64,12 +64,12 @@ export default function SuperAdminLogin() {
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 placeholder="Password"
                 required
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full border border-border rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(v => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                 tabIndex={-1}
               >
                 {showPassword ? (
