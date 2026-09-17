@@ -17,11 +17,17 @@ PFX = ('bg|text|border|ring|divide|placeholder|accent|shadow|from|to|via|fill|'
 
 # a class token: optional variant prefixes (hover:, focus:, md:), the base
 # class, and an optional opacity suffix (/40)
+# NOTE the shade alternation is longest-first. Regex alternation is
+# leftmost-first, so "50|...|500" makes text-gray-500 match as text-gray-50.
+SHADE = r'100|200|300|400|500|600|700|800|900|950|50'
+
 TOKEN = re.compile(
+    r'(?<![\w-])'
     r'(?P<variants>(?:[a-z-]+:)*)'
     r'(?P<base>(?:' + PFX + r')-(?:(?:' + FAM +
-    r')-(?:50|100|200|300|400|500|600|700|800|900|950)|white|black))'
-    r'(?P<alpha>/\d+)?')
+    r')-(?:' + SHADE + r')|white|black))'
+    r'(?P<alpha>/\d+)?'
+    r'(?![\w-])')
 
 BASE_SPLIT = re.compile(r'^(' + PFX + r')-(' + FAM + r')-(\d+)$')
 
@@ -93,6 +99,9 @@ for _shade in ('100', '200', '300', '400', '500', '600', '700'):
 # section 11.3: delete the class, no coloured shadow
 DELETE = frozenset(['shadow-blue-200'])
 
+# the saturated blues the bg-primary-pressed row would otherwise swallow
+PRESSED_BLUE = frozenset(['bg-blue-700', 'bg-blue-800', 'bg-blue-900', 'bg-blue-950'])
+
 # section 11.4, by role, for the four prefixes that have a row
 STATUS_PREFIX = {
     'text': 'text-%s',
@@ -150,9 +159,14 @@ def migrate(path, protect=(), exceptions=(), white=(), fill=(), hover_fill=(),
             elif base == 'bg-black':
                 new = 'bg-(--backdrop)'
                 alpha = ''            # the token carries its own 40%
+            elif variants.startswith('hover:') and base in PRESSED_BLUE:
+                # section 11.3: a hover is not a pressed state. This codebase
+                # writes hovers as hover:bg-blue-700, which the bg-primary-pressed
+                # row would otherwise swallow. The subtle shades (50/100/200) are
+                # NOT this case and take their own row.
+                new = 'bg-primary-hover'
             elif (n, base) in hover_fill:
-                role = role_of(fam)
-                new = 'bg-primary-hover' if fam == 'blue' else 'bg-%s-hover' % role
+                new = 'bg-%s-hover' % role_of(fam)
             elif (n, base) in fill:
                 new = 'bg-%s' % role_of(fam)
             elif base in NEUTRAL:
@@ -172,7 +186,16 @@ def migrate(path, protect=(), exceptions=(), white=(), fill=(), hover_fill=(),
                 problems.append((n, base, 'no section 11 row'))
                 continue
 
-            edits.append((m.start(), m.end(), '' if new == '' else variants + new + alpha))
+            start, end = m.start(), m.end()
+            if new == '':
+                # A deleted class must take exactly one adjacent space with it,
+                # or it leaves a double space in the class list. Prefer the
+                # space after; fall back to the one before when it is last.
+                if line[end:end + 1] == ' ':
+                    end += 1
+                elif line[start - 1:start] == ' ':
+                    start -= 1
+            edits.append((start, end, '' if new == '' else variants + new + alpha))
 
         if edits:
             buf, last = [], 0
@@ -182,11 +205,7 @@ def migrate(path, protect=(), exceptions=(), white=(), fill=(), hover_fill=(),
                 last = end
                 stats['deleted' if rep == '' else 'mapped'] += 1
             buf.append(line[last:])
-            merged = ''.join(buf)
-            # a deleted class leaves a double space inside a class list
-            merged = re.sub(r'(?<=[\'"` ]) +(?=[a-z(])', ' ', merged)
-            merged = re.sub(r' +(?=[\'"`])', '', merged)
-            lines[idx] = merged
+            lines[idx] = ''.join(buf)
 
     if problems:
         raise Unmapped(problems)

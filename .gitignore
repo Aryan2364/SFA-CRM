@@ -56,3 +56,7 @@ next-env.d.ts
 
 # tenant-scope audit query log (transient)
 /.audit
+
+# python bytecode from scripts/migrate
+__pycache__/
+*.pyc
