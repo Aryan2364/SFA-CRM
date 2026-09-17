@@ -1,14 +1,22 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import StatusBadge from '@/components/ui/StatusBadge'
+import { TriangleAlertIcon } from 'lucide-react'
+
 import { useToast } from '@/contexts/ToastContext'
+import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
+import {
+  ListPage,
+  type ListColumn,
+  type ListPageProps,
+} from '@/components/templates/list-page'
+import { Banner, BannerDescription, BannerTitle } from '@/components/ui/banner'
+import { Button } from '@/components/ui/button'
 
 type SubCard = {
   id: string
   name: string
-  level: string
   plan: { id: string; status: string } | null
   today_meetings: number
   today_expenses: number
@@ -16,154 +24,270 @@ type SubCard = {
   week_end: string
 }
 
+/** The two statuses a manager can approve from. Unchanged. */
 const APPROVABLE = ['Submitted', 'Resubmitted']
+
+/**
+ * Section 27.1: the hint states what the box ACTUALLY looks at, not
+ * what it ought to. `/api/review/summary-cards` takes no query at all,
+ * so the filtering below is done here over the array it returns — which
+ * means the two text fields a row HAS are both covered, and there is
+ * nothing else on the record to miss.
+ */
+const SEARCH_HINT = 'Searches the team member’s name and their plan status.'
+
+function fmtAmount(n: number) {
+  return (
+    '₹' +
+    Number(n).toLocaleString('en-IN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    })
+  )
+}
+
+/**
+ * COLUMN CLASSIFICATION — section 10 rule 4.
+ *
+ *   essential          Team member, This week, Meetings, Expenses, Actions
+ *   hide-below-1024    none
+ *   hide-below-768     none
+ *
+ * Five columns, four of them narrow and fixed-width by their content,
+ * and the table measures 726px inside 911px of zone 3 at 1024 and 726
+ * inside 719 at 768 — so nothing scrolls sideways at 1024 and nothing
+ * needs dropping to stop it. Section 10 rule 2 makes dropping columns
+ * the alternative to a sideways scroll; with no sideways scroll to
+ * avoid, dropping a column would lose data for nothing.
+ *
+ * Every one of the five is also load-bearing on its own: the name is
+ * who the row is, the plan status is the only thing the Approve action
+ * is keyed on, the two counts are the whole point of the screen ("what
+ * did my team do today"), and Actions is the only route into the
+ * person's detail — a row without it is a dead end.
+ */
+function reviewColumns(
+  onOpen: (userId: string) => void,
+  onApprove: (planId: string) => void,
+  acting: string | null
+): ListColumn<SubCard>[] {
+  return [
+    {
+      id: 'name',
+      header: 'Team member',
+      grow: true,
+      truncate: true,
+      cellClassName: 'font-medium text-text-primary',
+      skeletonWidth: 'w-40',
+      cell: card => card.name,
+    },
+    {
+      id: 'plan',
+      header: 'This week',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-28',
+      /*
+       * "No plan submitted" is a real, distinct state and not an
+       * unknown status: the person has no weekly_plans row at all.
+       * Section 11.1's "status is always a badge" governs a status;
+       * the ABSENCE of one is text, and rendering it as a badge would
+       * claim the plan exists and reads "Unknown".
+       */
+      cell: card =>
+        card.plan ? (
+          <StatusBadge vocabulary={WEEKLY_PLAN_STATUS} status={card.plan.status} />
+        ) : (
+          <span className="text-text-secondary">No plan submitted</span>
+        ),
+    },
+    {
+      id: 'meetings',
+      header: 'Meetings today',
+      numeric: true,
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-8',
+      cell: card => card.today_meetings.toLocaleString('en-IN'),
+    },
+    {
+      id: 'expenses',
+      header: 'Expenses today',
+      numeric: true,
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-16',
+      cell: card => fmtAmount(card.today_expenses),
+    },
+    {
+      id: 'actions',
+      header: '',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'h-control-sm w-16',
+      /*
+       * Section 6.1: Approve is not the screen's one main action — it
+       * appears on as many rows as have a plan waiting — so rule 1
+       * puts it at secondary along with View. It is not destructive
+       * either, so not danger. The green it used to carry was section
+       * 2.4's success colour, which states the STATUS of a record and
+       * says nothing about a button's place in the hierarchy.
+       *
+       * Section 14 rule 2: disabled while the POST is in flight, so
+       * nobody approves the same plan three times.
+       */
+      cell: card => (
+        <div className="flex items-center justify-end gap-2">
+          {card.plan && APPROVABLE.includes(card.plan.status) && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={acting === card.plan.id}
+              aria-busy={acting === card.plan.id}
+              onClick={() => onApprove(card.plan!.id)}
+            >
+              Approve
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" onClick={() => onOpen(card.id)}>
+            View
+          </Button>
+        </div>
+      ),
+    },
+  ]
+}
 
 export default function ReviewPage() {
   const router = useRouter()
   const { toast } = useToast()
-  const [cards, setCards] = useState<SubCard[]>([])
-  const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState<string | null>(null)
+  const [pendingCount, setPendingCount] = useState(0)
+  /* The template's only refetch lever. Bumped on focus and after an
+     approve. */
+  const [refreshKey, setRefreshKey] = useState(0)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const r = await fetch('/api/review/summary-cards')
-    if (r.ok) setCards(await r.json())
-    setLoading(false)
+  /*
+   * Re-fetch when the user returns to the tab, which is how a manager
+   * or level change made in another tab reaches this screen. The
+   * template holds `load` itself, so what is nudged is `refreshKey`.
+   */
+  useEffect(() => {
+    const onFocus = () => setRefreshKey(k => k + 1)
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  useEffect(() => { load() }, [load])
+  /*
+   * Deliberately NOT memoised — the template holds it in a ref.
+   *
+   * No try/catch: a rejection IS the failed state. The old version of
+   * this screen did `if (r.ok) setCards(...)` with no else, so a 500
+   * rendered as "no subordinates found" and invited the manager to go
+   * and assign themselves a team they already had.
+   */
+  const load: ListPageProps<SubCard>['load'] = async ({ search, signal }) => {
+    const r = await fetch('/api/review/summary-cards', { signal }).catch(
+      error => {
+        /* Not a swallow — it is rethrown on the next line, so the
+           rejection still IS the failed state. The banner is cleared
+           because a count from the last good response would otherwise
+           sit above a table that says it could not be loaded. */
+        setPendingCount(0)
+        throw error
+      }
+    )
+    if (!r.ok) {
+      setPendingCount(0)
+      throw new Error(String(r.status))
+    }
+    const body = await r.json()
+    const rows: SubCard[] = Array.isArray(body) ? body : []
 
-  // Re-fetch when user returns to the tab (handles manager/level changes)
-  useEffect(() => {
-    window.addEventListener('focus', load)
-    return () => window.removeEventListener('focus', load)
-  }, [load])
+    /* The banner counts the whole team, not the search result: the
+       plans still need approving when the box is narrowed. */
+    setPendingCount(
+      rows.filter(c => c.plan && APPROVABLE.includes(c.plan.status)).length
+    )
 
-  async function handleApprove(planId: string, userId: string) {
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    /* The route takes no query parameter, so the search is applied
+       here over the two text fields a row has. */
+    return rows.filter(
+      c =>
+        c.name.toLowerCase().includes(q) ||
+        (c.plan?.status ?? 'No plan submitted').toLowerCase().includes(q)
+    )
+  }
+
+  async function handleApprove(planId: string) {
     setActing(planId)
-    const r = await fetch(`/api/weekly-plans/${planId}/approve`, { method: 'POST' })
-    if (!r.ok) { toast((await r.json()).error ?? 'Failed to approve', 'error') }
-    else { toast('Plan approved'); load() }
-    setActing(null)
-  }
-
-  const pendingCount = cards.filter(c => c.plan && APPROVABLE.includes(c.plan.status)).length
-
-  if (loading) {
-    return (
-      <div className="max-w-2xl mx-auto">
-        <h2 className="text-xl font-medium text-text-primary mb-6">Review</h2>
-        <div className="text-center py-16 text-text-muted">Loading...</div>
-      </div>
-    )
-  }
-
-  if (cards.length === 0) {
-    return (
-      <div className="max-w-2xl mx-auto">
-        <h2 className="text-xl font-medium text-text-primary mb-6">Review</h2>
-        <div className="text-center py-16">
-          <div className="w-16 h-16 bg-surface-control rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-            </svg>
-          </div>
-          <p className="text-text-muted font-medium">No subordinates found</p>
-          <p className="text-xs text-text-muted mt-1">Assign yourself as a manager in Users</p>
-        </div>
-      </div>
-    )
+    try {
+      const r = await fetch(`/api/weekly-plans/${planId}/approve`, {
+        method: 'POST',
+      })
+      if (!r.ok) {
+        toast(
+          ((await r.json()) as { error?: string }).error ?? 'Failed to approve',
+          'error'
+        )
+        return
+      }
+      toast('Plan approved')
+      setRefreshKey(k => k + 1)
+    } finally {
+      setActing(null)
+    }
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-xl font-medium text-text-primary">Review</h2>
-        <span className="text-sm text-text-muted">{cards.length} team member{cards.length !== 1 ? 's' : ''}</span>
-      </div>
-
-      {/* Pending approvals banner */}
+    /*
+     * OVERNIGHT: the pending-approvals banner has no zone in §11.1 — see overnight-queue-2026-09-18.md
+     *
+     * Section 7.1 calls this exactly a banner: a condition the manager
+     * can carry on past, which stays true until the plans are
+     * approved. Section 11.1 has four zones and none of them is for
+     * one, and zone 1a is reserved for section 33's tabs — so it is
+     * NOT put there, and no prop is added to `list-page`.
+     *
+     * It therefore sits above zone 1, inside this file. The wrapper is
+     * a flex COLUMN with a definite height, not a plain div: the
+     * shell's content wrapper is the scroll container, `ListPage` is
+     * `h-full` inside it, and a plain wrapper would break that height
+     * chain and make the PAGE scroll instead of zone 3. `h-full
+     * min-h-0 flex-col` here plus `min-h-0 flex-1` on the template
+     * keeps zone 3 the only scrolling zone — measured, not assumed.
+     */
+    <div className="flex h-full min-h-0 flex-col">
       {pendingCount > 0 && (
-        <div className="mb-5 flex items-center gap-3 bg-warning-bg border border-warning-border rounded-xl px-4 py-3">
-          <div className="w-8 h-8 bg-warning-bg rounded-lg flex items-center justify-center shrink-0">
-            <svg className="w-4 h-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-sm font-medium text-warning">{pendingCount} plan{pendingCount !== 1 ? 's' : ''} need your approval</p>
-            <p className="text-xs text-warning mt-0.5">Click a team member to review their details</p>
-          </div>
-        </div>
+        <Banner variant="warning" className="mb-4 shrink-0">
+          <TriangleAlertIcon />
+          <BannerTitle>
+            {pendingCount} plan{pendingCount !== 1 ? 's' : ''} need your approval
+          </BannerTitle>
+          <BannerDescription>
+            Approve from this list, or open a team member to read the plan
+            first.
+          </BannerDescription>
+        </Banner>
       )}
 
-      {/* Subordinate cards */}
-      <div className="space-y-3">
-        {cards.map(card => (
-          <div key={card.id} className="bg-surface rounded-2xl border border-border-light overflow-hidden">
-            <div className="px-5 py-4">
-              <div className="flex items-start gap-3">
-                {/* Avatar */}
-                <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-medium text-sm shrink-0">
-                  {card.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-medium text-text-primary">{card.name}</h3>
-                    {card.level && <span className="text-[11px] text-text-muted font-medium">{card.level}</span>}
-                  </div>
-
-                  {/* This week's plan */}
-                  <div className="flex items-center gap-2 mt-2">
-                    <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
-                    </svg>
-                    <span className="text-xs text-text-muted">This week:</span>
-                    {card.plan ? (
-                      <StatusBadge status={card.plan.status} />
-                    ) : (
-                      <span className="text-xs text-text-secondary">No plan submitted</span>
-                    )}
-                    {card.plan && APPROVABLE.includes(card.plan.status) && (
-                      <button
-                        disabled={acting === card.plan.id}
-                        onClick={(e) => { e.stopPropagation(); handleApprove(card.plan!.id, card.id) }}
-                        className="ml-1 text-[11px] font-medium bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded-lg disabled:opacity-50 transition"
-                      >
-                        Approve
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Today stats */}
-                  <div className="flex gap-4 mt-1.5 text-xs text-text-muted">
-                    <span className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />
-                      Today: <strong className="text-text-secondary">{card.today_meetings}</strong> meeting{card.today_meetings !== 1 ? 's' : ''}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block" />
-                      Expenses: <strong className="text-text-secondary">₹{card.today_expenses.toFixed(0)}</strong>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Drill-down arrow */}
-                <button
-                  onClick={() => router.push(`/review/${card.id}`)}
-                  className="p-2 rounded-xl hover:bg-surface-control text-text-muted hover:text-text-secondary transition shrink-0"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <ListPage<SubCard>
+        className="min-h-0 flex-1"
+        title="Review"
+        noun={{ one: 'team member', many: 'team members' }}
+        columns={reviewColumns(
+          userId => router.push(`/review/${userId}`),
+          handleApprove,
+          acting
+        )}
+        rowKey={card => card.id}
+        load={load}
+        refreshKey={refreshKey}
+        searchPlaceholder="Search team members"
+        searchHint={SEARCH_HINT}
+        emptyYet={{
+          heading: 'No team members yet',
+          body: 'People who report to you appear here with this week’s plan and today’s activity. Assign yourself as their manager in Users.',
+        }}
+      />
     </div>
   )
 }
