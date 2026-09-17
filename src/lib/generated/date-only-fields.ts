@@ -9,6 +9,8 @@
 export const DATE_ONLY_FIELDS: ReadonlySet<string> = new Set([
   'attendance.date',
   'business_partners.next_follow_up_date',
+  'contacts.anniversary',
+  'contacts.birthday',
   'daily_visits.visit_date',
   'expenses.expense_date',
   'orders.order_date',
@@ -23,6 +25,8 @@ export const DATE_ONLY_FIELDS: ReadonlySet<string> = new Set([
  * caller does not tell serialize() which model a row came from.
  */
 export const DATE_ONLY_FIELD_NAMES: ReadonlySet<string> = new Set([
+  'anniversary',
+  'birthday',
   'date',
   'expense_date',
   'next_follow_up_date',
