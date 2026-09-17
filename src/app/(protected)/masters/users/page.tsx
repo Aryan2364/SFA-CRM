@@ -1,20 +1,57 @@
 'use client'
 
-import { useState, useEffect, ReactNode } from 'react'
-import CrudPage, { Column } from '@/components/ui/CrudPage'
+import { useState, useEffect } from 'react'
+import { PencilIcon, PlusIcon, ScrollTextIcon, UsersIcon } from 'lucide-react'
+
 import Modal from '@/components/ui/Modal'
 import SearchableSelect from '@/components/ui/SearchableSelect'
-import StatusBadge from '@/components/ui/StatusBadge'
-import { useCrud } from '@/hooks/useCrud'
 import { useMe } from '@/hooks/useMe'
 import { useToast } from '@/contexts/ToastContext'
+import { StatusBadge, USER_STATUS } from '@/components/status-badge'
+import {
+  ListPage,
+  type ListColumn,
+  type ListFilter,
+  type ListPageProps,
+} from '@/components/templates/list-page'
+import { Badge } from '@/components/ui/badge'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 type Dept = { id: string; name: string }
 type Desig = { id: string; name: string; department_id: string }
-type UserRow = { id: string; name: string }
 type Role = { id: string; name: string }
 type DeactivateSummary = { direct_reports: number; active_meetings: number; pending_plans: number; open_orders: number }
 type AuditEntry = { id: string; target_user_name: string; action: string; performed_by_name: string; metadata: Record<string, unknown>; created_at: string }
+
+/**
+ * `/api/masters/users` returns the whole row plus two embeds. `roles` is
+ * selected with `{ name: true }` only, so `roles.id` is absent on the
+ * wire — the edit form has always read it and always got `undefined`
+ * for a non-administrator. Typed optional so that stays visible rather
+ * than being asserted away; fixing it is a change to the route.
+ */
+type UserRow = {
+  id: string
+  name: string
+  email: string | null
+  contact: string
+  status: string | null
+  profile: string | null
+  department_id: string | null
+  designation_id: string | null
+  manager_user_id: string | null
+  roles: { id?: string; name: string } | null
+  manager: { id: string; name: string } | null
+}
 
 const ACTION_LABELS: Record<string, string> = {
   created: 'Account created',
@@ -31,19 +68,164 @@ const ACTION_COLORS: Record<string, string> = {
   name_changed: 'bg-gray-100 text-gray-700',
 }
 
-const COLS: Column[] = [
-  { key: 'name', label: 'Name' },
-  { key: 'contact', label: 'Contact' },
-  { key: 'email', label: 'Email' },
-  { key: 'role_display', label: 'Role', render: r => r.profile === 'Administrator' ? 'Administrator' : (r.roles as { name: string } | null)?.name ?? '—' },
-  { key: 'manager', label: 'Manager', render: r => (r.manager as { name: string } | null)?.name ?? '—' },
-  { key: 'status', label: 'Status', render: r => <StatusBadge status={String(r.status)} /> },
-]
+/**
+ * Section 27.1: the field carries the list of fields it covers, so
+ * nobody concludes an account does not exist when they searched a field
+ * the box never looked at.
+ *
+ * `/api/masters/users` matches `q` against `name`, `email` and
+ * `contact`. The manager's name is not reachable from there, and role
+ * and status are filters instead — this conversion did not change the
+ * route, so the hint states what is true today.
+ */
+const SEARCH_HINT =
+  'Searches the name, email address and contact number. Role and status are filters; the manager’s name is not searched.'
+
+/** The label the Role column shows, and the value the Role filter matches. */
+function roleLabel(user: UserRow) {
+  if (user.profile === 'Administrator') return 'Administrator'
+  return user.roles?.name ?? '—'
+}
+
+/**
+ * COLUMN CLASSIFICATION — section 10 rule 4.
+ *
+ *   essential          Name, Contact, Role, Status, actions
+ *   hide-below-1024    Email, Manager
+ *
+ * Name grows and truncates: section 8 wants exactly one column taking
+ * the table's slack and the identifier is the one that can afford to.
+ * Contact is the account's unique key in this tenant (`users_tenant_contact`)
+ * and the only way to reach the person, so it is short, essential and
+ * never dropped. Role and Status are what this screen exists to
+ * administer — who can do what, and whether they can sign in at all —
+ * and Status also decides which row action is offered, so a reader who
+ * loses it loses the reason the button says what it says. The actions
+ * are the only route to Edit and to Deactivate/Reactivate; a control
+ * that disappears at 768 is a capability that disappears.
+ *
+ * Email and Manager go first: both are long text, both are on the edit
+ * form, and neither is acted on from the list. Nothing that drops
+ * becomes unreachable.
+ *
+ * Seven columns at 1280, five at 768. Measured at both — see the report
+ * for `scrollWidth` against `clientWidth`.
+ */
+function userColumns({
+  canEdit,
+  canDelete,
+  onEdit,
+  onDeactivate,
+  onReactivate,
+}: {
+  canEdit: boolean
+  canDelete: boolean
+  onEdit: (user: UserRow) => void
+  onDeactivate: (user: UserRow) => void
+  onReactivate: (user: UserRow) => void
+}): ListColumn<UserRow>[] {
+  return [
+    {
+      id: 'name',
+      header: 'Name',
+      grow: true,
+      truncate: true,
+      cellClassName: 'font-medium text-text-primary',
+      skeletonWidth: 'w-40',
+      cell: user => user.name,
+    },
+    {
+      id: 'contact',
+      header: 'Contact',
+      className: 'whitespace-nowrap',
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-24',
+      truncate: true,
+      cell: user => user.contact || '—',
+    },
+    {
+      id: 'email',
+      header: 'Email',
+      tier: 'hide-below-1024',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-40',
+      cell: user => user.email ?? '—',
+    },
+    {
+      id: 'role',
+      header: 'Role',
+      truncate: true,
+      skeletonWidth: 'w-24',
+      cell: roleLabel,
+    },
+    {
+      id: 'manager',
+      header: 'Manager',
+      tier: 'hide-below-1024',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-28',
+      cell: user => user.manager?.name ?? '—',
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-20',
+      cell: user => <StatusBadge vocabulary={USER_STATUS} status={user.status} />,
+    },
+    {
+      id: 'actions',
+      header: '',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'h-control w-28',
+      /*
+       * Section 15.2: a user account is referenced by every meeting,
+       * plan and order it ever touched, so deactivation is the action
+       * that is always available and there is no Delete here at all.
+       * It is therefore NOT danger-styled — nothing has gone wrong and
+       * nothing is destroyed; section 15.1's closing argument is that a
+       * red control states a failure that has not happened.
+       */
+      cell: user => (
+        <div className="flex items-center justify-end gap-2">
+          {canEdit && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    onClick={() => onEdit(user)}
+                  />
+                }
+              >
+                <PencilIcon />
+                <span className="sr-only">Edit {user.name}</span>
+              </TooltipTrigger>
+              <TooltipContent>Edit</TooltipContent>
+            </Tooltip>
+          )}
+          {canDelete &&
+            (user.status === 'Active' ? (
+              <Button variant="secondary" onClick={() => onDeactivate(user)}>
+                Deactivate
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={() => onReactivate(user)}>
+                Reactivate
+              </Button>
+            ))}
+        </div>
+      ),
+    },
+  ]
+}
 
 const INIT = { name: '', email: '', contact: '', password: '', department_id: '', designation_id: '', manager_user_id: '', role_id: '' }
 
 export default function UsersPage() {
-  const crud = useCrud('/api/masters/users', { scope: 'manage' })
   const me = useMe()
   const { toast } = useToast()
   const isAdmin = me?.role === 'Administrator'
@@ -51,7 +233,7 @@ export default function UsersPage() {
   const canDelete = isAdmin || (me?.permissions?.users?.delete ?? false)
 
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
+  const [editing, setEditing] = useState<UserRow | null>(null)
   const [form, setForm] = useState(INIT)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
@@ -63,15 +245,18 @@ export default function UsersPage() {
   const [roles, setRoles] = useState<Role[]>([])
   const [license, setLicense] = useState<{ used: number; limit: number | null } | null>(null)
   const [limitError, setLimitError] = useState(false)
+  /* Bumped when a create, an edit, a deactivation or a reactivation
+     makes the list stale. The template's only refetch lever. */
+  const [refreshKey, setRefreshKey] = useState(0)
 
   // Deactivation flow
-  const [deactivateTarget, setDeactivateTarget] = useState<Record<string, unknown> | null>(null)
+  const [deactivateTarget, setDeactivateTarget] = useState<UserRow | null>(null)
   const [deactivateSummary, setDeactivateSummary] = useState<DeactivateSummary | null>(null)
   const [deactivateLoading, setDeactivateLoading] = useState(false)
   const [deactivateSaving, setDeactivateSaving] = useState(false)
 
   // Reactivation flow
-  const [reactivateTarget, setReactivateTarget] = useState<Record<string, unknown> | null>(null)
+  const [reactivateTarget, setReactivateTarget] = useState<UserRow | null>(null)
   const [reactivateForm, setReactivateForm] = useState({ role_id: '', manager_user_id: '' })
   const [reactivateError, setReactivateError] = useState('')
   const [reactivateSaving, setReactivateSaving] = useState(false)
@@ -95,12 +280,8 @@ export default function UsersPage() {
 
   const atLimit = license !== null && license.limit !== null && license.used >= license.limit
 
-  const activeUsers = allUsers.filter(u => (u as unknown as Record<string, unknown>).status === 'Active')
-  const managerCandidates = activeUsers.filter(u => {
-    if (editing && u.id === (editing.id as string)) return false
-    return true
-  })
-
+  const activeUsers = allUsers.filter(u => u.status === 'Active')
+  const managerCandidates = activeUsers.filter(u => !(editing && u.id === editing.id))
 
   function refreshRoles() {
     fetch('/api/masters/roles').then(r => r.json()).then(d => setRoles(Array.isArray(d) ? d : [])).catch(() => {})
@@ -111,17 +292,17 @@ export default function UsersPage() {
     refreshRoles()
     setEditing(null); setForm(INIT); setFormError(''); setEmailError(''); setShowPassword(false); setOpen(true)
   }
-  function openEdit(row: Record<string, unknown>) {
+  function openEdit(row: UserRow) {
     refreshRoles()
     setEditing(row)
     setFormError('')
     setEmailError('')
     setShowPassword(false)
     setForm({
-      name: String(row.name), email: String(row.email ?? ''), contact: String(row.contact),
-      password: '', department_id: String(row.department_id ?? ''), designation_id: String(row.designation_id ?? ''),
-      manager_user_id: String(row.manager_user_id ?? ''),
-      role_id: String(row.profile) === 'Administrator' ? 'Administrator' : String((row.roles as { id: string } | null)?.id ?? ''),
+      name: row.name, email: row.email ?? '', contact: row.contact,
+      password: '', department_id: row.department_id ?? '', designation_id: row.designation_id ?? '',
+      manager_user_id: row.manager_user_id ?? '',
+      role_id: row.profile === 'Administrator' ? 'Administrator' : (row.roles?.id ?? ''),
     })
     setOpen(true)
   }
@@ -141,7 +322,7 @@ export default function UsersPage() {
     const body: Record<string, unknown> = { name: form.name.trim(), email: form.email.trim(), contact: form.contact.trim(), department_id: form.department_id || null, designation_id: form.designation_id || null, profile: isAdminRole ? 'Administrator' : 'Standard', manager_user_id: form.manager_user_id || null, role_id: isAdminRole ? null : (form.role_id || null) }
     if (!editing || form.password.trim()) body.password = form.password.trim()
     try {
-      const res = await fetch(editing ? `/api/masters/users/${editing.id as string}` : '/api/masters/users', {
+      const res = await fetch(editing ? `/api/masters/users/${editing.id}` : '/api/masters/users', {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -150,7 +331,7 @@ export default function UsersPage() {
       setSaving(false)
       if (!res.ok) { setFormError(data.error ?? 'Save failed. Please try again.'); return }
       setOpen(false)
-      crud.refetch()
+      setRefreshKey(k => k + 1)
       refreshLists()
     } catch {
       setSaving(false)
@@ -159,12 +340,12 @@ export default function UsersPage() {
   }
 
   // Deactivation
-  async function startDeactivate(row: Record<string, unknown>) {
+  async function startDeactivate(row: UserRow) {
     setDeactivateTarget(row)
     setDeactivateSummary(null)
     setDeactivateLoading(true)
     try {
-      const res = await fetch(`/api/masters/users/${row.id as string}/deactivation-summary`)
+      const res = await fetch(`/api/masters/users/${row.id}/deactivation-summary`)
       if (res.ok) setDeactivateSummary(await res.json())
       else toast('Failed to load deactivation summary', 'error')
     } catch {
@@ -176,7 +357,7 @@ export default function UsersPage() {
   async function confirmDeactivate() {
     if (!deactivateTarget) return
     setDeactivateSaving(true)
-    const res = await fetch(`/api/masters/users/${deactivateTarget.id as string}`, {
+    const res = await fetch(`/api/masters/users/${deactivateTarget.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'deactivate' }),
@@ -188,18 +369,18 @@ export default function UsersPage() {
     }
     setDeactivateTarget(null)
     setDeactivateSummary(null)
-    crud.refetch()
+    setRefreshKey(k => k + 1)
     refreshLists()
   }
 
   // Reactivation
-  function startReactivate(row: Record<string, unknown>) {
+  function startReactivate(row: UserRow) {
     refreshRoles()
     setReactivateTarget(row)
     setReactivateError('')
     setReactivateForm({
-      role_id: String(row.profile) === 'Administrator' ? 'Administrator' : String((row.roles as { id: string } | null)?.id ?? ''),
-      manager_user_id: String(row.manager_user_id ?? ''),
+      role_id: row.profile === 'Administrator' ? 'Administrator' : (row.roles?.id ?? ''),
+      manager_user_id: row.manager_user_id ?? '',
     })
   }
 
@@ -209,7 +390,7 @@ export default function UsersPage() {
     setReactivateSaving(true)
     try {
       const isAdminRole = reactivateForm.role_id === 'Administrator'
-      const res = await fetch(`/api/masters/users/${reactivateTarget.id as string}`, {
+      const res = await fetch(`/api/masters/users/${reactivateTarget.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'reactivate', profile: isAdminRole ? 'Administrator' : 'Standard', manager_user_id: reactivateForm.manager_user_id || null, role_id: isAdminRole ? null : (reactivateForm.role_id || null) }),
@@ -218,7 +399,7 @@ export default function UsersPage() {
       setReactivateSaving(false)
       if (!res.ok) { setReactivateError(data.error ?? 'Reactivation failed'); return }
       setReactivateTarget(null)
-      crud.refetch()
+      setRefreshKey(k => k + 1)
       refreshLists()
     } catch {
       setReactivateSaving(false)
@@ -242,66 +423,156 @@ export default function UsersPage() {
 
   const setF = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  // Row actions: Deactivate for Active users, Reactivate for Inactive users
-  function renderRowActions(row: Record<string, unknown>): ReactNode {
-    if (!canDelete) return null
-    if (row.status === 'Active') {
-      return (
-        <button
-          onClick={() => startDeactivate(row)}
-          className="text-amber-600 hover:text-amber-800 text-xs font-medium"
-        >
-          Deactivate
-        </button>
-      )
-    }
-    return (
-      <button
-        onClick={() => startReactivate(row)}
-        className="text-emerald-600 hover:text-emerald-800 text-xs font-medium"
-      >
-        Reactivate
-      </button>
-    )
+  /*
+   * Deliberately NOT memoised: the template holds `load` in a ref and
+   * never makes it an effect dependency. No deadline and no catch here
+   * either — the template races this against its own timer, so a
+   * rejection IS the failed state (section 14 rules 3 and 4).
+   *
+   * `/api/masters/users` takes `q` and `scope` and nothing else, so the
+   * two filters narrow the answer here rather than in SQL. The template
+   * counts, pages and empty-states off what this returns, so all four
+   * behave identically whichever side of the wire they run.
+   */
+  const load: ListPageProps<UserRow>['load'] = async ({ search, filters, signal }) => {
+    const params = new URLSearchParams({ scope: 'manage' })
+    if (search) params.set('q', search)
+    const r = await fetch(`/api/masters/users?${params.toString()}`, { signal })
+    if (!r.ok) throw new Error(String(r.status))
+    const body = await r.json()
+    const rows: UserRow[] = Array.isArray(body) ? body : []
+    return rows.filter(user => {
+      if (filters.status && user.status !== filters.status) return false
+      if (filters.role && roleLabel(user) !== filters.role) return false
+      return true
+    })
   }
 
+  const filters: ListFilter[] = [
+    {
+      id: 'status',
+      label: 'Status',
+      kind: 'select',
+      options: { '': 'Any status', Active: 'Active', Inactive: 'Inactive' },
+    },
+    {
+      id: 'role',
+      label: 'Role',
+      kind: 'select',
+      /* Section 16.3: a tenant's custom roles run past six sooner than
+         they do not, and Administrator is always one more. */
+      searchable: roles.length > 5,
+      options: {
+        '': 'Any role',
+        Administrator: 'Administrator',
+        ...Object.fromEntries(roles.map(r => [r.name, r.name])),
+      },
+    },
+  ]
+
   const licenseBadge = license?.limit != null ? (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${
-      atLimit ? 'bg-danger-bg text-danger border-danger-border' : 'bg-surface-control text-text-secondary border-border-light'
-    }`}>
-      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-      </svg>
-      {license.used} / {license.limit} Active
-    </span>
+    /* A faithful port of the badge this screen already carried: the
+       same two states, and `danger` is the same three tokens it was
+       already painted in — not a new section 2.4 judgement. */
+    <Badge variant={atLimit ? 'danger' : 'neutral'}>
+      <UsersIcon />
+      {license.used} / {license.limit} active
+    </Badge>
   ) : null
 
-  const headerExtra = (
-    <div className="flex items-center gap-2">
-      {licenseBadge}
-      {isAdmin && (
-        <button
-          onClick={openAuditLog}
-          className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border border-border-light bg-surface text-text-secondary hover:bg-surface-sunken transition"
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
-          </svg>
-          Audit Log
-        </button>
-      )}
-    </div>
-  )
+  /*
+   * Section 6.1 rules 1 and 2 are what license three things here, and
+   * this is the same answer the leads conversion gave to the same
+   * question: exactly ONE primary action per screen, everything else
+   * secondary, all of it in zone 1's single action slot rather than
+   * invented somewhere else on the page. Add user is the primary; the
+   * audit log is a secondary way of reading the same records; and the
+   * licence badge is meta about them, so it leads the group at badge
+   * weight. Section 11.1's "one primary action button on the right" is
+   * satisfied: there is one primary, and it is on the right.
+   */
+  const action =
+    licenseBadge || isAdmin || canEdit ? (
+      <div className="flex items-center gap-2">
+        {licenseBadge}
+        {/* Section 26: gated on the same test the route itself applies
+            — `/api/masters/users/audit-log` answers 403 to anyone who
+            is not an Administrator, so any wider gate here would show a
+            control that fails after being clicked. */}
+        {isAdmin && (
+          <Button variant="secondary" onClick={openAuditLog}>
+            <ScrollTextIcon />
+            Audit Log
+          </Button>
+        )}
+        {canEdit && (
+          <Button onClick={openAdd}>
+            <PlusIcon />
+            Add user
+          </Button>
+        )}
+      </div>
+    ) : undefined
 
   return (
     <>
-      <CrudPage title="Users" headerExtra={headerExtra} backHref="/masters" columns={COLS} rows={crud.rows} allRowsCount={crud.allRows.length}
-        isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
-        page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={canEdit ? openAdd : undefined}
-        onEdit={canEdit ? openEdit : undefined}
-        showActive={false}
-        rowActions={canDelete ? renderRowActions : undefined} />
+      {/*
+        OVERNIGHT: /masters/users is not in the sidebar, so the link up to Masters is the only route back and list-page has no slot for it — see overnight-queue-2026-09-18.md
+
+        Section 11.2's breadcrumb, which section 11.2 also makes the
+        replacement for the back arrow this screen used to carry. It is
+        specified for a detail page and this is a list page, so the
+        template has no zone for it; the alternatives were the action
+        slot (navigation dressed as an action) and `toolbarExtra`
+        (zone 2, which section 11.6 reserves for the view switcher), and
+        both put it somewhere a reader would not look for it.
+
+        The wrapper is NOT a plain div: `templates/list-page` is
+        `h-full` inside the shell's definite-height content box, and a
+        static wrapper would break that chain and hand the scroll to the
+        page. This one is a flex column of the same definite height with
+        the breadcrumb `shrink-0` and the template `flex-1 min-h-0`, so
+        zone 3 keeps the whole of the remaining height and still owns
+        the only scroll. Measured at 1280, 1024 and 768 — see the report.
+      */}
+      <div className="flex h-full min-h-0 flex-col">
+        <Breadcrumb className="mb-4 shrink-0">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/masters">Masters</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Users</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <ListPage<UserRow>
+          className="min-h-0 flex-1"
+          title="Users"
+          noun={{ one: 'user', many: 'users' }}
+          action={action}
+          columns={userColumns({
+            canEdit,
+            canDelete,
+            onEdit: openEdit,
+            onDeactivate: startDeactivate,
+            onReactivate: startReactivate,
+          })}
+          rowKey={user => user.id}
+          filters={filters}
+          load={load}
+          refreshKey={refreshKey}
+          searchHint={SEARCH_HINT}
+          emptyYet={{
+            heading: 'No users yet',
+            body: 'Everyone who can sign in to this workspace is listed here, with the role that decides what they can reach.',
+            actionLabel: canEdit ? 'Add user' : undefined,
+            onAction: canEdit ? openAdd : undefined,
+          }}
+        />
+      </div>
 
       {/* License limit error popup */}
       {limitError && (
@@ -400,7 +671,7 @@ export default function UsersPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-medium text-text-primary">Deactivate {String(deactivateTarget.name)}?</h3>
+                <h3 className="font-medium text-text-primary">Deactivate {deactivateTarget.name}?</h3>
                 <p className="text-sm text-text-muted mt-0.5">This user will immediately lose login access. Their data stays intact.</p>
               </div>
             </div>
@@ -457,7 +728,7 @@ export default function UsersPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-medium text-text-primary">Reactivate {String(reactivateTarget.name)}?</h3>
+                <h3 className="font-medium text-text-primary">Reactivate {reactivateTarget.name}?</h3>
                 <p className="text-sm text-text-muted mt-0.5">Review and confirm the user&apos;s role and manager before reactivating.</p>
               </div>
             </div>
