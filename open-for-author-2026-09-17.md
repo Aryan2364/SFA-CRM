@@ -333,6 +333,28 @@ on the grounds that it is ordinal and no row fits ordinal. §11.6 C's reason —
 "the two maps must not diverge" — applies across phases as well as within one.
 **Raw, and it must be settled together with phase 2's copy.**
 
+### 6d. `leads/page.tsx:21-23` — `TEMP_COLORS`, a three-step ramp with the brand at one end
+
+Found by phase 2 from the opposite direction. Cold → Warm → Hot is an **ordered
+temperature ramp**, not three statuses.
+
+```
+Cold: bg-blue-50  text-blue-700   ->  bg-primary-subtle text-primary
+Warm: bg-amber-50 text-amber-700  ->  bg-warning-bg     text-warning
+Hot:  bg-red-50   text-red-700    ->  bg-danger-bg      text-danger
+```
+
+**The cold end rendered in the product's brand colour**, which says "primary",
+not "coldest of three" — the second time in this one file that a category set
+wore status tokens.
+
+It is also §11.6 C's two-copies problem across the phase boundary. The twin at
+`masters/lead-temperatures/page.tsx:9-12` is **byte-identical** to the pre-phase
+original, and it is backed by `lead_temperatures` master data with its own CRUD
+page and a `?? 'bg-gray-100 text-gray-600'` fallback on `:18` — C's exact
+mechanism, a seventh category falling to grey silently. Phase 2 has deferred its
+side. **Raw, and settled with that copy.**
+
 ### Also fixed, and it had a home already
 
 `companies/[id]:272-273` and `:286-287` are **not** part of this item. The
@@ -343,6 +365,22 @@ did not cross-check. They converted to `surface-control` `#f5f5f5` and
 `danger-bg` `#fee2e2` — both near-white on a white card, so two of five bar
 segments had no visible presence and two legend dots went blank. **Placed in G6
 with their three siblings**, not routed here.
+
+**But G6 itself needs re-deriving, and that IS an amendment.** Phase 2 reached
+this from its own 41 files and put it best: **G6's principle is sound and its
+derivation is incomplete.** G6 was reasoned from §11.4's *background* row, so it
+caught the status-coloured shapes and only those. The identical failure arrives
+through two other rows:
+
+| Row | Conversion | Contrast on its ground |
+|---|---|---|
+| §11.1 neutral | `bg-gray-300` → `bg-surface-control` | **1.04:1** |
+| §11.4 badge | `bg-red-300` → `bg-danger-bg` | near-white on white |
+
+That is exactly how the `companies` stacked bar ended up three-raw and
+two-converted, and phase 2 hit the same thing independently on three switch
+tracks in its own files. **G6 needs re-deriving across all three rows, not just
+§11.4's.** Recorded here rather than written into §11.6, which is approved.
 
 ## Item 7 — two plan counts drifted, and one §11.3 row that must not be applied
 

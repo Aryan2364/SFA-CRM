@@ -308,6 +308,14 @@ SITES[LD] = dict(
         # :15 were already raw under F, so the map was four tokens and two raw
         # with two of the four colliding. The set goes raw whole.
         12, 13, 16, 17,
+        # 21-23: TEMP_COLORS, a three-step Cold/Warm/Hot ramp.
+        # open-for-author. Converting it put the product's BRAND at the cold
+        # end -- bg-primary-subtle says "primary", not "coldest of three".
+        # Its twin at masters/lead-temperatures/page.tsx:9-12 is byte-identical
+        # and phase 2 has deferred it; that copy is backed by lead_temperatures
+        # master data with a CRUD page and a grey fallback on :18, which is
+        # 11.6 C's exact mechanism. The two must not diverge.
+        21, 22, 23,
         14, 15,   # F: the cyan and indigo strays in the lead-status map
         29,       # E: the leads type chip -- every type renders the same
                   # purple, so it separates nothing; decoration, not category

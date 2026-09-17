@@ -18,9 +18,9 @@ const STAGE_COLORS: Record<string, string> = {
 }
 
 const TEMP_COLORS: Record<string, string> = {
-  Cold: 'bg-primary-subtle text-primary',
-  Warm: 'bg-warning-bg text-warning',
-  Hot:  'bg-danger-bg text-danger',
+  Cold: 'bg-blue-50 text-blue-700',
+  Warm: 'bg-amber-50 text-amber-700',
+  Hot:  'bg-red-50 text-red-700',
 }
 
 const COLS: Column[] = [
