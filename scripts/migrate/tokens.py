@@ -115,16 +115,18 @@ class Unmapped(Exception):
     """A class with no section 11 row. The run stops rather than guessing."""
 
 
-def migrate(path, protect=(), exceptions=(), white=(), fill=(), hover_fill=(),
-            dry_run=False):
+def migrate(path, protect=(), protect_lines=(), exceptions=(), white=(),
+            fill=(), hover_fill=(), dry_run=False):
     """
-    protect     {(line, base)}  left exactly as-is -- section 11.6 A-G
-    exceptions  {line}          text-gray-{500,400,300} -> text-secondary (11.2)
-    white       {line}          text-white -> text-primary-foreground (11.1 addendum)
-    fill        {(line, base)}  saturated status BUTTON fill -> bg-<role> (11.4)
-    hover_fill  {(line, base)}  its hover half -> bg-<role>-hover / primary-hover
+    protect        {(line, base)}  one site left as-is  -- section 11.6, occurrence-level
+    protect_lines  {line}          the WHOLE line left as-is -- section 11.6, line-level
+    exceptions     {line}          text-gray-{500,400,300} -> text-secondary (11.2)
+    white          {line}          text-white -> text-primary-foreground (11.1 addendum)
+    fill           {(line, base)}  saturated status BUTTON fill -> bg-<role> (11.4)
+    hover_fill     {(line, base)}  its hover half -> bg-<role>-hover
     """
     protect, exceptions = set(protect), set(exceptions)
+    protect_lines = set(protect_lines)
     white, fill, hover_fill = set(white), set(fill), set(hover_fill)
 
     lines = io.open(path, encoding='utf-8').read().split('\n')

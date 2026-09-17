@@ -10,8 +10,9 @@ questions, it does not answer them.
 
 ## 1. §11's rows flatten hover into resting on 52 lines
 
-**Status: OPEN. 59 declarations, 52 distinct lines, 41 of them in the ten
-phase-1 files.**
+**Status: RATIFIED 17 Sep 2026. Closed as a product question, reopened as a KIT
+finding — see the closing note.** 59 declarations, 52 distinct lines, 41 of them
+in the ten phase-1 files.
 
 `AGENTS.md` §6.4, first line: *"Every interactive element defines four states:
 resting, hover, pressed, disabled. **Hover changes the background.** Pressed
@@ -72,11 +73,29 @@ elements lose a state. Both are yours.
 
 Full list: the review session holds it and will paste it on request.
 
+### Ratified — 17 Sep 2026
+
+The 52 lines stay untouched in full, both halves, protected in `sites.py` as a
+phase-1 residue **distinct from A–G**: a row defect, not an element-identity
+question, and §11.6's preamble is explicit that it contains only the latter. The
+worker was caught mid-edit filing it as a group H inside §11.6 and redirected to
+its own section.
+
+**The gap is the kit's, not this product's.** §6.4 requires four states on every
+interactive element; `globals.css` can express hover for `primary`,
+`surface-control` and `danger` only. `primary-subtle` has no hover partner, and
+`success` and `warning` have none at all — so a filled success or warning button
+cannot satisfy §6.4 with the tokens that exist. §11.3 split
+`hover:bg-primary-hover` out of one row and could not do the same for five
+others for exactly that reason. Recorded in the plan as a KIT finding, in the
+shape of §4 item 7, for the author to take to `rgb-kit-v2` after this phase.
+Neither session invents a token; neither edits the kit from here.
+
 ---
 
 ## 2. §11.6 G6 was added to an APPROVED section without you
 
-**Status: OPEN, and already committed. Needs ratification or reversal.**
+**Status: RATIFIED 17 Sep 2026. Stands as committed.**
 
 Commit `e85a6c0`, "Add section 11.6 G6: fourteen occurrences whose row does not
 fit", was written by the working session on its own judgement. It is plan-only
@@ -105,6 +124,19 @@ I have not asked for it to be reverted. Reverting an amendment to an approved
 section is itself amending one, and that is not mine either. It stands in the
 tree awaiting your ratification, and the worker has been told to route any
 further amendment here rather than commit it.
+
+### Ratified — 17 Sep 2026
+
+**2,349 → 2,335 stands, G 38 → 52, headline 100.** The reasoning holds: a
+background role measured against a badge ground has nothing left where the shape
+is the signal, and 1.10:1 on white is not a signal.
+
+The process correction was delivered to the worker once and is not being raised
+again. The rule it broke is not about whether an amendment is *good*: an
+approved section that changes without the person who approved it seeing it
+produces a good amendment and a bad one that look identical until someone reads
+the diff. It binds the review session equally — I route amendments, I do not
+commit them.
 
 ---
 

@@ -18,6 +18,12 @@ came from. Read-only: I instruct and verify, I do not write code or commit.
 | 10 | §11's rows flatten hover into resting on 52 lines, 41 in the ten files | Leave all 52 untouched, record, move on — the tokens do not exist | `AGENTS.md` §6.4; `globals.css` token set |
 | 11 | Ternary branches split across G and a mapped row | Both branches untouched in full at `daily-activity:361` and `review:417`; G is line-level for ternary branches | author's ruling |
 | 12 | `sites.py` states "protection is per SITE, not per line" | Amend to carry the ternary exception before any source file moves | author's ruling, item 11 |
+| 13 | Author ratified both open items | Relayed: G6 stands at 2,349 → 2,335, G 52, headline 100; the 52 hover lines stay untouched | author |
+| 14 | Worker's in-progress §11.8 draft says "every §11.6 **A–H** site", filing the hover residue as a group H | Redirected: it gets its own section, not a letter in §11.6, and §11.8 reverts to A–G | §11.6 preamble — "None of these is a colour question. Each one is an element whose identity has to be decided" |
+| 15 | The hover gap is the kit's, not this product's | Record as a KIT finding in the shape of §4 item 7, for the author to take to rgb-kit-v2 after the phase; do not edit the kit from here | `AGENTS.md` §6.4 against `globals.css`'s token set |
+| 16 | `e85a6c0` amended an approved section by commit | Process correction sent once: route amendments, do not commit them — binds me equally | author |
+| 17 | Worker's §11.8 draft read in progress: byte-identical protected sites, empty remainder, line-for-line with the pre-phase blob | Accepted as written; line-for-line is now the phase standard | §11.8 as drafted |
+| 18 | Ten source files still byte-identical to baseline; worker doing the plan commit first | No instruction — order being followed | `git hash-object` × 10 |
 
 ## Corrections to my own findings
 
@@ -30,5 +36,10 @@ came from. Read-only: I instruct and verify, I do not write code or commit.
 - 2,692 palette occurrences repo-wide on §12's method; 247 white/black; 2,445
   otherwise. Reproduces §12's per-file table to the occurrence.
 - Line-level snapshot of every §11.6 A–G site, and the ten files' blob hashes.
-- Expected residue in the ten files after phase 1 — recomputed as groups move;
-  103 at the phase-1 amendment, before G6's 14 and the two ternary halves.
+- Expected residue in the ten files after phase 1 — recomputed as groups move.
+  103 at the phase-1 amendment (A 3, B 11, C 28, D 6, E 13, F 4, G 38). G1's two
+  ternary halves add 4. G6's 14 add however many of them fall inside the ten,
+  which I will take from the plan once it is committed rather than assume. The
+  hover residue is counted separately and is not part of A–G.
+  **I do not treat this as an arithmetic gate** — §11.8 verifies an empty
+  remainder, not a matching total. The figure is a sanity check on my own reading.
