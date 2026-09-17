@@ -42,6 +42,19 @@
   --primary-border: #d2d0e4;
   --primary-foreground: #ffffff;
 
+  /* Section 12.1 gives the active navigation item a primary-subtle
+     background, and section 6.4 requires a hover and a pressed state for
+     every interactive element. primary-subtle is a resting value and has
+     neither, so the active item in the sidebar would be the one control
+     in the shell with no hover at all.
+     These two are DERIVED from the subtle tint rather than picked, so a
+     brand change still happens in one place and the seven tokens above
+     stay seven. Same treatment, and the same caveat, as --danger-hover
+     and --danger-pressed below. Flagged for ratification; if exact
+     values are decided, replace these. */
+  --primary-subtle-hover: color-mix(in srgb, var(--primary-subtle) 92%, var(--primary));
+  --primary-subtle-pressed: color-mix(in srgb, var(--primary-subtle) 84%, var(--primary));
+
   /* Section 21.1 — the eighth value in this block.
      This brand collides with chart position 3. Measured CIEDE2000 against
      positions 2-6: 55.50, 13.13, 27.99, 45.49, 31.57. The threshold is
@@ -262,6 +275,12 @@
   --spacing-sidebar-rail: 64px;
   --spacing-topbar: 52px;
   --spacing-content-max: 1600px;
+  /* 12.1: the active item carries a 3px accent bar in primary on its
+     left edge. Three pixels is not on the section 5.1 spacing scale and
+     is not meant to be - it is an accent rule, the same kind of value as
+     section 33.3 2px tab underline. It lives here so no screen carries a
+     bracketed length for it. */
+  --spacing-nav-accent: 3px;
 
   /* 31.1: the data entry grid's amount cell. MEASURED, not chosen -
      Geist 14px tabular figures render a full Indian-grouped amount at
@@ -297,6 +316,8 @@
   --color-primary-subtle: var(--primary-subtle);
   --color-primary-border: var(--primary-border);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-subtle-hover: var(--primary-subtle-hover);
+  --color-primary-subtle-pressed: var(--primary-subtle-pressed);
 
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
