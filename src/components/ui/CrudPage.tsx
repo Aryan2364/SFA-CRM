@@ -94,18 +94,18 @@ export default function CrudPage({
   return (
     <div>
       {backHref && (
-        <a href={backHref} className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-4 group">
+        <a href={backHref} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-secondary mb-4 group">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
           Back to Masters
         </a>
       )}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-medium text-gray-800">{title}</h2>
+          <h2 className="text-xl font-medium text-text-primary">{title}</h2>
           {headerExtra}
         </div>
         {onAdd && (
-          <button onClick={onAdd} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+          <button onClick={onAdd} className="flex items-center gap-1.5 bg-primary hover:bg-primary-hover text-primary-foreground text-sm font-medium px-4 py-2 rounded-lg transition">
             {addLabel}
           </button>
         )}
@@ -115,32 +115,32 @@ export default function CrudPage({
         <input
           type="text" placeholder="Search…" value={search}
           onChange={e => onSearchChange(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="border border-border rounded-lg px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-primary-ring"
         />
       </div>
       {filterBar && <div className="mb-3">{filterBar}</div>}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-surface rounded-xl border border-border-light overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-100">
+          <thead className="bg-surface-sunken border-b border-border-light">
             <tr>
               {onReorder && <th className="w-8 px-3 py-3" />}
               {columns.map(c => (
-                <th key={c.key} className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">{c.label}</th>
+                <th key={c.key} className="text-left px-4 py-3 font-medium text-text-secondary whitespace-nowrap">{c.label}</th>
               ))}
-              {showActive && <th className="text-left px-4 py-3 font-medium text-gray-600">Active</th>}
-              <th className="px-4 py-3 text-right font-medium text-gray-600">Actions</th>
+              {showActive && <th className="text-left px-4 py-3 font-medium text-text-secondary">Active</th>}
+              <th className="px-4 py-3 text-right font-medium text-text-secondary">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={colSpan} className="text-center py-12 text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={colSpan} className="text-center py-12 text-text-muted">Loading…</td></tr>
             ) : displayRows.length === 0 ? (
-              <tr><td colSpan={colSpan} className="text-center py-12 text-gray-400">No records found.</td></tr>
+              <tr><td colSpan={colSpan} className="text-center py-12 text-text-muted">No records found.</td></tr>
             ) : displayRows.map((row, i) => (
               <tr
                 key={String(row.id ?? i)}
-                className="border-t border-gray-50 hover:bg-gray-50"
+                className="border-t border-border-light hover:bg-surface-sunken"
                 draggable={!!onReorder}
                 onDragStart={onReorder ? () => handleDragStart(i) : undefined}
                 onDragOver={onReorder ? e => handleDragOver(e, i) : undefined}
@@ -154,7 +154,7 @@ export default function CrudPage({
                   </td>
                 )}
                 {columns.map(c => (
-                  <td key={c.key} className="px-4 py-3 text-gray-700">
+                  <td key={c.key} className="px-4 py-3 text-text-secondary">
                     {c.render ? c.render(row) : String(row[c.key] ?? '')}
                   </td>
                 ))}
