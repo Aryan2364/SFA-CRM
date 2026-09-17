@@ -13,6 +13,7 @@ import {
 } from '@/components/templates/list-page'
 import { Banner, BannerDescription, BannerTitle } from '@/components/ui/banner'
 import { Button } from '@/components/ui/button'
+import { fmtAmount } from '@/lib/format'
 
 type SubCard = {
   id: string
@@ -35,16 +36,6 @@ const APPROVABLE = ['Submitted', 'Resubmitted']
  * nothing else on the record to miss.
  */
 const SEARCH_HINT = 'Searches the team member’s name and their plan status.'
-
-function fmtAmount(n: number) {
-  return (
-    '₹' +
-    Number(n).toLocaleString('en-IN', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    })
-  )
-}
 
 /**
  * COLUMN CLASSIFICATION — section 10 rule 4.

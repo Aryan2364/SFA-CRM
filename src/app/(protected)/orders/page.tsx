@@ -13,6 +13,7 @@ import {
 } from '@/components/templates/list-page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { fmtAmount, fmtDate } from '@/lib/format'
 
 type OrderRow = {
   id: string
@@ -48,15 +49,6 @@ type OrderItem = {
   product_name: string
   qty: number
   rate: number
-}
-
-
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-
-function fmtAmount(n: number) {
-  return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
 // ─────────────────────────────────────────────────────────────
