@@ -44,9 +44,9 @@ export default function DesignationsPage() {
         onDelete={canDelete ? r => crud.remove(r.id as string) : undefined} />
       <Modal title={editing ? 'Edit Designation' : 'Add Designation'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
         <div>
-          <label htmlFor="designation-name" className="block text-sm font-medium text-gray-700 mb-1">Designation Name <span className="text-red-500">*</span></label>
+          <label htmlFor="designation-name" className="block text-sm font-medium text-text-secondary mb-1">Designation Name <span className="text-danger">*</span></label>
           <input id="designation-name" name="name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Enter designation name"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
       </Modal>
     </>

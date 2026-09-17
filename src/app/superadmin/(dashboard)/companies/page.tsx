@@ -16,9 +16,9 @@ type Company = {
 }
 
 const STATUS_STYLES = {
-  Active: 'bg-green-50 text-green-700',
-  Overdue: 'bg-yellow-50 text-yellow-700',
-  Suspended: 'bg-red-50 text-red-700',
+  Active: 'bg-success-bg text-success',
+  Overdue: 'bg-warning-bg text-warning',
+  Suspended: 'bg-danger-bg text-danger',
 }
 
 export default function CompaniesPage() {
@@ -46,7 +46,7 @@ export default function CompaniesPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">
-        <div className="text-sm text-gray-500">Loading companies…</div>
+        <div className="text-sm text-text-muted">Loading companies…</div>
       </div>
     )
   }
@@ -55,8 +55,8 @@ export default function CompaniesPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-medium text-gray-900">Companies</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{companies.length} registered companies</p>
+          <h1 className="text-xl font-medium text-text-primary">Companies</h1>
+          <p className="text-sm text-text-muted mt-0.5">{companies.length} registered companies</p>
         </div>
         <button
           onClick={() => router.push('/superadmin/companies/new')}
@@ -70,19 +70,19 @@ export default function CompaniesPage() {
       </div>
 
       {companies.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <p className="text-gray-400 text-sm">No companies yet. Add your first company to get started.</p>
+        <div className="bg-surface rounded-xl border border-border-light p-12 text-center">
+          <p className="text-text-muted text-sm">No companies yet. Add your first company to get started.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-surface rounded-xl border border-border-light overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Company</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Users</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Payment Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Due Date</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Active</th>
+              <tr className="border-b border-border-light bg-surface-sunken">
+                <th className="text-left px-4 py-3 font-medium text-text-secondary">Company</th>
+                <th className="text-left px-4 py-3 font-medium text-text-secondary">Users</th>
+                <th className="text-left px-4 py-3 font-medium text-text-secondary">Payment Status</th>
+                <th className="text-left px-4 py-3 font-medium text-text-secondary">Due Date</th>
+                <th className="text-left px-4 py-3 font-medium text-text-secondary">Active</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -90,33 +90,33 @@ export default function CompaniesPage() {
               {companies.map((c, i) => (
                 <tr
                   key={c.id}
-                  className={`border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${i === companies.length - 1 ? 'border-0' : ''}`}
+                  className={`border-b border-border-light hover:bg-surface-sunken cursor-pointer ${i === companies.length - 1 ? 'border-0' : ''}`}
                   onClick={() => router.push(`/superadmin/companies/${c.id}`)}
                 >
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{c.name}</div>
-                    {c.email && <div className="text-xs text-gray-400">{c.email}</div>}
+                    <div className="font-medium text-text-primary">{c.name}</div>
+                    {c.email && <div className="text-xs text-text-muted">{c.email}</div>}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`font-medium ${c.user_count >= c.license_count ? 'text-red-600' : 'text-gray-900'}`}>
+                    <span className={`font-medium ${c.user_count >= c.license_count ? 'text-danger' : 'text-text-primary'}`}>
                       {c.user_count}
                     </span>
-                    <span className="text-gray-400"> / {c.license_count}</span>
+                    <span className="text-text-muted"> / {c.license_count}</span>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[c.payment_status]}`}>
                       {c.payment_status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {c.payment_due_date ? new Date(c.payment_due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-gray-300">—</span>}
+                  <td className="px-4 py-3 text-text-muted">
+                    {c.payment_due_date ? new Date(c.payment_due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-text-muted">—</span>}
                   </td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     <button
                       onClick={() => toggleActive(c)}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${c.is_active ? 'bg-green-500' : 'bg-gray-300'}`}
                     >
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow ${c.is_active ? 'translate-x-4' : 'translate-x-1'}`} />
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-surface transition-transform shadow ${c.is_active ? 'translate-x-4' : 'translate-x-1'}`} />
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right">

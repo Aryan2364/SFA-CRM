@@ -69,28 +69,28 @@ export default function ProductsPage() {
         onDelete={canDelete ? r => crud.remove(r.id as string) : undefined} />
       <Modal title={editing ? 'Edit Product' : 'Add Product'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
         <div>
-          <label htmlFor="product-name" className="block text-sm font-medium text-gray-700 mb-1">Product Name <span className="text-red-500">*</span></label>
+          <label htmlFor="product-name" className="block text-sm font-medium text-text-secondary mb-1">Product Name <span className="text-danger">*</span></label>
           <input id="product-name" name="name" type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Enter product name"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
         <div>
-          <p className="block text-sm font-medium text-gray-700 mb-1">Category <span className="text-red-500">*</span></p>
+          <p className="block text-sm font-medium text-text-secondary mb-1">Category <span className="text-danger">*</span></p>
           <SearchableSelect value={form.category_id} onChange={v => setForm(f => ({ ...f, category_id: v, subcategory_id: '' }))} options={catOpts} placeholder="Select category…" />
         </div>
         <div>
-          <p className="block text-sm font-medium text-gray-700 mb-1">Sub-Category <span className="text-red-500">*</span></p>
+          <p className="block text-sm font-medium text-text-secondary mb-1">Sub-Category <span className="text-danger">*</span></p>
           <SearchableSelect value={form.subcategory_id} onChange={v => setForm(f => ({ ...f, subcategory_id: v }))} options={subOpts} placeholder="Select sub-category…" disabled={!form.category_id} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="product-price" className="block text-sm font-medium text-gray-700 mb-1">Price (₹) <span className="text-red-500">*</span></label>
+            <label htmlFor="product-price" className="block text-sm font-medium text-text-secondary mb-1">Price (₹) <span className="text-danger">*</span></label>
             <input id="product-price" name="price" type="number" step="0.01" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="0.00"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
           <div>
-            <label htmlFor="product-sku" className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
+            <label htmlFor="product-sku" className="block text-sm font-medium text-text-secondary mb-1">SKU</label>
             <input id="product-sku" name="sku" type="text" value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} placeholder="Optional"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
         </div>
       </Modal>

@@ -187,12 +187,12 @@ export default function MastersImportPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-xl font-medium text-gray-900">Import Master Data</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Bulk-create masters from a single Excel workbook</p>
+          <h1 className="text-xl font-medium text-text-primary">Import Master Data</h1>
+          <p className="text-sm text-text-muted mt-0.5">Bulk-create masters from a single Excel workbook</p>
         </div>
         <button
           onClick={downloadTemplate}
-          className="flex items-center gap-2 text-sm px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
+          className="flex items-center gap-2 text-sm px-4 py-2 border border-border rounded-lg hover:bg-surface-sunken transition-colors font-medium text-text-secondary"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -202,18 +202,18 @@ export default function MastersImportPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200">
+      <div className="flex gap-1 mb-6 border-b border-border-light">
         {TABS.map(t => (
           <button
             key={t}
             onClick={() => switchTab(t)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              tab === t ? 'border-primary-border text-primary' : 'border-transparent text-text-muted hover:text-text-secondary'
             }`}
           >
             {TAB_CONFIG[t].label}
             {tabRows[t].length > 0 && tab !== t && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs bg-blue-100 text-blue-600">
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs bg-primary-subtle text-primary">
                 {tabRows[t].length}
               </span>
             )}
@@ -222,7 +222,7 @@ export default function MastersImportPage() {
       </div>
 
       {/* Hint */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-sm text-blue-800">
+      <div className="bg-primary-subtle border border-primary-border rounded-xl p-4 mb-5 text-sm text-primary">
         {cfg.hint}
       </div>
 
@@ -234,20 +234,20 @@ export default function MastersImportPage() {
           onDrop={handleDrop}
           onClick={() => fileRef.current?.click()}
           className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
-            dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+            dragOver ? 'border-primary-border bg-primary-subtle' : 'border-border hover:border-primary-border hover:bg-surface-sunken'
           }`}
         >
           <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center">
-              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <div className="w-12 h-12 bg-surface-control rounded-xl flex items-center justify-center">
+              <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
               </svg>
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-700">
-                Drop your .xlsx file here or <span className="text-blue-600">browse</span>
+              <p className="text-sm font-medium text-text-secondary">
+                Drop your .xlsx file here or <span className="text-primary">browse</span>
               </p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-text-muted mt-1">
                 Must contain a <strong>&quot;{cfg.sheetName}&quot;</strong> sheet — use the template above
               </p>
             </div>
@@ -258,7 +258,7 @@ export default function MastersImportPage() {
 
       {/* Parse error */}
       {parseError && (
-        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div className="mt-4 p-3 bg-danger-bg border border-danger-border rounded-lg text-sm text-danger">
           {parseError}
         </div>
       )}
@@ -267,35 +267,35 @@ export default function MastersImportPage() {
       {hasRows && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-text-secondary">
               <span className="font-medium">{rows.length}</span> rows parsed
-              {rows.length > 20 && <span className="text-gray-400"> — showing first 20</span>}
+              {rows.length > 20 && <span className="text-text-muted"> — showing first 20</span>}
             </p>
-            <button onClick={clearFile} className="text-sm text-gray-500 hover:text-red-500 transition-colors">
+            <button onClick={clearFile} className="text-sm text-text-muted hover:text-danger transition-colors">
               × Clear file
             </button>
           </div>
 
-          <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
+          <div className="border border-border-light rounded-xl overflow-hidden mb-4">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="text-left px-3 py-2.5 text-xs font-normal text-gray-500 uppercase tracking-wide w-12">#</th>
+                  <tr className="bg-surface-sunken border-b border-border-light">
+                    <th className="text-left px-3 py-2.5 text-xs font-normal text-text-muted uppercase tracking-wide w-12">#</th>
                     {cfg.cols.map(c => (
-                      <th key={c} className="text-left px-3 py-2.5 text-xs font-normal text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      <th key={c} className="text-left px-3 py-2.5 text-xs font-normal text-text-muted uppercase tracking-wide whitespace-nowrap">
                         {c}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-border-light">
                   {preview.map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 text-gray-400 text-xs">{i + 2}</td>
+                    <tr key={i} className="hover:bg-surface-sunken">
+                      <td className="px-3 py-2 text-text-muted text-xs">{i + 2}</td>
                       {cfg.cols.map(c => (
-                        <td key={c} className="px-3 py-2 text-gray-700 truncate max-w-[180px]">
-                          {row[c] || <span className="text-gray-300">—</span>}
+                        <td key={c} className="px-3 py-2 text-text-secondary truncate max-w-[180px]">
+                          {row[c] || <span className="text-text-muted">—</span>}
                         </td>
                       ))}
                     </tr>
@@ -309,7 +309,7 @@ export default function MastersImportPage() {
             <button
               onClick={handleImport}
               disabled={importing}
-              className="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-60 transition-colors"
+              className="w-full py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:bg-primary-hover disabled:opacity-60 transition-colors"
             >
               {importing ? 'Importing…' : `Import ${rows.length} rows`}
             </button>
@@ -321,22 +321,22 @@ export default function MastersImportPage() {
       {result && (
         <div className="mt-4 space-y-3">
           {result.error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            <div className="p-4 bg-danger-bg border border-danger-border rounded-xl text-sm text-danger">
               {result.error}
             </div>
           )}
 
           {!result.error && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-              <p className="text-sm font-medium text-green-800 mb-2">Import complete</p>
+            <div className="p-4 bg-success-bg border border-success-border rounded-xl">
+              <p className="text-sm font-medium text-success mb-2">Import complete</p>
               <div className="space-y-1">
                 {Object.entries(result.created).map(([key, count]) => (
                   <div key={key} className="flex items-center gap-2 text-sm">
-                    <span className="text-green-600">✓</span>
-                    <span className="capitalize text-gray-700 font-medium w-32">{key}:</span>
-                    <span className="text-green-700 font-medium">{count} created</span>
+                    <span className="text-success">✓</span>
+                    <span className="capitalize text-text-secondary font-medium w-32">{key}:</span>
+                    <span className="text-success font-medium">{count} created</span>
                     {(result.existing[key] ?? 0) > 0 && (
-                      <span className="text-gray-400">({result.existing[key]} already existed)</span>
+                      <span className="text-text-muted">({result.existing[key]} already existed)</span>
                     )}
                   </div>
                 ))}
@@ -345,13 +345,13 @@ export default function MastersImportPage() {
           )}
 
           {result.skipped && result.skipped.length > 0 && (
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-              <p className="text-sm font-medium text-amber-800 mb-2">
+            <div className="p-4 bg-warning-bg border border-warning-border rounded-xl">
+              <p className="text-sm font-medium text-warning mb-2">
                 {result.skipped.length} row{result.skipped.length !== 1 ? 's' : ''} skipped
               </p>
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {result.skipped.map((s, i) => (
-                  <div key={i} className="text-sm text-amber-700">
+                  <div key={i} className="text-sm text-warning">
                     Row {s.row}: {s.reason}
                   </div>
                 ))}
@@ -361,7 +361,7 @@ export default function MastersImportPage() {
 
           <button
             onClick={clearFile}
-            className="w-full py-2 border border-gray-300 text-sm text-gray-600 rounded-xl hover:bg-gray-50 transition-colors"
+            className="w-full py-2 border border-border text-sm text-text-secondary rounded-xl hover:bg-surface-sunken transition-colors"
           >
             Import another file
           </button>

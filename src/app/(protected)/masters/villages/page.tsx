@@ -54,13 +54,13 @@ export default function VillagesPage() {
         onDelete={canDelete ? r => crud.remove(r.id as string) : undefined} />
       <Modal title={editing ? 'Edit Village' : 'Add Village'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
         <div>
-          <p className="block text-sm font-medium text-gray-700 mb-1">Taluka <span className="text-red-500">*</span></p>
+          <p className="block text-sm font-medium text-text-secondary mb-1">Taluka <span className="text-danger">*</span></p>
           <SearchableSelect value={talukaId} onChange={setTalukaId} options={talukas} placeholder="Select taluka…" />
         </div>
         <div>
-          <label htmlFor="village-name" className="block text-sm font-medium text-gray-700 mb-1">Village Name <span className="text-red-500">*</span></label>
+          <label htmlFor="village-name" className="block text-sm font-medium text-text-secondary mb-1">Village Name <span className="text-danger">*</span></label>
           <input id="village-name" name="name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Enter village name"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
       </Modal>
     </>

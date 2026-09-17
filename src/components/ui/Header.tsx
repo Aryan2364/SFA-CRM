@@ -83,8 +83,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   }
 
   return (
-    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
-      <button onClick={onToggleSidebar} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+    <header className="h-14 bg-surface border-b border-border-light flex items-center justify-between px-4 shrink-0">
+      <button onClick={onToggleSidebar} className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
         </svg>
@@ -94,7 +94,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setShowDropdown(v => !v)}
-          className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition relative"
+          className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition relative"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
@@ -108,12 +108,12 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
         {/* Dropdown */}
         {showDropdown && (
-          <div className="absolute right-0 top-full mt-1 w-80 bg-white rounded-2xl border border-gray-200 shadow-2xl z-50 overflow-hidden">
+          <div className="absolute right-0 top-full mt-1 w-80 bg-surface rounded-2xl border border-border-light shadow-2xl z-50 overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <h3 className="text-sm font-medium text-gray-800">Notifications</h3>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border-light">
+              <h3 className="text-sm font-medium text-text-primary">Notifications</h3>
               {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-xs text-blue-600 hover:underline font-medium">
+                <button onClick={markAllRead} className="text-xs text-primary hover:underline font-medium">
                   Mark all read
                 </button>
               )}
@@ -122,26 +122,26 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
             {/* List */}
             <div className="max-h-80 overflow-y-auto">
               {notifications.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 text-sm">No notifications</div>
+                <div className="text-center py-8 text-text-muted text-sm">No notifications</div>
               ) : (
                 notifications.map(notif => (
                   <button
                     key={notif.id}
                     onClick={() => markRead(notif)}
-                    className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition ${!notif.is_read ? 'bg-blue-50/40' : ''}`}
+                    className={`w-full text-left px-4 py-3 border-b border-border-light hover:bg-surface-sunken transition ${!notif.is_read ? 'bg-primary-subtle/40' : ''}`}
                   >
                     <div className="flex items-start gap-2">
                       {!notif.is_read && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
                       )}
                       <div className={`flex-1 min-w-0 ${notif.is_read ? 'pl-3.5' : ''}`}>
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded-full ${SECTION_COLORS[notif.section] ?? 'bg-gray-100 text-gray-600'}`}>
+                          <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded-full ${SECTION_COLORS[notif.section] ?? 'bg-surface-control text-text-secondary'}`}>
                             {notif.section.replace('_', ' ')}
                           </span>
-                          <span className="text-[10px] text-gray-400 ml-auto">{formatRelative(notif.created_at)}</span>
+                          <span className="text-[10px] text-text-muted ml-auto">{formatRelative(notif.created_at)}</span>
                         </div>
-                        <p className="text-xs text-gray-700 line-clamp-2">{notif.message}</p>
+                        <p className="text-xs text-text-secondary line-clamp-2">{notif.message}</p>
                       </div>
                     </div>
                   </button>
@@ -150,9 +150,9 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
             </div>
 
             {notifications.length > 0 && (
-              <div className="px-4 py-2 border-t border-gray-100 text-center">
+              <div className="px-4 py-2 border-t border-border-light text-center">
                 <button onClick={() => { setShowDropdown(false); router.push('/conversations') }}
-                  className="text-xs text-blue-600 hover:underline font-medium">
+                  className="text-xs text-primary hover:underline font-medium">
                   View all conversations
                 </button>
               </div>

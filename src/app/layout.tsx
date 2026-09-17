@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <body className="bg-gray-50 text-gray-900 antialiased">
+      <body className="bg-surface-sunken text-text-primary antialiased">
         {/* Section 19: tooltips open after ~400ms on hover and immediately on
             keyboard focus. Base UI needs the provider above every Tooltip, so
             it sits at the root rather than per screen.

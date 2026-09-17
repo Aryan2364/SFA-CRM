@@ -198,22 +198,22 @@ export function BusinessPartnerFormFields({
       {topSlot}
 
       <div>
-        <label htmlFor="bp-name" className="block text-sm font-medium text-gray-700 mb-1">
-          Account Name <span className="text-red-500">*</span>
+        <label htmlFor="bp-name" className="block text-sm font-medium text-text-secondary mb-1">
+          Account Name <span className="text-danger">*</span>
         </label>
         <input id="bp-name" name="name" type="text" value={form.name} onChange={F('name')} placeholder={namePlaceholder}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
       </div>
 
       <div>
-        <label htmlFor="bp-contact-person" className="block text-sm font-medium text-gray-700 mb-1">Contact Person Name</label>
+        <label htmlFor="bp-contact-person" className="block text-sm font-medium text-text-secondary mb-1">Contact Person Name</label>
         <input id="bp-contact-person" name="contact_person_name" type="text" value={form.contact_person_name} onChange={F('contact_person_name')} placeholder="Contact person name"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
       </div>
 
       <div>
-        <p className="block text-sm font-medium text-gray-700 mb-1">
-          Place {requirePlace && <span className="text-red-500">*</span>}
+        <p className="block text-sm font-medium text-text-secondary mb-1">
+          Place {requirePlace && <span className="text-danger">*</span>}
         </p>
         <SearchableSelect value={form.place} onChange={handlePlaceChange} options={placeOptions}
           placeholder="Search by district, taluka or village…" />
@@ -223,23 +223,23 @@ export function BusinessPartnerFormFields({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label htmlFor="bp-gst" className="block text-sm font-medium text-gray-700 mb-1">GST Number</label>
+          <label htmlFor="bp-gst" className="block text-sm font-medium text-text-secondary mb-1">GST Number</label>
           <input id="bp-gst" name="gst_number" type="text" value={form.gst_number}
             onChange={e => { F('gst_number')(e); setGstError('') }}
             placeholder="GSTIN (15 characters)" maxLength={15}
-            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase ${gstError ? 'border-red-400' : 'border-gray-300'}`} />
-          {gstError && <p className="text-xs text-red-500 mt-1">{gstError}</p>}
+            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring uppercase ${gstError ? 'border-danger-border' : 'border-border'}`} />
+          {gstError && <p className="text-xs text-danger mt-1">{gstError}</p>}
         </div>
         <div>
-          <label htmlFor="bp-pincode" className="block text-sm font-medium text-gray-700 mb-1">Pin Code</label>
+          <label htmlFor="bp-pincode" className="block text-sm font-medium text-text-secondary mb-1">Pin Code</label>
           <input id="bp-pincode" name="pincode" type="text" value={form.pincode} onChange={F('pincode')} placeholder="6-digit pin code" maxLength={6}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label htmlFor="bp-mobile1" className="block text-sm font-medium text-gray-700">Mobile Number 1</label>
+          <label htmlFor="bp-mobile1" className="block text-sm font-medium text-text-secondary">Mobile Number 1</label>
           {!showMobile2 && (
             <button type="button" onClick={() => setShowMobile2(true)}
               className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
@@ -253,78 +253,78 @@ export function BusinessPartnerFormFields({
         <input id="bp-mobile1" name="mobile_1" type="tel" value={form.mobile_1}
           onChange={e => { setForm(f => ({ ...f, mobile_1: e.target.value.replace(/\D/g, '').slice(0, 10) })); setMobile1Error('') }}
           placeholder="10-digit number" maxLength={10}
-          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${mobile1Error ? 'border-red-400' : 'border-gray-300'}`} />
-        {mobile1Error && <p className="text-xs text-red-500 mt-1">{mobile1Error}</p>}
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring ${mobile1Error ? 'border-danger-border' : 'border-border'}`} />
+        {mobile1Error && <p className="text-xs text-danger mt-1">{mobile1Error}</p>}
       </div>
 
       {showMobile2 && (
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label htmlFor="bp-mobile2" className="block text-sm font-medium text-gray-700">Mobile Number 2</label>
+            <label htmlFor="bp-mobile2" className="block text-sm font-medium text-text-secondary">Mobile Number 2</label>
             <button type="button"
               onClick={() => { setShowMobile2(false); setForm(f => ({ ...f, mobile_2: '' })); setMobile2Error('') }}
-              className="text-xs text-gray-400 hover:text-red-500 transition-colors">
+              className="text-xs text-text-muted hover:text-danger transition-colors">
               Remove
             </button>
           </div>
           <input id="bp-mobile2" name="mobile_2" type="tel" value={form.mobile_2}
             onChange={e => { setForm(f => ({ ...f, mobile_2: e.target.value.replace(/\D/g, '').slice(0, 10) })); setMobile2Error('') }}
             placeholder="10-digit number" maxLength={10}
-            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${mobile2Error ? 'border-red-400' : 'border-gray-300'}`} />
-          {mobile2Error && <p className="text-xs text-red-500 mt-1">{mobile2Error}</p>}
+            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring ${mobile2Error ? 'border-danger-border' : 'border-border'}`} />
+          {mobile2Error && <p className="text-xs text-danger mt-1">{mobile2Error}</p>}
         </div>
       )}
 
       <div>
-        <label htmlFor="bp-address" className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <label htmlFor="bp-address" className="block text-sm font-medium text-text-secondary mb-1">Address</label>
         <textarea id="bp-address" name="address" value={form.address} onChange={F('address')} rows={2} placeholder="Address"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
       </div>
 
       <div>
-        <label htmlFor="bp-description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+        <label htmlFor="bp-description" className="block text-sm font-medium text-text-secondary mb-1">Description</label>
         <textarea id="bp-description" name="description" value={form.description} onChange={F('description')} rows={2} placeholder="Description"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label htmlFor="bp-latitude" className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+          <label htmlFor="bp-latitude" className="block text-sm font-medium text-text-secondary mb-1">Latitude</label>
           <input id="bp-latitude" name="latitude" type="number" step="0.0000001" value={form.latitude} onChange={F('latitude')} placeholder="-90 to 90"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
         <div>
-          <label htmlFor="bp-longitude" className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+          <label htmlFor="bp-longitude" className="block text-sm font-medium text-text-secondary mb-1">Longitude</label>
           <input id="bp-longitude" name="longitude" type="number" step="0.0000001" value={form.longitude} onChange={F('longitude')} placeholder="-180 to 180"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
       </div>
 
       {showLeadStatus && (
         <>
-          <div className="border-t border-gray-200 pt-4">
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wider mb-3">Lead Status</p>
+          <div className="border-t border-border-light pt-4">
+            <p className="text-xs font-normal text-text-secondary uppercase tracking-wider mb-3">Lead Status</p>
           </div>
           <div>
-            <label htmlFor="bp-stage" className="block text-sm font-medium text-gray-700 mb-1">Stage</label>
+            <label htmlFor="bp-stage" className="block text-sm font-medium text-text-secondary mb-1">Stage</label>
             <select id="bp-stage" name="stage" value={form.stage} onChange={F('stage')}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
               <option value="">Select stage…</option>
               {stages.map(s => <option key={s.id} value={s.name}>{s.name}{s.is_fixed ? ' (fixed)' : ''}</option>)}
             </select>
           </div>
           <div>
-            <label htmlFor="bp-temperature" className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+            <label htmlFor="bp-temperature" className="block text-sm font-medium text-text-secondary mb-1">Temperature</label>
             <select id="bp-temperature" name="temperature" value={form.temperature} onChange={F('temperature')}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
               <option value="">Select temperature…</option>
               {temps.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
             </select>
           </div>
           <div>
-            <label htmlFor="bp-followup" className="block text-sm font-medium text-gray-700 mb-1">Next Follow-up Date</label>
+            <label htmlFor="bp-followup" className="block text-sm font-medium text-text-secondary mb-1">Next Follow-up Date</label>
             <input id="bp-followup" name="next_follow_up_date" type="date" value={form.next_follow_up_date} onChange={F('next_follow_up_date')}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
         </>
       )}
