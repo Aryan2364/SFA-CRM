@@ -185,3 +185,46 @@ SITES[OR] = dict(
     fill=[],
     hover_fill=[],
 )
+
+# ---------------------------------------------------------------- file 5: WP
+SITES[WP] = dict(
+    protect=[],
+    protect_lines=[
+        # E: the "Plan Edited by Manager" banner -- a condition that persists
+        # until resolved (7.1), and 2.4 has no token for a seventh weekly-plan
+        # state. :458 is the banner's comment line, inside the same block.
+        453, 454, 458,
+        # Section 11.9
+        386, 436, 469, 486, 493,
+    ],
+    exceptions=[673, 675],      # 11.2: :673 a status, :675 a price
+    white=[515, 646, 704],      # all three on brand fills
+    fill=[],
+    hover_fill=[],
+)
+
+# ---------------------------------------------------------------- file 6: AC
+SITES[AC] = dict(
+    protect=[
+        # G5 the coloured shadow on the org-chart search-match highlight.
+        # border-yellow-400 on the same line is its ternary twin and the
+        # signal that has to survive if the shadow goes -- both stay.
+        (809, 'shadow-yellow-100'), (809, 'border-yellow-400'),
+        (809, 'border-blue-700'),
+    ],
+    protect_lines=[
+        # B: the standalone org-chart band. :781 is the bg-gray-500 fill this
+        # group argues about and :782 its text-white foreground -- one element
+        # across two lines, neither half settled while the ground is open.
+        781, 782,
+        # D: both avatar palettes and the initials drawn on them. :877 holds
+        # five swatches, two of which F used to double-count.
+        877, 884,
+        # Section 11.9
+        275,
+    ],
+    exceptions=[71, 753],
+    white=[295, 371, 399, 812],   # brand fills; :782 and :884 are B and D
+    fill=[],
+    hover_fill=[],
+)

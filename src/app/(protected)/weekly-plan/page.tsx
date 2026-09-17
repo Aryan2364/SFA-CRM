@@ -130,18 +130,18 @@ function PlaceCombobox({ value, onChange, options, disabled }: {
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
         placeholder="Search place…"
-        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+        className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted"
       />
       {!disabled && open && (
-        <div className="absolute z-30 left-0 right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 sm:min-h-[216px] sm:max-h-64 overflow-y-auto">
+        <div className="absolute z-30 left-0 right-0 top-full mt-0.5 bg-surface border border-border-light rounded-lg shadow-lg max-h-56 sm:min-h-[216px] sm:max-h-64 overflow-y-auto">
           {filtered.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-gray-400">No places found</p>
+            <p className="px-3 py-2 text-sm text-text-muted">No places found</p>
           ) : (
             filtered.map(o => (
               <button key={o.id} type="button"
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => { onChange(o.label); setQuery(o.label); setOpen(false) }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition ${o.label === value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-primary-subtle transition ${o.label === value ? 'bg-primary-subtle text-primary font-medium' : 'text-text-secondary'}`}>
                 {o.label}
               </button>
             ))
@@ -369,16 +369,16 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     setMonday(d => addDays(d, delta * 7))
   }
 
-  if (!userId) return <div className="text-center py-12 text-gray-400">Please add yourself as a user in Masters first.</div>
+  if (!userId) return <div className="text-center py-12 text-text-muted">Please add yourself as a user in Masters first.</div>
 
   return (
     <div className="flex flex-col h-full">
       {/* Page title */}
       <div className="flex items-center gap-3 mb-6">
-        <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
         </svg>
-        <h2 className="text-xl font-medium text-gray-900">Weekly Plan</h2>
+        <h2 className="text-xl font-medium text-text-primary">Weekly Plan</h2>
         {plan && <StatusBadge status={plan.status} />}
         {plan && (
           <div className="flex items-center gap-3 ml-auto">
@@ -389,20 +389,20 @@ function MyPlanTab({ userId }: { userId: string | null }) {
               </svg>
               Chat
             </button>
-            <button onClick={loadLogs} className="text-xs text-gray-500 hover:underline">Audit Log</button>
+            <button onClick={loadLogs} className="text-xs text-text-muted hover:underline">Audit Log</button>
           </div>
         )}
       </div>
 
       {/* Week navigator */}
       <div className="flex items-center justify-between mb-6 px-2">
-        <button onClick={() => navigateWeek(-1)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+        <button onClick={() => navigateWeek(-1)} className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <span className="text-sm font-medium text-gray-800">{formatWeekRange(monday)}</span>
-        <button onClick={() => navigateWeek(1)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+        <span className="text-sm font-medium text-text-primary">{formatWeekRange(monday)}</span>
+        <button onClick={() => navigateWeek(1)} className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
           </svg>
@@ -410,8 +410,8 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       </div>
 
       {/* Week Goal */}
-      <div className="mb-5 rounded-xl border border-gray-200 bg-white px-4 sm:px-5 py-4 shadow-sm">
-        <label className="block text-sm font-normal text-gray-700 mb-1.5">
+      <div className="mb-5 rounded-xl border border-border-light bg-surface px-4 sm:px-5 py-4 shadow-sm">
+        <label className="block text-sm font-normal text-text-secondary mb-1.5">
           Upcoming week I want to Achieve
         </label>
         <textarea
@@ -420,15 +420,15 @@ function MyPlanTab({ userId }: { userId: string | null }) {
           value={weekGoal}
           onChange={e => setWeekGoal(e.target.value)}
           placeholder="Think in terms of Major closures, New Distributor Appointment, The Orders Expected, Sales value expected, New People to meet…"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white disabled:bg-gray-50 disabled:text-gray-500 placeholder:text-gray-500"
+          className="w-full border border-border-light rounded-lg px-3 py-2 text-sm text-text-primary resize-none focus:outline-none focus:ring-2 focus:ring-primary-ring focus:border-primary-border bg-surface disabled:bg-surface-sunken disabled:text-text-muted placeholder:text-text-muted"
         />
       </div>
 
       {/* Status banners */}
       {plan && plan.status === 'Approved' && (
-        <div className="mb-4 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+        <div className="mb-4 bg-success-bg border border-success-border rounded-xl px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-medium text-green-700">
+            <div className="flex items-center gap-2 text-sm font-medium text-success">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Plan Approved
             </div>
@@ -436,17 +436,17 @@ function MyPlanTab({ userId }: { userId: string | null }) {
               <button onClick={() => setReopenModal(true)} className="text-xs text-green-700 underline hover:text-green-800">Request Reopen</button>
             )}
           </div>
-          {plan.manager_comment && <p className="text-sm text-green-600 mt-1 ml-7">{plan.manager_comment}</p>}
-          {plan.reopen_requested && <p className="text-xs text-green-600 mt-1 ml-7 italic">Reopen request sent — awaiting manager response</p>}
+          {plan.manager_comment && <p className="text-sm text-success mt-1 ml-7">{plan.manager_comment}</p>}
+          {plan.reopen_requested && <p className="text-xs text-success mt-1 ml-7 italic">Reopen request sent — awaiting manager response</p>}
         </div>
       )}
       {plan && plan.status === 'Rejected' && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-red-700">
+        <div className="mb-4 bg-danger-bg border border-danger-border rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-danger">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             Plan Rejected — Please revise and resubmit
           </div>
-          {plan.manager_comment && <p className="text-sm text-red-600 mt-1 ml-7">{plan.manager_comment}</p>}
+          {plan.manager_comment && <p className="text-sm text-danger mt-1 ml-7">{plan.manager_comment}</p>}
         </div>
       )}
       {plan && plan.status === 'Edited by Manager' && (
@@ -459,9 +459,9 @@ function MyPlanTab({ userId }: { userId: string | null }) {
         </div>
       )}
       {plan && plan.status === 'On Hold' && (
-        <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3">
+        <div className="mb-4 bg-warning-bg border border-warning-border rounded-xl px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-medium text-yellow-700">
+            <div className="flex items-center gap-2 text-sm font-medium text-warning">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
               Plan On Hold
             </div>
@@ -469,14 +469,14 @@ function MyPlanTab({ userId }: { userId: string | null }) {
               <button onClick={() => setReopenModal(true)} className="text-xs text-yellow-700 underline hover:text-yellow-800">Request Reopen</button>
             )}
           </div>
-          {plan.manager_comment && <p className="text-sm text-yellow-600 mt-1 ml-7">{plan.manager_comment}</p>}
-          {plan.reopen_requested && <p className="text-xs text-yellow-600 mt-1 ml-7 italic">Reopen request sent — awaiting manager response</p>}
+          {plan.manager_comment && <p className="text-sm text-warning mt-1 ml-7">{plan.manager_comment}</p>}
+          {plan.reopen_requested && <p className="text-xs text-warning mt-1 ml-7 italic">Reopen request sent — awaiting manager response</p>}
         </div>
       )}
       {isSubmittedAwaitingReview && (
-        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+        <div className="mb-4 bg-primary-subtle border border-primary-border rounded-xl px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-medium text-blue-700">
+            <div className="flex items-center gap-2 text-sm font-medium text-primary">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Awaiting manager review
             </div>
@@ -492,13 +492,13 @@ function MyPlanTab({ userId }: { userId: string | null }) {
             ) : canRequestReopen ? (
               <button onClick={() => setReopenModal(true)} className="text-xs text-blue-700 underline hover:text-blue-800">Request Reopen</button>
             ) : plan?.reopen_requested ? (
-              <span className="text-xs text-blue-600 italic">Reopen request sent</span>
+              <span className="text-xs text-primary italic">Reopen request sent</span>
             ) : null}
           </div>
         </div>
       )}
 
-      {loading ? <div className="text-center py-12 text-gray-400">Loading...</div> : (
+      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : (
         <>
           {/* Day cards */}
           <div className="flex-1 overflow-y-auto space-y-4 pb-4">
@@ -506,20 +506,20 @@ function MyPlanTab({ userId }: { userId: string | null }) {
               const entries = dayData[dateStr] || []
               const today = isToday(dateStr)
               return (
-                <div key={dateStr} className={`rounded-xl border bg-white ${today ? 'border-blue-400 ring-1 ring-blue-200' : 'border-gray-200'}`}>
+                <div key={dateStr} className={`rounded-xl border bg-surface ${today ? 'border-primary-border ring-1 ring-primary-ring' : 'border-border-light'}`}>
                   {/* Day header */}
                   <div className="px-4 sm:px-5 pt-4 pb-2">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-medium text-gray-900">{formatDayHeader(dateStr)}</h3>
+                      <h3 className="text-sm font-medium text-text-primary">{formatDayHeader(dateStr)}</h3>
                       {today && (
-                        <span className="text-[11px] font-medium bg-blue-600 text-white px-2 py-0.5 rounded-md">Today</span>
+                        <span className="text-[11px] font-medium bg-primary text-primary-foreground px-2 py-0.5 rounded-md">Today</span>
                       )}
                     </div>
                   </div>
 
                   {/* Column headers — desktop only */}
                   <div className="hidden sm:block px-5 pb-1">
-                    <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                    <div className="flex items-center gap-2 text-xs font-medium text-text-muted">
                       <span className="flex-1">Place</span>
                       <span className="w-[72px] text-center">Dist.</span>
                       <span className="w-[72px] text-center">Dealer</span>
@@ -531,10 +531,10 @@ function MyPlanTab({ userId }: { userId: string | null }) {
                   {/* Entries */}
                   <div className="px-4 sm:px-5 pb-2 space-y-3 sm:space-y-2">
                     {entries.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-3">No entries yet</p>
+                      <p className="text-sm text-text-muted text-center py-3">No entries yet</p>
                     ) : (
                       entries.map(entry => (
-                        <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-2 pb-3 sm:pb-0 border-b border-gray-100 sm:border-0 last:border-0 last:pb-0">
+                        <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-2 pb-3 sm:pb-0 border-b border-border-light sm:border-0 last:border-0 last:pb-0">
                           {/* Place — full width on mobile */}
                           <div className="flex items-center gap-2 sm:contents">
                             <PlaceCombobox
@@ -544,7 +544,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
                               disabled={!canEdit}
                             />
                             {canEdit && (
-                              <button onClick={() => removePlace(dateStr, entry.id)} className="sm:hidden w-9 h-9 flex-shrink-0 flex items-center justify-center text-gray-400 hover:text-red-500 transition rounded-lg border border-gray-200">
+                              <button onClick={() => removePlace(dateStr, entry.id)} className="sm:hidden w-9 h-9 flex-shrink-0 flex items-center justify-center text-text-muted hover:text-danger transition rounded-lg border border-border-light">
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                 </svg>
@@ -554,37 +554,37 @@ function MyPlanTab({ userId }: { userId: string | null }) {
                           {/* Numeric inputs — wrap row on mobile with labels */}
                           <div className="flex items-center gap-2 sm:contents">
                             <label className="flex-1 sm:hidden">
-                              <span className="block text-[11px] font-medium text-gray-500 mb-1">Dist.</span>
+                              <span className="block text-[11px] font-medium text-text-muted mb-1">Dist.</span>
                               <input type="number" min={0} disabled={!canEdit} value={entry.dist}
                                 onChange={e => updatePlace(dateStr, entry.id, 'dist', Number(e.target.value))}
-                                className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-center text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
                             </label>
                             <input type="number" min={0} disabled={!canEdit} value={entry.dist}
                               onChange={e => updatePlace(dateStr, entry.id, 'dist', Number(e.target.value))}
-                              className="hidden sm:block w-[72px] border border-gray-200 rounded-lg px-2 py-2 text-sm text-center text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                              className="hidden sm:block w-[72px] border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
 
                             <label className="flex-1 sm:hidden">
-                              <span className="block text-[11px] font-medium text-gray-500 mb-1">Dealer</span>
+                              <span className="block text-[11px] font-medium text-text-muted mb-1">Dealer</span>
                               <input type="number" min={0} disabled={!canEdit} value={entry.dealer}
                                 onChange={e => updatePlace(dateStr, entry.id, 'dealer', Number(e.target.value))}
-                                className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-center text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
                             </label>
                             <input type="number" min={0} disabled={!canEdit} value={entry.dealer}
                               onChange={e => updatePlace(dateStr, entry.id, 'dealer', Number(e.target.value))}
-                              className="hidden sm:block w-[72px] border border-gray-200 rounded-lg px-2 py-2 text-sm text-center text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                              className="hidden sm:block w-[72px] border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
 
                             <label className="flex-1 sm:hidden">
-                              <span className="block text-[11px] font-medium text-gray-500 mb-1">Others</span>
+                              <span className="block text-[11px] font-medium text-text-muted mb-1">Others</span>
                               <input type="number" min={0} disabled={!canEdit} value={entry.others}
                                 onChange={e => updatePlace(dateStr, entry.id, 'others', Number(e.target.value))}
-                                className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-center text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
                             </label>
                             <input type="number" min={0} disabled={!canEdit} value={entry.others}
                               onChange={e => updatePlace(dateStr, entry.id, 'others', Number(e.target.value))}
-                              className="hidden sm:block w-[72px] border border-gray-200 rounded-lg px-2 py-2 text-sm text-center text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                              className="hidden sm:block w-[72px] border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
 
                             {canEdit && (
-                              <button onClick={() => removePlace(dateStr, entry.id)} className="hidden sm:flex w-8 h-8 items-center justify-center text-gray-400 hover:text-red-500 transition">
+                              <button onClick={() => removePlace(dateStr, entry.id)} className="hidden sm:flex w-8 h-8 items-center justify-center text-text-muted hover:text-danger transition">
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                 </svg>
@@ -600,29 +600,29 @@ function MyPlanTab({ userId }: { userId: string | null }) {
                   {canEdit && (
                     canAddPlace(dateStr) ? (
                       <button onClick={() => addPlace(dateStr)}
-                        className="w-full py-2.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-50 transition flex items-center justify-center gap-1 border-t border-gray-100">
+                        className="w-full py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-sunken transition flex items-center justify-center gap-1 border-t border-border-light">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                         </svg>
                         Add Place
                       </button>
                     ) : (
-                      <div className="w-full py-2 text-xs text-amber-700 text-center border-t border-gray-100 bg-amber-50">
+                      <div className="w-full py-2 text-xs text-warning text-center border-t border-border-light bg-warning-bg">
                         Select a place in the previous row first
                       </div>
                     )
                   )}
 
                   {/* Day Focus / Remarks */}
-                  <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-gray-100">
-                    <label className="block text-xs font-normal text-gray-600 uppercase tracking-wide mb-1.5">Day Focus / Remarks</label>
+                  <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-border-light">
+                    <label className="block text-xs font-normal text-text-secondary uppercase tracking-wide mb-1.5">Day Focus / Remarks</label>
                     <textarea
                       rows={2}
                       disabled={!canEdit}
                       value={dayNotes[dateStr] ?? ''}
                       onChange={e => setDayNotes(prev => ({ ...prev, [dateStr]: e.target.value }))}
                       placeholder="Add your focus or notes for the day…"
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-50 disabled:text-gray-500 placeholder:text-gray-500"
+                      className="w-full border border-border-light rounded-lg px-3 py-2 text-sm text-text-primary resize-none focus:outline-none focus:ring-2 focus:ring-success disabled:bg-surface-sunken disabled:text-text-muted placeholder:text-text-muted"
                     />
                   </div>
                 </div>
@@ -631,19 +631,19 @@ function MyPlanTab({ userId }: { userId: string | null }) {
           </div>
 
           {/* Footer — stays at bottom of content area, does not overlap sidebar */}
-          <div className="border-t border-gray-200 bg-white px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6">
+          <div className="border-t border-border-light bg-surface px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6">
             <div className="flex-1" />
             {canEdit && (
               <>
                 <button onClick={handleSaveDraft} disabled={saving}
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition sm:min-w-[180px]">
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 border border-border rounded-xl text-sm font-medium text-text-secondary hover:bg-surface-sunken disabled:opacity-50 transition sm:min-w-[180px]">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                   </svg>
                   Save Draft
                 </button>
                 <button onClick={handleSubmit} disabled={saving}
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-sm font-medium disabled:opacity-50 transition sm:min-w-[180px]">
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 bg-primary-pressed hover:bg-primary-hover text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-50 transition sm:min-w-[180px]">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
                   </svg>
@@ -658,25 +658,25 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       {/* Audit Log Modal */}
       {logsOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setLogsOpen(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[70vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h3 className="font-medium text-gray-800">Audit Log</h3>
-              <button onClick={() => setLogsOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+          <div className="absolute inset-0 bg-(--backdrop)" onClick={() => setLogsOpen(false)} />
+          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[70vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
+              <h3 className="font-medium text-text-primary">Audit Log</h3>
+              <button onClick={() => setLogsOpen(false)} className="text-text-muted hover:text-text-secondary text-xl">&times;</button>
             </div>
             <div className="overflow-y-auto px-6 py-4 space-y-3">
               {logs.map(log => (
                 <div key={log.id} className="flex gap-3 text-sm">
-                  <div className="w-1 bg-blue-200 rounded-full shrink-0" />
+                  <div className="w-1 bg-primary-subtle rounded-full shrink-0" />
                   <div>
-                    <p className="font-medium text-gray-800">{log.action_type} <span className="text-gray-400 font-normal text-xs">by {log.users?.name ?? log.actor_role}</span></p>
-                    {(log.previous_status || log.new_status) && <p className="text-xs text-gray-500">{log.previous_status} → {log.new_status}</p>}
-                    {log.comment && <p className="text-xs text-yellow-700 bg-yellow-50 rounded px-2 py-0.5 mt-0.5">&ldquo;{log.comment}&rdquo;</p>}
-                    <p className="text-xs text-gray-400">{new Date(log.timestamp).toLocaleString('en-IN')}</p>
+                    <p className="font-medium text-text-primary">{log.action_type} <span className="text-text-muted font-normal text-xs">by {log.users?.name ?? log.actor_role}</span></p>
+                    {(log.previous_status || log.new_status) && <p className="text-xs text-text-secondary">{log.previous_status} → {log.new_status}</p>}
+                    {log.comment && <p className="text-xs text-warning bg-warning-bg rounded px-2 py-0.5 mt-0.5">&ldquo;{log.comment}&rdquo;</p>}
+                    <p className="text-xs text-text-secondary">{new Date(log.timestamp).toLocaleString('en-IN')}</p>
                   </div>
                 </div>
               ))}
-              {logs.length === 0 && <p className="text-gray-400 text-sm">No log entries yet.</p>}
+              {logs.length === 0 && <p className="text-text-muted text-sm">No log entries yet.</p>}
             </div>
           </div>
         </div>
@@ -685,23 +685,23 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       {/* Item 7: Request Reopen Modal */}
       {reopenModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={() => { setReopenModal(false); setReopenMessage('') }} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h3 className="font-medium text-gray-800 mb-1">Request Plan Reopen</h3>
-            <p className="text-xs text-gray-500 mb-4">Explain why you need to edit this plan. Your manager will be notified.</p>
+          <div className="absolute inset-0 bg-(--backdrop)" onClick={() => { setReopenModal(false); setReopenMessage('') }} />
+          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 className="font-medium text-text-primary mb-1">Request Plan Reopen</h3>
+            <p className="text-xs text-text-muted mb-4">Explain why you need to edit this plan. Your manager will be notified.</p>
             <textarea
               value={reopenMessage}
               onChange={e => setReopenMessage(e.target.value)}
               rows={4} placeholder="Reason for reopen request…"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+              className="w-full border border-border-light rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-ring mb-4"
             />
             <div className="flex gap-2 justify-end">
               <button onClick={() => { setReopenModal(false); setReopenMessage('') }}
-                className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                className="px-4 py-2 text-sm text-text-secondary border border-border-light rounded-lg hover:bg-surface-sunken transition">
                 Cancel
               </button>
               <button onClick={handleRequestReopen} disabled={reopening || !reopenMessage.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition">
+                className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary-hover rounded-lg disabled:opacity-50 transition">
                 {reopening ? 'Sending…' : 'Send Request'}
               </button>
             </div>
