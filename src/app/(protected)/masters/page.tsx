@@ -130,11 +130,11 @@ export default function MastersPage() {
   if (me && !isAdmin && visibleSections.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <svg className="w-12 h-12 text-text-muted mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
         </svg>
-        <p className="text-gray-500 font-medium">You don&apos;t have access to Master Data</p>
-        <p className="text-sm text-gray-400 mt-1">Contact your Administrator to request access.</p>
+        <p className="text-text-muted font-medium">You don&apos;t have access to Master Data</p>
+        <p className="text-sm text-text-muted mt-1">Contact your Administrator to request access.</p>
       </div>
     )
   }
@@ -142,11 +142,11 @@ export default function MastersPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <h2 className="text-2xl font-medium text-gray-900">Masters</h2>
+        <h2 className="text-2xl font-medium text-text-primary">Masters</h2>
         {(isAdmin || visibleSections.some(s => s.links.some(l => me?.permissions?.[l.permKey]?.edit))) && (
           <Link
             href="/masters/import"
-            className="flex items-center gap-2 text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="flex items-center gap-2 text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors font-medium"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
@@ -155,18 +155,18 @@ export default function MastersPage() {
           </Link>
         )}
       </div>
-      <p className="text-gray-500 mt-1 mb-8">Manage all master data from one place</p>
+      <p className="text-text-muted mt-1 mb-8">Manage all master data from one place</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {visibleSections.map(section => (
           <div key={section.title} className={`rounded-2xl border overflow-hidden ${section.color}`}>
             <div className={`px-6 py-5 ${section.headerBg} flex items-center gap-4`}>
-              <div className={`w-10 h-10 rounded-xl bg-white/80 flex items-center justify-center ${section.iconColor}`}>
+              <div className={`w-10 h-10 rounded-xl bg-surface/80 flex items-center justify-center ${section.iconColor}`}>
                 {section.icon}
               </div>
               <div>
-                <h3 className="font-medium text-gray-900">{section.title}</h3>
-                <p className="text-sm text-gray-500">{section.subtitle}</p>
+                <h3 className="font-medium text-text-primary">{section.title}</h3>
+                <p className="text-sm text-text-muted">{section.subtitle}</p>
               </div>
             </div>
             <div className="px-3 py-2">
@@ -174,9 +174,9 @@ export default function MastersPage() {
                 .filter(link => isAdmin || (me?.permissions?.[link.permKey]?.view ?? false))
                 .map(link => (
                 <Link key={link.href} href={link.href}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-white/80 hover:text-gray-900 transition group"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-surface/80 hover:text-text-primary transition group"
                 >
-                  <span className="text-gray-400 group-hover:text-gray-600 transition">{link.icon}</span>
+                  <span className="text-text-muted group-hover:text-text-secondary transition">{link.icon}</span>
                   {link.label}
                 </Link>
               ))}
