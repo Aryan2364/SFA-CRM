@@ -269,26 +269,26 @@ export default function TerritoryCanvasPage() {
 
   const totalSelected = stateIds.size + districtIds.size + talukaIds.size + villageIds.size
 
-  if (loading) return <div className="text-center py-16 text-gray-400">Loading territory data…</div>
+  if (loading) return <div className="text-center py-16 text-text-muted">Loading territory data…</div>
 
   return (
     <div className="max-w-4xl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <a href="/masters/territory-mapping" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-2">
+          <a href="/masters/territory-mapping" className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-secondary mb-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
             Back to Territory Mapping
           </a>
-          <h2 className="text-xl font-medium text-gray-800">{user?.name ?? 'User'} — Territory</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h2 className="text-xl font-medium text-text-primary">{user?.name ?? 'User'} — Territory</h2>
+          <p className="text-sm text-text-muted mt-0.5">
             {totalSelected > 0
               ? `${stateIds.size} states · ${districtIds.size} districts · ${talukaIds.size} talukas · ${villageIds.size} villages selected`
               : 'No territory assigned yet'}
           </p>
         </div>
         <button type="button" onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl disabled:opacity-50 transition shadow-sm">
+          className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm font-medium px-5 py-2.5 rounded-xl disabled:opacity-50 transition shadow-sm">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
           {saving ? 'Saving…' : 'Save Territory'}
         </button>
@@ -297,7 +297,7 @@ export default function TerritoryCanvasPage() {
       {/* State search */}
       <div className="mb-4">
         <input type="text" placeholder="Search states…" value={stateSearch} onChange={e => setStateSearch(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="border border-border rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-primary-ring" />
       </div>
 
       {/* Tree */}
@@ -309,9 +309,9 @@ export default function TerritoryCanvasPage() {
           const activeDistricts = districts.filter(d => districtIds.has(d.id))
 
           return (
-            <div key={state.id} className={`rounded-xl border overflow-hidden ${isStateSelected ? 'border-blue-300' : 'border-gray-200'}`}>
+            <div key={state.id} className={`rounded-xl border overflow-hidden ${isStateSelected ? 'border-primary-border' : 'border-border-light'}`}>
               {/* State row — checkbox and expand are SEPARATE controls */}
-              <div className={`flex items-center gap-2 px-4 py-3 ${isStateSelected ? 'bg-blue-50' : 'bg-white'}`}>
+              <div className={`flex items-center gap-2 px-4 py-3 ${isStateSelected ? 'bg-primary-subtle' : 'bg-surface'}`}>
                 {/* Checkbox — toggles selection only */}
                 <input
                   type="checkbox"
@@ -322,7 +322,7 @@ export default function TerritoryCanvasPage() {
 
                 {/* State name + expand button — positioned NEXT TO name */}
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <span className="font-medium text-gray-800 truncate">{state.name}</span>
+                  <span className="font-medium text-text-primary truncate">{state.name}</span>
                   {/* Expand/collapse button next to the name */}
                   {isStateSelected && (
                     <button
@@ -339,29 +339,29 @@ export default function TerritoryCanvasPage() {
 
                 {/* Summary chip */}
                 {isStateSelected && districts.length > 0 && (
-                  <span className="text-xs text-blue-600 font-medium shrink-0">{activeDistricts.length}/{districts.length} dist.</span>
+                  <span className="text-xs text-primary font-medium shrink-0">{activeDistricts.length}/{districts.length} dist.</span>
                 )}
                 {isStateSelected && districts.length === 0 && (
-                  <span className="text-xs text-gray-400 shrink-0">No districts</span>
+                  <span className="text-xs text-text-muted shrink-0">No districts</span>
                 )}
               </div>
 
               {/* Districts — only shown when selected AND expanded */}
               {isStateSelected && isStateExpanded && districts.length > 0 && (
-                <div className="border-t border-gray-100 bg-gray-50/50">
+                <div className="border-t border-border-light bg-surface-sunken/50">
                   {/* District search + select all */}
-                  <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100">
+                  <div className="flex items-center gap-2 px-4 py-2 border-b border-border-light">
                     <input type="checkbox" checked={allDistrictsSelected(state.id)}
                       onChange={() => toggleAllDistricts(state.id)}
                       className="w-4 h-4 rounded accent-blue-600" title="Select all districts" />
                     <input type="text" placeholder="Search districts…" value={dSearch[state.id] ?? ''}
                       onChange={e => setDSearch(p => ({ ...p, [state.id]: e.target.value }))}
-                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                    <span className="text-xs text-gray-400 shrink-0">{activeDistricts.length} sel.</span>
+                      className="flex-1 border border-border-light rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface" />
+                    <span className="text-xs text-text-secondary shrink-0">{activeDistricts.length} sel.</span>
                   </div>
 
                   {/* District list */}
-                  <div className="divide-y divide-gray-50">
+                  <div className="divide-y divide-border-light">
                     {districts
                       .filter(d => d.name.toLowerCase().includes((dSearch[state.id] ?? '').toLowerCase()))
                       .map(district => {
@@ -373,12 +373,12 @@ export default function TerritoryCanvasPage() {
                         return (
                           <div key={district.id}>
                             {/* District row */}
-                            <div className={`flex items-center gap-2 px-6 py-2.5 ${isDistSelected ? 'bg-green-50' : 'bg-white hover:bg-gray-50'}`}>
+                            <div className={`flex items-center gap-2 px-6 py-2.5 ${isDistSelected ? 'bg-success-bg' : 'bg-surface hover:bg-surface-sunken'}`}>
                               <input type="checkbox" checked={isDistSelected} onChange={() => handleDistrictToggle(district)}
                                 className="w-4 h-4 rounded accent-green-600 cursor-pointer shrink-0" />
                               {/* District name + expand button next to name */}
                               <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                                <span className={`text-sm truncate ${isDistSelected ? 'text-gray-800 font-medium' : 'text-gray-600'}`}>{district.name}</span>
+                                <span className={`text-sm truncate ${isDistSelected ? 'text-text-primary font-medium' : 'text-text-secondary'}`}>{district.name}</span>
                                 {isDistSelected && talukas.length > 0 && (
                                   <button
                                     onClick={() => setExpandedDistricts(prev => { const s = new Set(prev); isExpanded ? s.delete(district.id) : s.add(district.id); return s })}
@@ -392,21 +392,21 @@ export default function TerritoryCanvasPage() {
                                 )}
                               </div>
                               {isDistSelected && talukas.length > 0 && (
-                                <span className="text-xs text-green-600 shrink-0">{activeTalukas.length}/{talukas.length} tal.</span>
+                                <span className="text-xs text-success shrink-0">{activeTalukas.length}/{talukas.length} tal.</span>
                               )}
                             </div>
 
                             {/* Talukas */}
                             {isDistSelected && isExpanded && (
-                              <div className="border-t border-gray-50 bg-green-50/30">
-                                <div className="flex items-center gap-2 px-8 py-2 border-b border-gray-100">
+                              <div className="border-t border-border-light bg-success-bg/30">
+                                <div className="flex items-center gap-2 px-8 py-2 border-b border-border-light">
                                   <input type="checkbox" checked={allTalukasSelected(district.id)}
                                     onChange={() => toggleAllTalukas(district.id)}
                                     className="w-4 h-4 rounded accent-green-600" title="Select all talukas" />
                                   <input type="text" placeholder="Search talukas…" value={tSearch[district.id] ?? ''}
                                     onChange={e => setTSearch(p => ({ ...p, [district.id]: e.target.value }))}
-                                    className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-white" />
-                                  <span className="text-xs text-gray-400 shrink-0">{activeTalukas.length} sel.</span>
+                                    className="flex-1 border border-border-light rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-success bg-surface" />
+                                  <span className="text-xs text-text-secondary shrink-0">{activeTalukas.length} sel.</span>
                                 </div>
                                 {talukas
                                   .filter(t => t.name.toLowerCase().includes((tSearch[district.id] ?? '').toLowerCase()))
@@ -423,7 +423,7 @@ export default function TerritoryCanvasPage() {
                                             className="w-3.5 h-3.5 rounded accent-purple-600 cursor-pointer shrink-0" />
                                           {/* Taluka name + expand button next to name */}
                                           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                                            <span className={`text-sm truncate ${isTalSelected ? 'text-gray-800' : 'text-gray-600'}`}>{taluka.name}</span>
+                                            <span className={`text-sm truncate ${isTalSelected ? 'text-text-primary' : 'text-text-secondary'}`}>{taluka.name}</span>
                                             {isTalSelected && villages.length > 0 && (
                                               <button
                                                 onClick={() => setExpandedTalukas(prev => { const s = new Set(prev); isTalExpanded ? s.delete(taluka.id) : s.add(taluka.id); return s })}
@@ -443,15 +443,15 @@ export default function TerritoryCanvasPage() {
 
                                         {/* Villages */}
                                         {isTalSelected && isTalExpanded && (
-                                          <div className="border-t border-gray-50">
-                                            <div className="flex items-center gap-2 px-12 py-2 border-b border-gray-100">
+                                          <div className="border-t border-border-light">
+                                            <div className="flex items-center gap-2 px-12 py-2 border-b border-border-light">
                                               <input type="checkbox" checked={allVillagesSelected(taluka.id)}
                                                 onChange={() => toggleAllVillages(taluka.id)}
                                                 className="w-3.5 h-3.5 rounded accent-purple-600" title="Select all villages" />
                                               <input type="text" placeholder="Search villages…" value={vSearch[taluka.id] ?? ''}
                                                 onChange={e => setVSearch(p => ({ ...p, [taluka.id]: e.target.value }))}
-                                                className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white" />
-                                              <span className="text-xs text-gray-400 shrink-0">{activeVillages.length} sel.</span>
+                                                className="flex-1 border border-border-light rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-surface" />
+                                              <span className="text-xs text-text-secondary shrink-0">{activeVillages.length} sel.</span>
                                             </div>
                                             <div className="grid grid-cols-2 gap-1 px-12 py-2">
                                               {villages
@@ -460,10 +460,10 @@ export default function TerritoryCanvasPage() {
                                                   <label key={village.id} className="flex items-center gap-2 cursor-pointer py-0.5">
                                                     <input type="checkbox" checked={villageIds.has(village.id)} onChange={() => handleVillageToggle(village.id)}
                                                       className="w-3.5 h-3.5 rounded accent-orange-500" />
-                                                    <span className="text-xs text-gray-700">{village.name}</span>
+                                                    <span className="text-xs text-text-secondary">{village.name}</span>
                                                   </label>
                                                 ))}
-                                              {villages.length === 0 && <span className="text-xs text-gray-400 col-span-2 py-2">No villages found</span>}
+                                              {villages.length === 0 && <span className="text-xs text-text-muted col-span-2 py-2">No villages found</span>}
                                             </div>
                                           </div>
                                         )}
@@ -482,14 +482,14 @@ export default function TerritoryCanvasPage() {
           )
         })}
         {filteredStates.length === 0 && (
-          <div className="text-center py-8 text-gray-400">No states match your search.</div>
+          <div className="text-center py-8 text-text-muted">No states match your search.</div>
         )}
       </div>
 
       {/* Bottom save button */}
       <div className="mt-6 flex justify-end">
         <button type="button" onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-3 rounded-xl disabled:opacity-50 transition">
+          className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm font-medium px-6 py-3 rounded-xl disabled:opacity-50 transition">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
           {saving ? 'Saving…' : 'Save Territory'}
         </button>
@@ -498,32 +498,32 @@ export default function TerritoryCanvasPage() {
       {/* ── Success Dialog ── */}
       {showSuccess && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
+          <div className="absolute inset-0 bg-(--backdrop)" />
+          <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
             {/* Check icon */}
-            <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+            <div className="w-16 h-16 bg-success-bg rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
               </svg>
             </div>
 
-            <h3 className="text-lg font-medium text-gray-900 mb-1">Territory Saved</h3>
-            <p className="text-sm text-gray-500 mb-1">
-              Territory for <span className="font-medium text-gray-700">{user?.name}</span> has been updated successfully.
+            <h3 className="text-lg font-medium text-text-primary mb-1">Territory Saved</h3>
+            <p className="text-sm text-text-muted mb-1">
+              Territory for <span className="font-medium text-text-secondary">{user?.name}</span> has been updated successfully.
             </p>
-            <p className="text-xs text-gray-400 mb-6">
+            <p className="text-xs text-text-muted mb-6">
               {savedSummary.states} state{savedSummary.states !== 1 ? 's' : ''} · {savedSummary.districts} district{savedSummary.districts !== 1 ? 's' : ''} · {savedSummary.talukas} taluka{savedSummary.talukas !== 1 ? 's' : ''} · {savedSummary.villages} village{savedSummary.villages !== 1 ? 's' : ''}
             </p>
 
             <div className="flex gap-3">
               <button
                 onClick={() => router.push('/masters/territory-mapping')}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
+                className="flex-1 py-2.5 border border-border-light rounded-xl text-sm font-medium text-text-secondary hover:bg-surface-sunken transition">
                 ← Go Back
               </button>
               <button
                 onClick={() => setShowSuccess(false)}
-                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition">
+                className="flex-1 py-2.5 bg-primary hover:bg-primary-hover text-primary-foreground rounded-xl text-sm font-medium transition">
                 Keep Editing
               </button>
             </div>
