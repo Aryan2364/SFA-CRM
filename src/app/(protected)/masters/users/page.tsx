@@ -24,11 +24,11 @@ const ACTION_LABELS: Record<string, string> = {
   name_changed: 'Name changed',
 }
 const ACTION_COLORS: Record<string, string> = {
-  created: 'bg-green-100 text-green-700',
-  deactivated: 'bg-red-100 text-red-700',
-  reactivated: 'bg-emerald-100 text-emerald-700',
-  role_changed: 'bg-blue-100 text-blue-700',
-  name_changed: 'bg-gray-100 text-gray-700',
+  created: 'bg-success-bg text-success',
+  deactivated: 'bg-danger-bg text-danger',
+  reactivated: 'bg-success-bg text-success',
+  role_changed: 'bg-primary-subtle text-primary',
+  name_changed: 'bg-surface-control text-text-secondary',
 }
 
 const COLS: Column[] = [
@@ -267,7 +267,7 @@ export default function UsersPage() {
 
   const licenseBadge = license?.limit != null ? (
     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${
-      atLimit ? 'bg-red-50 text-red-700 border-red-200' : 'bg-gray-100 text-gray-600 border-gray-200'
+      atLimit ? 'bg-danger-bg text-danger border-danger-border' : 'bg-surface-control text-text-secondary border-border-light'
     }`}>
       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -282,7 +282,7 @@ export default function UsersPage() {
       {isAdmin && (
         <button
           onClick={openAuditLog}
-          className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition"
+          className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border border-border-light bg-surface text-text-secondary hover:bg-surface-sunken transition"
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
@@ -305,19 +305,19 @@ export default function UsersPage() {
 
       {/* License limit error popup */}
       {limitError && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
+          <div className="bg-surface rounded-2xl shadow-xl p-6 max-w-sm w-full">
             <div className="flex items-start gap-3 mb-4">
-              <div className="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <div className="flex-shrink-0 w-10 h-10 bg-danger-bg rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
               </div>
               <div>
-                <h3 className="font-medium text-gray-900 mb-1">User Limit Reached</h3>
-                <p className="text-sm text-gray-600">
+                <h3 className="font-medium text-text-primary mb-1">User Limit Reached</h3>
+                <p className="text-sm text-text-secondary">
                   Active user limit reached ({license?.used}/{license?.limit}). To add more users, please contact{' '}
-                  <span className="font-medium text-gray-900">My Prosys Support team</span> to upgrade your plan.
+                  <span className="font-medium text-text-primary">My Prosys Support team</span> to upgrade your plan.
                 </p>
               </div>
             </div>
@@ -329,33 +329,33 @@ export default function UsersPage() {
       {/* Add / Edit Modal */}
       <Modal title={editing ? 'Edit User' : 'Add User'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
         {formError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 -mt-2">{formError}</div>
+          <div className="bg-danger-bg border border-danger-border text-danger text-sm rounded-lg px-4 py-3 -mt-2">{formError}</div>
         )}
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label htmlFor="user-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-500">*</span></label>
-            <input id="user-name" name="name" type="text" value={form.name} onChange={e => setF('name')(e.target.value)} placeholder="Full name" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <label htmlFor="user-name" className="block text-sm font-medium text-text-secondary mb-1">Full Name <span className="text-danger">*</span></label>
+            <input id="user-name" name="name" type="text" value={form.name} onChange={e => setF('name')(e.target.value)} placeholder="Full name" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
           <div>
-            <label htmlFor="user-email" className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
+            <label htmlFor="user-email" className="block text-sm font-medium text-text-secondary mb-1">Email <span className="text-danger">*</span></label>
             <input id="user-email" name="email" type="email" value={form.email} onChange={e => { setF('email')(e.target.value); setEmailError('') }} placeholder="email@example.com"
-              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${emailError ? 'border-red-400' : 'border-gray-300'}`} />
-            {emailError && <p className="text-xs text-red-500 mt-1">{emailError}</p>}
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring ${emailError ? 'border-danger-border' : 'border-border'}`} />
+            {emailError && <p className="text-xs text-danger mt-1">{emailError}</p>}
           </div>
           <div>
-            <label htmlFor="user-contact" className="block text-sm font-medium text-gray-700 mb-1">Contact <span className="text-red-500">*</span></label>
+            <label htmlFor="user-contact" className="block text-sm font-medium text-text-secondary mb-1">Contact <span className="text-danger">*</span></label>
             <input id="user-contact" name="contact" type="tel" value={form.contact}
               onChange={e => setF('contact')(e.target.value.replace(/\D/g, '').slice(0, 10))}
               placeholder="10-digit mobile" maxLength={10}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
           <div>
-            <label htmlFor="user-password" className="block text-sm font-medium text-gray-700 mb-1">
-              Password {editing ? <span className="text-gray-400 font-normal">(leave blank to keep current)</span> : <span className="text-red-500">*</span>}
+            <label htmlFor="user-password" className="block text-sm font-medium text-text-secondary mb-1">
+              Password {editing ? <span className="text-text-muted font-normal">(leave blank to keep current)</span> : <span className="text-danger">*</span>}
             </label>
             <div className="relative">
-              <input id="user-password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={e => setF('password')(e.target.value)} placeholder={editing ? 'Enter new password to change' : 'Set login password'} className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition" tabIndex={-1}>
+              <input id="user-password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={e => setF('password')(e.target.value)} placeholder={editing ? 'Enter new password to change' : 'Set login password'} className="w-full border border-border rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+              <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition" tabIndex={-1}>
                 {showPassword ? (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
                 ) : (
@@ -365,25 +365,25 @@ export default function UsersPage() {
             </div>
           </div>
           <div>
-            <p className="block text-sm font-medium text-gray-700 mb-1">Department</p>
+            <p className="block text-sm font-medium text-text-secondary mb-1">Department</p>
             <SearchableSelect value={form.department_id} onChange={v => setForm(f => ({ ...f, department_id: v, designation_id: '' }))} options={depts.map(d => ({ value: d.id, label: d.name }))} placeholder="Select dept…" />
           </div>
           <div>
-            <p className="block text-sm font-medium text-gray-700 mb-1">Designation</p>
+            <p className="block text-sm font-medium text-text-secondary mb-1">Designation</p>
             <SearchableSelect value={form.designation_id} onChange={setF('designation_id')} options={allDesigs.map(d => ({ value: d.id, label: d.name }))} placeholder="Select desig…" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Role <span className="text-red-500">*</span></label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Role <span className="text-danger">*</span></label>
             <SearchableSelect
               value={form.role_id}
               onChange={setF('role_id')}
               options={[{ value: 'Administrator', label: 'Administrator' }, ...roles.map(r => ({ value: r.id, label: r.name }))]}
               placeholder="Select role…"
             />
-            {roles.length === 0 && <p className="text-xs text-amber-600 mt-1">No custom roles yet. Create them in Settings → Access Control → Roles &amp; Permissions.</p>}
+            {roles.length === 0 && <p className="text-xs text-warning mt-1">No custom roles yet. Create them in Settings → Access Control → Roles &amp; Permissions.</p>}
           </div>
           <div className="col-span-2">
-            <p className="block text-sm font-medium text-gray-700 mb-1">Manager</p>
+            <p className="block text-sm font-medium text-text-secondary mb-1">Manager</p>
             <SearchableSelect value={form.manager_user_id} onChange={setF('manager_user_id')} options={managerCandidates.map(u => ({ value: u.id, label: u.name }))} placeholder="Select manager…" />
           </div>
         </div>
@@ -391,25 +391,25 @@ export default function UsersPage() {
 
       {/* Deactivation Warning Modal */}
       {deactivateTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
+          <div className="bg-surface rounded-2xl shadow-xl p-6 max-w-md w-full">
             <div className="flex items-start gap-3 mb-5">
-              <div className="flex-shrink-0 w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <div className="flex-shrink-0 w-10 h-10 bg-warning-bg rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
               </div>
               <div>
-                <h3 className="font-medium text-gray-900">Deactivate {String(deactivateTarget.name)}?</h3>
-                <p className="text-sm text-gray-500 mt-0.5">This user will immediately lose login access. Their data stays intact.</p>
+                <h3 className="font-medium text-text-primary">Deactivate {String(deactivateTarget.name)}?</h3>
+                <p className="text-sm text-text-muted mt-0.5">This user will immediately lose login access. Their data stays intact.</p>
               </div>
             </div>
 
             {deactivateLoading ? (
-              <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-500 text-center">Loading linked records…</div>
+              <div className="bg-surface-sunken rounded-xl p-4 text-sm text-text-muted text-center">Loading linked records…</div>
             ) : deactivateSummary ? (
-              <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 mb-5">
-                <p className="text-xs font-normal text-amber-800 uppercase tracking-wide mb-3">Linked Records</p>
+              <div className="bg-warning-bg border border-warning-border rounded-xl p-4 mb-5">
+                <p className="text-xs font-normal text-warning uppercase tracking-wide mb-3">Linked Records</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { label: 'Direct reports', value: deactivateSummary.direct_reports },
@@ -417,20 +417,20 @@ export default function UsersPage() {
                     { label: 'Pending plans', value: deactivateSummary.pending_plans },
                     { label: 'Open orders', value: deactivateSummary.open_orders },
                   ].map(({ label, value }) => (
-                    <div key={label} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-100">
-                      <span className="text-xs text-gray-600">{label}</span>
-                      <span className={`text-sm font-medium ${value > 0 ? 'text-amber-700' : 'text-gray-400'}`}>{value}</span>
+                    <div key={label} className="flex items-center justify-between bg-surface rounded-lg px-3 py-2 border border-warning-border">
+                      <span className="text-xs text-text-secondary">{label}</span>
+                      <span className={`text-sm font-medium ${value > 0 ? 'text-warning' : 'text-text-secondary'}`}>{value}</span>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-amber-700 mt-3">Records remain accessible for Admin review and redistribution.</p>
+                <p className="text-xs text-warning mt-3">Records remain accessible for Admin review and redistribution.</p>
               </div>
             ) : null}
 
             <div className="flex gap-3">
               <button
                 onClick={() => { setDeactivateTarget(null); setDeactivateSummary(null) }}
-                className="flex-1 border border-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
+                className="flex-1 border border-border-light text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition"
               >
                 Cancel
               </button>
@@ -448,27 +448,27 @@ export default function UsersPage() {
 
       {/* Reactivation Confirmation Modal */}
       {reactivateTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
+          <div className="bg-surface rounded-2xl shadow-xl p-6 max-w-md w-full">
             <div className="flex items-start gap-3 mb-5">
-              <div className="flex-shrink-0 w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <div className="flex-shrink-0 w-10 h-10 bg-success-bg rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
               <div>
-                <h3 className="font-medium text-gray-900">Reactivate {String(reactivateTarget.name)}?</h3>
-                <p className="text-sm text-gray-500 mt-0.5">Review and confirm the user&apos;s role and manager before reactivating.</p>
+                <h3 className="font-medium text-text-primary">Reactivate {String(reactivateTarget.name)}?</h3>
+                <p className="text-sm text-text-muted mt-0.5">Review and confirm the user&apos;s role and manager before reactivating.</p>
               </div>
             </div>
 
             {reactivateError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">{reactivateError}</div>
+              <div className="bg-danger-bg border border-danger-border text-danger text-sm rounded-lg px-4 py-3 mb-4">{reactivateError}</div>
             )}
 
             <div className="space-y-3 mb-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Role</label>
                 <SearchableSelect
                   value={reactivateForm.role_id}
                   onChange={v => setReactivateForm(f => ({ ...f, role_id: v }))}
@@ -477,7 +477,7 @@ export default function UsersPage() {
                 />
               </div>
               <div>
-                <p className="block text-sm font-medium text-gray-700 mb-1">Reporting Manager</p>
+                <p className="block text-sm font-medium text-text-secondary mb-1">Reporting Manager</p>
                 <SearchableSelect
                   value={reactivateForm.manager_user_id}
                   onChange={v => setReactivateForm(f => ({ ...f, manager_user_id: v }))}
@@ -490,7 +490,7 @@ export default function UsersPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setReactivateTarget(null)}
-                className="flex-1 border border-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
+                className="flex-1 border border-border-light text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition"
               >
                 Cancel
               </button>
@@ -508,11 +508,11 @@ export default function UsersPage() {
 
       {/* Audit Log Modal */}
       {showAudit && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h3 className="font-medium text-gray-900">User Account Audit Log</h3>
-              <button onClick={() => setShowAudit(false)} className="text-gray-400 hover:text-gray-600 transition">
+        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
+              <h3 className="font-medium text-text-primary">User Account Audit Log</h3>
+              <button onClick={() => setShowAudit(false)} className="text-text-muted hover:text-text-secondary transition">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -520,27 +520,27 @@ export default function UsersPage() {
             </div>
             <div className="overflow-y-auto flex-1 px-6 py-4">
               {auditLoading ? (
-                <p className="text-sm text-gray-400 text-center py-8">Loading…</p>
+                <p className="text-sm text-text-muted text-center py-8">Loading…</p>
               ) : auditLogs.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-8">No audit entries yet.</p>
+                <p className="text-sm text-text-muted text-center py-8">No audit entries yet.</p>
               ) : (
                 <div className="space-y-2">
                   {auditLogs.map(entry => (
-                    <div key={entry.id} className="flex items-start gap-3 py-2.5 border-b border-gray-50 last:border-0">
-                      <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap mt-0.5 ${ACTION_COLORS[entry.action] ?? 'bg-gray-100 text-gray-600'}`}>
+                    <div key={entry.id} className="flex items-start gap-3 py-2.5 border-b border-border-light last:border-0">
+                      <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap mt-0.5 ${ACTION_COLORS[entry.action] ?? 'bg-surface-control text-text-secondary'}`}>
                         {ACTION_LABELS[entry.action] ?? entry.action}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-800 font-medium">{entry.target_user_name}</p>
+                        <p className="text-sm text-text-primary font-medium">{entry.target_user_name}</p>
                         {entry.action === 'role_changed' && Boolean(entry.metadata.from) && (
-                          <p className="text-xs text-gray-500">{String(entry.metadata.from)} → {String(entry.metadata.to)}</p>
+                          <p className="text-xs text-text-muted">{String(entry.metadata.from)} → {String(entry.metadata.to)}</p>
                         )}
                         {entry.action === 'name_changed' && Boolean(entry.metadata.from) && (
-                          <p className="text-xs text-gray-500">{String(entry.metadata.from)} → {String(entry.metadata.to)}</p>
+                          <p className="text-xs text-text-muted">{String(entry.metadata.from)} → {String(entry.metadata.to)}</p>
                         )}
-                        <p className="text-xs text-gray-400 mt-0.5">by {entry.performed_by_name}</p>
+                        <p className="text-xs text-text-muted mt-0.5">by {entry.performed_by_name}</p>
                       </div>
-                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                      <span className="text-xs text-text-muted whitespace-nowrap">
                         {new Date(entry.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
