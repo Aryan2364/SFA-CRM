@@ -373,6 +373,15 @@ SITES[CALPICK] = dict(
         #     daily-activity:142 / review:102 because blue maps coherently in
         #     BOTH states; emerald does not -- success-bg #dcfce7 is a 4px dot
         #     at 1.10:1 on white.
+        #
+        #     RULED 17 Sep 2026 (plan section 16.2, and recorded in 11.6 G6's own
+        #     entry): THESE TWO LINES LIFT TOGETHER OR NOT AT ALL. :130 is
+        #     deferred BY G6; :133 falls under G6's closing-note exemption and
+        #     would otherwise read as converting normally, so without this note
+        #     the two halves of one indicator sit in two lists with no link and
+        #     :133 is the one that gets missed. Converting :133 alone splits the
+        #     state pair, which the line-level rule forbids. Whoever lifts G6
+        #     converts both in the same change, or leaves both.
         130, 133,
         #   :144 / :148 -- the 8px legend swatches, "Has activity" against
         #     "No activity". A two-item legend where the swatch IS the signal:
