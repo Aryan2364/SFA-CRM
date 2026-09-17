@@ -91,3 +91,147 @@ is retired and I will not run it.**
   hover residue is counted separately and is not part of A–G.
   **I do not treat this as an arithmetic gate** — §11.8 verifies an empty
   remainder, not a matching total. The figure is a sanity check on my own reading.
+
+---
+
+## P1 — end-of-phase pass, and close
+
+*(Rows 37–42. This section and the two below were lost once when another
+session's tree-wide `checkout`/`restore` reverted my uncommitted edits in the
+shared working tree — the same collision class phase 2 avoided by holding its
+artefacts out of the repo. Restored here.)*
+
+| # | Reported / observed | Instructed | Source |
+|---|---|---|---|
+| 37 | P1 went idle having finished all ten and sent no report | Demanded the completion report; an idle session and a dead session look identical from outside | standing rule on silence |
+| 38 | End-of-phase pass at `88cd25d`: protected sites, scope bleed and screens all **pass** | Accepted | my pre-phase snapshot, not the report |
+| 39 | **Five semantic defects** — categorical sets flattened onto status tokens | Revert all five, declare, route; do **not** decide what they become | §11.5; §11.6 C; §11.6 G6 |
+| 40 | Revert of defect 1 **incomplete** — `companies/[id]:285` still converted, leaving a legend not matching its own bar | Revert `:285`; verify literals as blocks, not by sampling named lines | diffed the whole literal against `main` |
+| 41 | Root cause, found by P2 in P1's data: `sites.py` read "3 categories fixed in code"; the code declares five | One wrong number produced both the conversion defect and the incomplete revert | P2, verified by me |
+| 42 | P1 offered to hand-declare block ranges for the other nine files | **Yes, arm it — but derive the extents from the source, never type a range.** A typed range is the same kind of number as "3 categories" | `AGENTS.md` §6.4 — "a verification surface configured per item will be incomplete, and its incompleteness looks identical to success" |
+
+**P1 closes at residue 271** once the derived block check is armed and proved.
+§11.9's 91 stays measured-once by P1 and **not** jointly confirmed.
+
+## P2 — held at the pre-flight
+
+| # | Reported / observed | Instructed | Source |
+|---|---|---|---|
+| 43 | Pre-flight complete: 957 = 752 + 22 + 183 on 82 lines, nothing unplaced, all four shapes recur | Cleared the classification; **not** cleared to convert | verified against my snapshot of the 41 |
+| 44 | P2 found 2 §11.9 lines I missed and correctly rejected 1 of mine | Conceded; §11.9 = 14 | `points:84`, `CrudPage:150`, `SearchableSelect:70` |
+| 45 | Four headline items: Sidebar, StatusBadge, Header's reordered map, §11.5's masters gap | Decided Sidebar (all 20 defer) and Header (untouched); routed the other two | §11.4 preamble; §6 phase 5; §12.1; §11.5 "not to be reordered" |
+| 46 | P2 asked where its artefacts land | **Hold.** Writing into P1's tree puts P2 content on P1's branch | ordering is mine to set |
+| 47 | **The collision is live** — `open-for-author` and `sites.py` both modified-uncommitted while P2 waited | Verified `git status` myself; all five modifications were P1's, P2's zero | the tree |
+| 48 | P2 corrected three of its own contrast figures unprompted | Verified all five independently — exact agreement. Credited | WCAG relative luminance |
+| 49 | P2 asked whether to drop its "not verified by this session" caveat on `:285` | **Keep it.** A claim it cannot check is not one it should assert as checked | its own discipline |
+
+**P2 is blocked only on the worktree.** Everything possible without one is done.
+
+## Further corrections to my own findings
+
+- **Contrast — I asserted 1.04:1 and passed it on.** `surface-control` `#f5f5f5`
+  on white is **1.09:1**; 1.04:1 is `surface-control` on `surface-sunken`. P2
+  caught its own figure first and told me; I recomputed all five and corrected
+  both sessions. No disposition changed.
+- **G1 — I said 20, it is 22.** Line-level protection strands the
+  `text-gray-500` on `:300` and `:383`. P1 recorded 22 and refused to assert it
+  unmeasured; I measured it and P1 was right.
+- **Line endings — my measurement was invalid and my conclusion was right by
+  accident.** I reported "HEAD, index and worktree all carry 764 CRs" from
+  `grep -c $'\r'`. `$'...'` does not expand in this shell, so the pattern was
+  empty, matched every line, and returned the file's **line count**. Byte-level
+  via `git cat-file blob`: every blob in the repo is LF-only — CR=0 across all
+  41 of P2's files. The real mechanism is P2's: `tokens.py` reads with universal
+  newlines and writes `newline=''`, so CRLF-on-disk becomes LF; git never sees
+  it because the blobs are already LF, and the line *count* never moves, so
+  §11.8 cannot be breached by it. **Nothing is to be "fixed"** — normalising
+  line endings in a colour phase is the structure-moved change §11.8 forbids.
+  P2 caught this from its own instance of the same mistake, one command earlier.
+
+**Method note, for both sessions.** `$'...'` quoting is unreliable here, and a
+grep pattern that silently becomes empty matches everything and returns a
+believable number. Count bytes in Python against `git cat-file blob` — not
+`git show rev:path`, which applies working-tree conversion and would have hidden
+this. Any check whose failure mode is *a plausible wrong answer* must be proved
+against a known input before its output is trusted. Same argument as §6.4's on
+the state matrix, and as my own instruction to derive block extents rather than
+type them.
+
+## The lesson worth keeping — P1, after phase 1 closed
+
+P1 disclosed, unprompted and after I had already closed the phase, that an edit
+it reported as done had silently failed (a `str.replace` with no assert) **and**
+that the two controls it proved it with had both passed for a reason unrelated
+to the change — `io.open(encoding=…)` uses universal newlines and collapses CRLF
+on read, so a CRLF file passed either way. Nothing false reached the tree; the
+commit staged nothing and never landed. Fixed properly in `8864dfc`, which
+stages `verify.py` and nothing else.
+
+Its own statement of the lesson is better than "prove your checks", which it had
+already been told and still got wrong:
+
+> **A control has to distinguish the thing you changed from the thing that was
+> already true.**
+
+Breaking `:285` and `review:75` were real controls — the check demonstrably
+passed before and failed after. A CRLF file passing was not a control at all,
+because it passed either way.
+
+The same test applies to P2's dry run, and I told it so: `Unmapped` raising on
+nothing proves the registry is **complete**, not **correct**. A row applied
+where it does not belong raises nothing, converts quietly, and passes §11.8
+because the occurrence is gone and the line count held. Every phase-1 defect was
+that shape and not one would have raised.
+
+**P1 also identified itself as the cause of the wipe of this file** — it ran
+`git checkout -- running-log-2026-09-17.md` twice, taking the churn for its own.
+It has run no tree-wide revert since being asked, uses explicit paths, and has
+left this file alone.
+
+**Phase 1 final: residue 271, 21 commits, `1,735 → 271`, line-for-line, every
+deferral declared.** `plan-2026-09-16-1522.md` untouched since `1498a67` — every
+amendment since went to open-for-author.
+
+## Both phases parked — final state, 17 Sep 2026
+
+**P1 — CLOSED.** `screens/phase-1-ten-files`, head `8864dfc`, 21 commits.
+1,735 → **271**, line-for-line, every deferral declared. All five review checks
+pass. `plan-2026-09-16-1522.md` untouched since `1498a67`.
+
+**P2 — HELD at a proved conversion**, not a planned one. Nothing in the repo, no
+branch, nothing staged. Validated from scratch:
+
+| | |
+|---|---|
+| registry | 41/41 files · 199 deferred on 94 lines · 6 manual · 752 convert · 957 total · no errors |
+| dry run | registry completeness PASS · §11.5's six by hand PASS · §11.8 all three checks, all 41 PASS · residue 199 = declared 199 |
+| literal blocks | 23 literals · 65 palette lines · **0 mixed** · 0 unacknowledged · input asserted at 957 classes before any verdict |
+
+Artefacts (1,550 lines, all scratchpad): `sites-phase2.py`,
+`open-for-author-PHASE-2-APPEND.md` (11 items), `dryrun.py`, `blocks.py`.
+
+### What neither check can see — both sessions reached this independently
+
+> §11.8 proves the residue is declared and the structure held. The dry run proves
+> the registry is complete. **Both are blind to a row applied where it does not
+> belong** — the occurrence is gone and the line count is unchanged. All five of
+> phase 1's semantic defects passed §11.8 cleanly.
+
+The only thing that caught the semantic half was call sites being read, twice,
+from two directions. A green dry run is evidence about the engine, not about the
+mapping. **Zero mixed literals** says every set is internally consistent; it says
+nothing about whether any is correctly disposed — `StatusBadge` is uniform
+because all nine entries are deferred, and whether it should be deferred at all
+is still open.
+
+### With the author
+
+1. **Worktree, or merge P1.** Either unblocks P2.
+2. **Sequencing.** P2 and I both prefer one sweep of all 37. The 28 files
+   untouched by the eleven hold 484 occurrences and convert 478 — P2 would start
+   at `masters/import`, not `dealers`, which is in the affected nine.
+3. **Five rulings:** item 3's three sites moving as one; §33.3's tab hover;
+   `StatusBadge`'s map; §11.5's masters gap (30 headline = 22 with a target, 8
+   without); §11.2's mis-bucketing of `points:84` — which is in P2's 41, not
+   P1's ten, so if it reaches P1's branch it is because the exception **list** is
+   wrong, not because the site is P1's.
