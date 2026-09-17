@@ -15,18 +15,18 @@ const COLS: Column[] = [
     const dist = (r.districts as { name: string } | null)?.name
     const talu = (r.talukas as { name: string } | null)?.name
     const vill = (r.villages as { name: string } | null)?.name
-    if (!dist) return <span className="text-gray-400">—</span>
+    if (!dist) return <span className="text-text-muted">—</span>
     return <span>{[`District: ${dist}`, talu && `Taluka: ${talu}`, vill && `Village: ${vill}`].filter(Boolean).join(', ')}</span>
   }},
   { key: 'distributor', label: 'Distributor', render: r => {
     const name = (r.distributors as { name: string } | null)?.name
     if (!name) return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning-bg text-warning border border-warning-border">
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
         Unassigned
       </span>
     )
-    return <span className="text-sm text-gray-700">{name}</span>
+    return <span className="text-sm text-text-secondary">{name}</span>
   }},
 ]
 
@@ -211,16 +211,16 @@ export default function DealersPage() {
       {/* ── Dealer modal ── */}
       <Modal title={editing ? 'Edit Dealer' : 'Add Dealer'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Dealer Business Name <span className="text-red-500">*</span></label>
-          <input type="text" value={form.name} onChange={F('name')} placeholder="Dealer Business name" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label className="block text-sm font-medium text-text-secondary mb-1">Dealer Business Name <span className="text-danger">*</span></label>
+          <input type="text" value={form.name} onChange={F('name')} placeholder="Dealer Business name" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Place <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Place <span className="text-danger">*</span></label>
           <SearchableSelect value={form.place} onChange={handlePlaceChange} options={placeOptions} placeholder="Search by district, taluka or village…" />
         </div>
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="block text-sm font-medium text-gray-700">Distributor</label>
+            <label className="block text-sm font-medium text-text-secondary">Distributor</label>
             <button type="button" onClick={openNewDist} className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
               New Distributor
@@ -229,60 +229,60 @@ export default function DealersPage() {
           <SearchableSelect value={form.distributor_id} onChange={setF('distributor_id')} options={distributors} placeholder="Select distributor…" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-          <input type="tel" value={form.phone} onChange={e => { F('phone')(e); setPhoneError('') }} placeholder="10-digit number" maxLength={10} className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${phoneError ? 'border-red-400' : 'border-gray-300'}`} />
-          {phoneError && <p className="text-xs text-red-500 mt-1">{phoneError}</p>}
+          <label className="block text-sm font-medium text-text-secondary mb-1">Phone Number</label>
+          <input type="tel" value={form.phone} onChange={e => { F('phone')(e); setPhoneError('') }} placeholder="10-digit number" maxLength={10} className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring ${phoneError ? 'border-danger-border' : 'border-border'}`} />
+          {phoneError && <p className="text-xs text-danger mt-1">{phoneError}</p>}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-          <textarea value={form.address} onChange={F('address')} rows={2} placeholder="Address" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          <label className="block text-sm font-medium text-text-secondary mb-1">Address</label>
+          <textarea value={form.address} onChange={F('address')} rows={2} placeholder="Address" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-          <textarea value={form.description} onChange={F('description')} rows={2} placeholder="Description" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          <label className="block text-sm font-medium text-text-secondary mb-1">Description</label>
+          <textarea value={form.description} onChange={F('description')} rows={2} placeholder="Description" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
-            <input type="number" step="0.0000001" value={form.latitude} onChange={F('latitude')} placeholder="-90 to 90" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <label className="block text-sm font-medium text-text-secondary mb-1">Latitude</label>
+            <input type="number" step="0.0000001" value={form.latitude} onChange={F('latitude')} placeholder="-90 to 90" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
-            <input type="number" step="0.0000001" value={form.longitude} onChange={F('longitude')} placeholder="-180 to 180" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <label className="block text-sm font-medium text-text-secondary mb-1">Longitude</label>
+            <input type="number" step="0.0000001" value={form.longitude} onChange={F('longitude')} placeholder="-180 to 180" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
         </div>
 
         {/* ── Nested: New Distributor modal (renders inside dealer modal children, floats above via fixed positioning) ── */}
         <Modal title="New Distributor" isOpen={newDistOpen} onClose={() => setNewDistOpen(false)} onSave={handleNewDistSave} isSaving={newDistSaving} saveLabel="Create & Select" size="lg">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name <span className="text-red-500">*</span></label>
-            <input type="text" value={newDistForm.name} onChange={NDF('name')} placeholder="Distributor Business name" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <label className="block text-sm font-medium text-text-secondary mb-1">Name <span className="text-danger">*</span></label>
+            <input type="text" value={newDistForm.name} onChange={NDF('name')} placeholder="Distributor Business name" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Place</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Place</label>
             <SearchableSelect value={newDistForm.place} onChange={handleNewDistPlaceChange} options={placeOptions} placeholder="Search by district, taluka or village…" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-            <input type="tel" value={newDistForm.phone} onChange={e => { NDF('phone')(e); setNewDistPhoneError('') }} placeholder="10-digit number" maxLength={10} className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${newDistPhoneError ? 'border-red-400' : 'border-gray-300'}`} />
-            {newDistPhoneError && <p className="text-xs text-red-500 mt-1">{newDistPhoneError}</p>}
+            <label className="block text-sm font-medium text-text-secondary mb-1">Phone Number</label>
+            <input type="tel" value={newDistForm.phone} onChange={e => { NDF('phone')(e); setNewDistPhoneError('') }} placeholder="10-digit number" maxLength={10} className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring ${newDistPhoneError ? 'border-danger-border' : 'border-border'}`} />
+            {newDistPhoneError && <p className="text-xs text-danger mt-1">{newDistPhoneError}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-            <textarea value={newDistForm.address} onChange={NDF('address')} rows={2} placeholder="Address" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            <label className="block text-sm font-medium text-text-secondary mb-1">Address</label>
+            <textarea value={newDistForm.address} onChange={NDF('address')} rows={2} placeholder="Address" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-            <textarea value={newDistForm.description} onChange={NDF('description')} rows={2} placeholder="Description" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            <label className="block text-sm font-medium text-text-secondary mb-1">Description</label>
+            <textarea value={newDistForm.description} onChange={NDF('description')} rows={2} placeholder="Description" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
-              <input type="number" step="0.0000001" value={newDistForm.latitude} onChange={NDF('latitude')} placeholder="-90 to 90" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-sm font-medium text-text-secondary mb-1">Latitude</label>
+              <input type="number" step="0.0000001" value={newDistForm.latitude} onChange={NDF('latitude')} placeholder="-90 to 90" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
-              <input type="number" step="0.0000001" value={newDistForm.longitude} onChange={NDF('longitude')} placeholder="-180 to 180" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-sm font-medium text-text-secondary mb-1">Longitude</label>
+              <input type="number" step="0.0000001" value={newDistForm.longitude} onChange={NDF('longitude')} placeholder="-180 to 180" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
             </div>
           </div>
         </Modal>
