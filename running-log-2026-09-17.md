@@ -42,6 +42,20 @@ came from. Read-only: I instruct and verify, I do not write code or commit.
 | 26 | Worker claimed `12d5d73` was "on its own, nothing else in it" | Noted: it also carries `sites.py`, `tokens.py`, `verify.py`. Not asked to split — the claim was the problem, not the commit | verified `--name-only` |
 | 27 | Author changed the pace | Instructed: run all ten straight through, commit per file, no review between; one pass at the end | author |
 
+## P2 — the remaining 41 files
+
+| # | Reported / observed | Instructed | Source |
+|---|---|---|---|
+| 28 | P2 session opened; `screens/phase-2-remaining` does **not exist** and there is **one** worktree, on P1's branch, which P1 is committing to every few minutes | Halted it before any checkout; asked for `pwd`, worktree list, branch, dirty state | mechanical collision — two sessions cannot share one tree |
+| 29 | P2 confirmed: shared tree, never checked out, nothing staged or committed, reflog carries no entry of its own | Verified against the tree and accepted. It spotted the shared tree itself before touching it | `git worktree list`, `git reflog` |
+| 30 | Worktree needed before conversion | Cleared P2 to run the **whole pre-flight read-only** — `git show main:<path>` into its own scratchpad, no branch, no checkout. Neither of us creates a worktree; that is an action | pre-flight is analysis; P2 is stopped before conversion anyway |
+| 31 | Pre-phase snapshot of the 41 files taken from `main` — line-level, 998 records, 41 blob hashes | — | same instrument that reproduced §12's per-file table |
+| 32 | Scope measured: **41 files, 957 occurrences**, matching §12's 957 exactly | Told P2 not to treat §12's "42 files" as a target — one of the 42 holds no occurrence | §12 |
+| 33 | P2's 41 have never been classified | Pre-flight spec issued: every occurrence either mapped by a named row or a candidate deferral, checked against the four shapes P1 produced | author's brief; §11.6 G6, §6.4, ternary rule, §11.5 |
+| 34 | P2 files contain sites the documents already settle | Handed over as settled, not to be re-derived: §11.6 B ×7, D (RemarksPanel:41), F (StatusBadge:8); §11.5's conversations and masters cards; ToastContext:39 as explicitly not-a-backdrop; §11.2's 6 exception sites | §11.6, §11.5, §11.1 addendum, §11.2 |
+| 35 | §11.9 hover lines in P2's files | Measured 13 across 9 files; told P2 to derive independently and report before seeing my detail | corrected detector |
+| 36 | P2's 41 include nine shared components and ToastContext | Weight reading toward them over per-file counts — a wrong token there renders on every screen. Phase 2 does **not** consolidate components; that is a different job | §14 |
+
 ## Corrections to my own findings
 
 - **Encoding damage — withdrawn.** I reported a mangled `·` at
