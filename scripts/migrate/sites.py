@@ -111,7 +111,12 @@ SITES[CO] = dict(
     protect=[
         # G6 progress-bar fill (magnitude, not status -- section 21's ramp)
         (251, 'bg-emerald-400'),
-        # G6 legend dots, 3 categories fixed in code, two copies of the same map
+        # G6. THE SET HAS FIVE MEMBERS, NOT THREE. This comment read "3
+        # categories fixed in code" and the undercount reached the registry as
+        # well as the row -- which is why two of five converted, and then why
+        # one of the four reverts was missed. The bar is :269-:273 and the
+        # legend :282-:286; the two dark-shade members are on the protect_lines
+        # below because their raw values had no row-based protection.
         (269, 'bg-emerald-400'), (270, 'bg-amber-400'), (271, 'bg-blue-400'),
         (282, 'bg-emerald-400'), (283, 'bg-amber-400'), (284, 'bg-blue-400'),
     ],
@@ -130,14 +135,21 @@ SITES[CO] = dict(
         # deferred by phase 2 -- 11.6 C's "the two maps must not diverge"
         # applies across phases as well as within one.
         46, 47, 48, 49, 50,
-        # 272-273 and 286-287: the two missed segments of the G6 usage bar
-        272, 273, 286, 287,
+        # 272-273 and 285-286: the dark-shade members of the G6 usage-bar set,
+        # in BOTH literals. Four lines, not three -- :285 was missed on the
+        # first revert, leaving the bar's dormant_enabled at bg-gray-300 while
+        # its own legend key was bg-surface-control, a legend not matching the
+        # thing it labels. Verify this set as a block, never by sampling lines.
+        272, 273, 285, 286,
         683, 722,
         # Section 11.9. :553 warning fill and :672 a text pair; :585 is the
         # 11.2-created collision -- the exception promotes text-gray-500 to
         # secondary, where hover:text-gray-700 already lands.
         553, 585, 672,
     ],
+    # Sets that must be byte-identical to the pre-phase blob AS A BLOCK.
+    # Sampling named lines let a one-line miss through twice.
+    blocks=[(45, 51), (268, 274), (281, 288)],
     exceptions=[319, 367, 384, 566, 576, 585, 658, 669],
     # :742 and :756 are filled DANGER buttons -- 11.4's closing rule resolves
     # them and their text-white converts with them. :553 is warning and stays.

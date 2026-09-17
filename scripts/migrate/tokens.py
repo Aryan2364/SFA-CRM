@@ -116,7 +116,7 @@ class Unmapped(Exception):
 
 
 def migrate(path, protect=(), protect_lines=(), exceptions=(), white=(),
-            fill=(), hover_fill=(), manual=(), dry_run=False):
+            fill=(), hover_fill=(), manual=(), blocks=(), dry_run=False):
     """
     protect        {(line, base)}  one site left as-is  -- section 11.6, occurrence-level
     protect_lines  {line}          the WHOLE line left as-is -- section 11.6, line-level

@@ -39,6 +39,13 @@ for n in sorted(set(n for n, _ in cfg.get('protect', ()))):
         if b not in new[n - 1]:
             fails.append('protected site %d %s is gone' % (n, b))
 
+# 1b. declared sets byte-identical as BLOCKS, not sampled by line
+for lo, hi in cfg.get('blocks', ()):
+    if old[lo - 1:hi] != new[lo - 1:hi]:
+        for n in range(lo, hi + 1):
+            if old[n - 1] != new[n - 1]:
+                fails.append('block %d-%d differs at line %d' % (lo, hi, n))
+
 # 2. remainder empty
 declared = set()
 for n, b in cfg.get('protect', ()):

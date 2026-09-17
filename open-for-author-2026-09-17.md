@@ -366,21 +366,45 @@ did not cross-check. They converted to `surface-control` `#f5f5f5` and
 segments had no visible presence and two legend dots went blank. **Placed in G6
 with their three siblings**, not routed here.
 
-**But G6 itself needs re-deriving, and that IS an amendment.** Phase 2 reached
-this from its own 41 files and put it best: **G6's principle is sound and its
-derivation is incomplete.** G6 was reasoned from §11.4's *background* row, so it
-caught the status-coloured shapes and only those. The identical failure arrives
-through two other rows:
+**But G6 itself needs re-deriving, and that IS an amendment.** G6 was reasoned
+from §11.4's *background* row, so it caught the status-coloured shapes and only
+those. The identical failure arrives through §11.1's neutral row and §11.4's
+badge row as well. Measured on white, before → after:
 
-| Row | Conversion | Contrast on its ground |
+| Row | Conversion | Contrast on white |
 |---|---|---|
-| §11.1 neutral | `bg-gray-300` → `bg-surface-control` | **1.04:1** |
-| §11.4 badge | `bg-red-300` → `bg-danger-bg` | near-white on white |
+| §11.1 neutral | `bg-gray-300` `#d1d5db` → `bg-surface-control` `#f5f5f5` | **1.47:1 → 1.09:1** |
+| §11.4 badge | `bg-red-300` `#fca5a5` → `bg-danger-bg` `#fee2e2` | **1.90:1 → 1.22:1** |
+| §11.4 background | `bg-emerald-400` → `bg-success-bg` `#dcfce7` | 1.92:1 → **1.10:1** |
 
-That is exactly how the `companies` stacked bar ended up three-raw and
-two-converted, and phase 2 hit the same thing independently on three switch
-tracks in its own files. **G6 needs re-deriving across all three rows, not just
-§11.4's.** Recorded here rather than written into §11.6, which is approved.
+**Rather than re-derive G6 row by row, phase 2's sentence removes the need to:
+WHERE THE SHAPE IS THE SIGNAL, NO PALE TOKEN CARRIES IT, WHICHEVER ROW DELIVERED
+IT.** That is the rule; the rows are just three ways of arriving at it.
+
+Recorded here rather than written into §11.6, which is approved. **Note the
+consequence for anyone re-running the sweep:** G6 is now a 16-occurrence list
+known to be derived from one of three possible rows. A sweep against §11.4 alone
+reproduces the original 14 and concludes the group is complete.
+
+*(An earlier draft of this table quoted 1.04:1 for `surface-control`. That figure
+is `surface-control` on `surface-sunken`, not on white. Corrected after
+independent recomputation with the WCAG relative-luminance formula; no
+disposition changes, since 1.09:1 is no more a signal than 1.04:1 was.)*
+
+### How the miss happened, twice, and the check that stops it
+
+`sites.py`'s note on the `companies` site read **"legend dots, 3 categories fixed
+in code"**. The code declares **five**. The undercount reached the protection
+registry as well as the row — which is why two of five converted, and then why
+the first revert put back three of four and left `:285` behind, leaving the bar's
+`dormant_enabled` at `bg-gray-300` while its own legend key was
+`bg-surface-control`: a legend not matching the thing it labels, which is worse
+than the original defect, where at least the two agreed.
+
+**When a set is the unit, verify the set.** `scripts/migrate/verify.py` now takes
+a `blocks` declaration — line ranges that must be byte-identical to the pre-phase
+blob *as a block* — and both usage-bar literals and `CLS_STYLES` are declared
+under it. Sampling named lines is what let this through twice.
 
 ## Item 7 — two plan counts drifted, and one §11.3 row that must not be applied
 

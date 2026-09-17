@@ -282,7 +282,7 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
                   { key: 'actively_using', color: 'bg-emerald-400' },
                   { key: 'passive',        color: 'bg-amber-400'   },
                   { key: 'low_usage',      color: 'bg-blue-400'    },
-                  { key: 'dormant_enabled',color: 'bg-surface-control'    },
+                  { key: 'dormant_enabled',color: 'bg-gray-300'    },
                   { key: 'not_using',      color: 'bg-red-300'     },
                 ].map(s => (
                   <div key={s.key} className="flex items-center gap-1.5">
