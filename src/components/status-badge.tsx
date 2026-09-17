@@ -2,16 +2,22 @@ import {
   CheckIcon,
   CircleDashedIcon,
   CircleSlashIcon,
+  CircleXIcon,
   FilePenIcon,
   FileTextIcon,
   FlameIcon,
   MessageSquareIcon,
   PhoneIcon,
+  PauseIcon,
+  SendHorizontalIcon,
   SendIcon,
   SnowflakeIcon,
   TargetIcon,
   ThermometerIcon,
   ThumbsUpIcon,
+  UserCheckIcon,
+  UserMinusIcon,
+  UserPenIcon,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -129,22 +135,53 @@ export const ORDER_STATUS: Record<string, StatusSpec> = {
  *
  * The rule at the top of this file is that a word with no honest role
  * is a neutral rather than a guess, and applying it honestly nine times
- * leaves nine neutrals. That is a real loss: the screen previously
- * carried nine distinct colours, and stage and temperature are both
- * ordinal scales that a colour reads faster than a word.
+ * leaves nine neutrals.
+ *
+ * **And section 2.4 does not merely permit that, it prescribes it.** Its
+ * closing line reads: "There is deliberately no blue 'information'
+ * colour. Neutral grey is used for informational content instead." A
+ * pipeline position and a buying temperature ARE informational content —
+ * they tell you where something has got to, not that anything has
+ * succeeded or failed. So neutral here is not a judgement that survived
+ * scrutiny; it is the treatment the section names for exactly this kind
+ * of value. Do not reopen these nine on the grounds that they look flat.
  *
  * **What replaces the colour is the icon.** Section 7.2 rule 1 already
  * requires one on every badge, so each of the nine gets a DISTINCT icon
  * and the value is still tellable at a glance without reading. What is
- * gone is the ordering — six greys do not rank themselves the way six
- * hues did.
+ * missing is an ordinal COLOUR scale to rank them with: the ordering
+ * itself is not lost — `lead_stages.sort_order` is a column on the row,
+ * so the product knows the sequence — the kit simply has nothing to
+ * render a sequence in. Section 2.4 has no information blue, and the
+ * only non-status palette is section 21's, which belongs to charts and
+ * whose whole rule is that a caller never names a colour. Any future
+ * ordinal treatment therefore already has its data source.
  *
- * Section 2.4 is explicit that there is no information blue, and the
- * only non-status palette in the kit is section 21's, which belongs to
- * charts and whose whole rule is that a caller never names a colour. So
- * an ordinal categorical scale is something this kit does not have, and
- * inventing one here is exactly what must not happen in a screen. The
- * report raises it.
+ * ---------------------------------------------------------------------
+ * KNOWN LIMITATION — these nine keys are not a closed set
+ *
+ * Unlike `orders.status`, which is CHECK-constrained to three,
+ * `lead_stages` and `lead_temperatures` are tenant-scoped MASTER TABLES
+ * with a free-text `name` and their own CRUD screens under `/masters/`.
+ * A tenant who renames "Qualified" matches none of the keys below and
+ * falls through to `UNKNOWN_STATUS`. That is not hypothetical:
+ * `business_partners.stage` is `String @default("Existing")`, and
+ * "Existing" is in none of the six stage names here, so the column
+ * DEFAULT already misses.
+ *
+ * It matters because of the ruling above. With colour deliberately
+ * uniform, the icon is the only thing carrying the distinction — and the
+ * icon is precisely what degrades when a tenant edits the master.
+ *
+ * **This is inherited, not introduced.** The code replaced here keyed by
+ * name with the same neutral fall-through
+ * (`STAGE_COLORS[v] ?? 'bg-surface-control text-text-secondary'`), so a
+ * renamed stage rendered a plain grey chip before and renders a grey
+ * badge with a real label now. Behaviour is preserved.
+ *
+ * Do NOT fix it here: every remedy touches either this file's keying
+ * mechanism or the master tables themselves, which is the author's call.
+ * Options are logged in `overnight-queue-2026-09-18.md`.
  */
 export const LEAD_STAGE: Record<string, StatusSpec> = {
   Prospect: {
@@ -272,3 +309,107 @@ export function StatusBadge({
   )
 }
 
+/**
+ * USERS — `users.status`, the two values the user administration screen
+ * writes: an account is Active or it has been deactivated.
+ *
+ * Deactivation is not a failure. Section 15.2 makes it the NORMAL, safe
+ * alternative to deleting a record anything points at — the action the
+ * interface leads with, taken on purpose and reversed on purpose — so
+ * the danger colour the old badge used said something the word does not
+ * mean. Section 2.4's danger is "Overdue, Failed, Rejected, Delete",
+ * and a deactivated account is none of those.
+ */
+export const USER_STATUS: Record<string, StatusSpec> = {
+  Active: {
+    label: 'Active',
+    role: 'success',
+    Icon: UserCheckIcon,
+    match: 'column',
+    reason:
+      'The word appears verbatim in section 2.4’s fourth column, so the role is not a judgement at all: success.',
+  },
+  Inactive: {
+    label: 'Inactive',
+    role: 'neutral',
+    Icon: UserMinusIcon,
+    match: 'meaning',
+    reason:
+      'Absent from section 2.4’s fourth column. It was red before, but section 15.2 makes deactivation the safe, deliberate alternative to deletion rather than a failure, so danger would misstate it — and this file’s own rule is that a word with no honest role is a neutral, not a guess. The icon carries the distinction instead.',
+  },
+}
+
+/**
+ * WEEKLY PLANS — `weekly_plans.status`, a CHECK-constrained set of
+ * SEVEN (`weekly_plans_status_check`): Draft, Submitted, Approved,
+ * Rejected, On Hold, Edited by Manager, Resubmitted. Taken from the
+ * constraint and the routes under `/api/weekly-plans/`, never from the
+ * data — three of the seven are legal and reachable and have never yet
+ * occurred, so the live table would under-report the vocabulary.
+ *
+ * Two of the seven — Approved and Rejected — appear verbatim in
+ * section 2.4's fourth column, so their roles are not judgements. The
+ * other five are mappings, and three of those come out neutral: the
+ * plan workflow has seven states and section 2.4 has three roles, so
+ * there is no honest colour left for a state that is merely somewhere
+ * in the middle of the loop. The icon carries them instead (section
+ * 7.2 rule 1 requires one anyway), and each is distinct.
+ */
+export const WEEKLY_PLAN_STATUS: Record<string, StatusSpec> = {
+  Draft: {
+    label: 'Draft',
+    role: 'neutral',
+    Icon: FilePenIcon,
+    match: 'meaning',
+    reason:
+      'Not started in earnest: nothing has been sent and nothing is owed by anyone else. The same word and the same reading as ORDER_STATUS.Draft, kept deliberately identical so one word never has two colours.',
+  },
+  Submitted: {
+    label: 'Submitted',
+    role: 'warning',
+    Icon: SendIcon,
+    match: 'meaning',
+    reason:
+      'Sent and awaiting a manager’s decision, which is section 2.4 warning’s "Pending" and "Needs review". Identical to ORDER_STATUS.Submitted rather than a second answer to the same question.',
+  },
+  Resubmitted: {
+    label: 'Resubmitted',
+    role: 'warning',
+    Icon: SendHorizontalIcon,
+    match: 'meaning',
+    reason:
+      'The same act as Submitted, repeated after a rejection or a manager edit — it is waiting on exactly the same person for exactly the same decision, so it takes the same role. The icon is what separates the two.',
+  },
+  Approved: {
+    label: 'Approved',
+    role: 'success',
+    Icon: CheckIcon,
+    match: 'column',
+    reason:
+      'The word appears verbatim in section 2.4’s fourth column: success. Section 23.1 maps Confirm to `check`.',
+  },
+  Rejected: {
+    label: 'Rejected',
+    role: 'danger',
+    Icon: CircleXIcon,
+    match: 'column',
+    reason:
+      'The word appears verbatim in section 2.4’s fourth column: danger. `circle-x` rather than the bare `x`, which section 23.1 reserves for Close.',
+  },
+  'On Hold': {
+    label: 'On Hold',
+    role: 'neutral',
+    Icon: PauseIcon,
+    match: 'meaning',
+    reason:
+      'Absent from section 2.4’s fourth column. Warning is arguable — the decision is still outstanding — but a hold is a decision to STOP rather than something due, and Submitted and Resubmitted are already the two amber states that mean "somebody owes an answer now". Neutral rather than a third shade of the same claim; this file’s rule is that a word with no honest role is a neutral.',
+  },
+  'Edited by Manager': {
+    label: 'Edited by Manager',
+    role: 'neutral',
+    Icon: UserPenIcon,
+    match: 'meaning',
+    reason:
+      'Absent from section 2.4’s fourth column. It was purple, and purple is not one of section 2.4’s three roles, so it cannot simply be carried across. The plan has been changed and handed back for the owner to resubmit: nothing has succeeded, nothing has failed, and what is owed is owed by the owner rather than to them. Neutral, with the icon saying who acted.',
+  },
+}

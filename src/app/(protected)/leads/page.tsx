@@ -77,8 +77,10 @@ function place(lead: LeadRow) {
 /**
  * Section 10 rule 4: every column declares its tier.
  *
- * Name grows and truncates — section 8 wants exactly one column taking
- * the table's slack, and the identifier is the one that can afford to.
+ * Name truncates under the template's `truncate && !grow` cap. Section
+ * 8 wants one column taking the table's slack, and the identifier would
+ * normally be it — but this table has no slack to take (see the frozen
+ * column below), so nothing carries `grow`.
  * Mobile, Stage and Temperature survive every width: a lead is a phone
  * number plus where it has got to plus how warm it is, which is the
  * whole point of the screen. Active and the row actions are controls,
@@ -113,6 +115,7 @@ function leadColumns({
       id: 'name',
       header: 'Name',
       truncate: true,
+      // OVERNIGHT: no column carries `grow` here — on a table that overflows it collapses the identifier to 32px — see overnight-queue-2026-09-18.md
       /*
        * Section 10 rule 2's second half. Ten columns at 1280 is past
        * its own "more than eight columns at desktop width" threshold
@@ -133,7 +136,9 @@ function leadColumns({
        * the report: a frozen column is a template capability this
        * screen is standing in for.
        */
+      // OVERNIGHT: a frozen first column is a ListColumn capability the screen is standing in for — see overnight-queue-2026-09-18.md
       className: 'sticky left-0 z-20 border-r border-border-light',
+      // OVERNIGHT: and so is re-stating the row hover, because the template puts no group on `tr` — see overnight-queue-2026-09-18.md
       cellClassName:
         'bg-surface [tr:hover_&]:bg-surface-sunken font-medium text-text-primary',
       skeletonWidth: 'w-40',
@@ -219,6 +224,7 @@ function leadColumns({
       skeletonWidth: 'w-28',
       cell: lead => lead.created_by?.name ?? '—',
     },
+    // OVERNIGHT: the is_active toggle has no template slot, so it stays the column it already was — see overnight-queue-2026-09-18.md
     /*
      * Section 15.2: once anything points at a master record it is
      * deactivated rather than deleted, so this is the action that is
@@ -490,11 +496,17 @@ export default function LeadsPage() {
   const [deleting, setDeleting] = useState<LeadRow | null>(null)
   const savingRef               = useRef(false)
   const [leadTypes, setLeadTypes] = useState<{ id: string; name: string }[]>([])
+  const [stages, setStages] = useState<{ id: string; name: string }[]>([])
+  const [temperatures, setTemperatures] = useState<{ id: string; name: string }[]>([])
   /* Bumped when a create, an edit, a toggle or a delete makes the list stale. */
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     fetch('/api/masters/lead-types').then(r => r.json()).then(d => setLeadTypes(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead types', 'error'))
+    // OVERNIGHT: filter options come from the tenant's master table, not the badge vocabulary — see overnight-queue-2026-09-18.md
+    fetch('/api/masters/lead-stages').then(r => r.json()).then(d => setStages(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead stages', 'error'))
+    // OVERNIGHT: filter options come from the tenant's master table, not the badge vocabulary — see overnight-queue-2026-09-18.md
+    fetch('/api/masters/lead-temperatures').then(r => r.json()).then(d => setTemperatures(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead temperatures', 'error'))
   }, [toast])
 
   function openAdd() {
@@ -607,18 +619,21 @@ export default function LeadsPage() {
       id: 'stage',
       label: 'Stage',
       kind: 'select',
+      searchable: stages.length > 6,
+      // OVERNIGHT: filter options come from the tenant's master table, not the badge vocabulary — see overnight-queue-2026-09-18.md
       options: {
         '': 'Any stage',
-        ...Object.fromEntries(Object.keys(LEAD_STAGE).map(s => [s, s])),
+        ...Object.fromEntries(stages.map(s => [s.name, s.name])),
       },
     },
     {
       id: 'temperature',
       label: 'Temperature',
       kind: 'select',
+      // OVERNIGHT: filter options come from the tenant's master table, not the badge vocabulary — see overnight-queue-2026-09-18.md
       options: {
         '': 'Any temperature',
-        ...Object.fromEntries(Object.keys(LEAD_TEMPERATURE).map(t => [t, t])),
+        ...Object.fromEntries(temperatures.map(t => [t.name, t.name])),
       },
     },
     {
@@ -643,7 +658,14 @@ export default function LeadsPage() {
          * both what rule 2 requires and what it already looked like.
          * Section 11.1's "one primary action button on the right" is
          * satisfied: there is one primary, and it is on the right.
+         *
+         * Rejected: Bulk Upload in `toolbarExtra` (zone 2's far right is
+         * section 11.6's view switcher, and an import is not a view);
+         * inside the Add dialog as a second tab (buries a whole route
+         * behind a control that means "add one"); and dropping it, which
+         * would be dropping behaviour.
          */
+        // OVERNIGHT: two buttons in `action` — the slot's doc says one primary, and one is what this is — see overnight-queue-2026-09-18.md
         action={
           canEdit ? (
             <div className="flex items-center gap-2">
