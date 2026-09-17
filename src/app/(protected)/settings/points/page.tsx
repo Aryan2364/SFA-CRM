@@ -99,45 +99,45 @@ export default function PointsConfigPage() {
     return changes
   }
 
-  if (loading) return <div className="p-6 text-gray-400 text-sm">Loading…</div>
+  if (loading) return <div className="p-6 text-text-muted text-sm">Loading…</div>
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-yellow-100 rounded-xl flex items-center justify-center text-xl">⚙️</div>
+        <div className="w-10 h-10 bg-warning-bg rounded-xl flex items-center justify-center text-xl">⚙️</div>
         <div>
-          <h1 className="text-2xl font-medium text-gray-900">Points Configuration</h1>
-          <p className="text-sm text-gray-500">Define how points are awarded to your team</p>
+          <h1 className="text-2xl font-medium text-text-primary">Points Configuration</h1>
+          <p className="text-sm text-text-muted">Define how points are awarded to your team</p>
         </div>
       </div>
 
       {/* Reset Period */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-5 flex items-center gap-4">
+      <div className="bg-surface border border-border-light rounded-xl p-4 shadow-sm mb-5 flex items-center gap-4">
         <div className="flex-1">
-          <p className="text-sm font-medium text-gray-700">Points Reset Period</p>
-          <p className="text-xs text-gray-400 mt-0.5">How often the leaderboard and totals reset</p>
+          <p className="text-sm font-medium text-text-secondary">Points Reset Period</p>
+          <p className="text-xs text-text-secondary mt-0.5">How often the leaderboard and totals reset</p>
         </div>
         <select value={resetPeriod} onChange={e => setResetPeriod(e.target.value)}
           disabled={!canEdit}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50">
+          className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface disabled:bg-surface-sunken">
           <option value="monthly">Monthly</option>
           <option value="quarterly">Quarterly</option>
           <option value="never">Never (All Time)</option>
         </select>
         {canEdit && (
           <button onClick={saveResetPeriod} disabled={savingSettings}
-            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg font-medium disabled:opacity-40 transition">
+            className="px-3 py-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm rounded-lg font-medium disabled:opacity-40 transition">
             {savingSettings ? 'Saving…' : 'Save'}
           </button>
         )}
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-5">
+      <div className="flex gap-1 border-b border-border-light mb-5">
         {(['config', 'history'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2.5 text-sm font-medium capitalize border-b-2 transition -mb-px ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            className={`px-4 py-2.5 text-sm font-medium capitalize border-b-2 transition -mb-px ${tab === t ? 'border-primary-border text-primary' : 'border-transparent text-text-muted hover:text-text-secondary'}`}>
             {t === 'config' ? 'Point Rules' : 'Change History'}
           </button>
         ))}
@@ -149,31 +149,31 @@ export default function PointsConfigPage() {
           <div className="space-y-3">
             {config.map(row => (
               <div key={row.action_type}
-                className={`bg-white border rounded-xl px-4 py-3 shadow-sm transition ${row.is_active ? 'border-gray-200' : 'border-gray-100 opacity-60'}`}>
+                className={`bg-surface border rounded-xl px-4 py-3 shadow-sm transition ${row.is_active ? 'border-border-light' : 'border-border-light opacity-60'}`}>
                 <div className="flex items-center gap-3">
                   <span className="text-2xl w-8 text-center">{ACTION_ICONS[row.action_type] ?? '⭐'}</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800">{row.label}</p>
-                    <p className="text-xs text-gray-400">{row.action_type.replace(/_/g, ' ')}</p>
+                    <p className="text-sm font-medium text-text-primary">{row.label}</p>
+                    <p className="text-xs text-text-muted">{row.action_type.replace(/_/g, ' ')}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     {/* Points input */}
                     <div className="flex items-center gap-1.5">
-                      <label className="text-xs text-gray-500 whitespace-nowrap">Points</label>
+                      <label className="text-xs text-text-secondary whitespace-nowrap">Points</label>
                       <input type="number" min={0} max={100} value={row.points}
                         disabled={!canEdit}
                         onChange={e => updateRow(row.action_type, 'points', Number(e.target.value))}
-                        className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                        className="w-16 border border-border-light rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
                     </div>
                     {/* Cap per day */}
                     <div className="flex items-center gap-1.5">
-                      <label className="text-xs text-gray-500 whitespace-nowrap">Cap/day</label>
+                      <label className="text-xs text-text-secondary whitespace-nowrap">Cap/day</label>
                       <input type="number" min={0} max={99}
                         value={row.cap_per_day ?? ''}
                         placeholder="∞"
                         disabled={!canEdit}
                         onChange={e => updateRow(row.action_type, 'cap_per_day', e.target.value === '' ? null : Number(e.target.value))}
-                        className="w-14 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                        className="w-14 border border-border-light rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
                     </div>
                     {/* Active toggle */}
                     <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -181,9 +181,9 @@ export default function PointsConfigPage() {
                         <input type="checkbox" className="sr-only" checked={row.is_active} disabled={!canEdit}
                           onChange={e => updateRow(row.action_type, 'is_active', e.target.checked)} />
                         <div className={`w-9 h-5 rounded-full transition ${row.is_active ? 'bg-green-500' : 'bg-gray-300'} ${!canEdit ? 'opacity-50' : ''}`} />
-                        <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${row.is_active ? 'translate-x-4' : ''}`} />
+                        <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-surface rounded-full shadow transition-transform ${row.is_active ? 'translate-x-4' : ''}`} />
                       </div>
-                      <span className="text-xs text-gray-500">{row.is_active ? 'On' : 'Off'}</span>
+                      <span className="text-xs text-text-secondary">{row.is_active ? 'On' : 'Off'}</span>
                     </label>
                   </div>
                 </div>
@@ -192,7 +192,7 @@ export default function PointsConfigPage() {
           </div>
           {canEdit && (
             <button onClick={saveConfig} disabled={saving}
-              className="mt-5 w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium disabled:opacity-40 transition">
+              className="mt-5 w-full py-2.5 bg-primary hover:bg-primary-hover text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-40 transition">
               {saving ? 'Saving…' : 'Save Point Rules'}
             </button>
           )}
@@ -203,23 +203,23 @@ export default function PointsConfigPage() {
       {tab === 'history' && (
         <div className="space-y-3">
           {history.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-10">No changes recorded yet.</p>
+            <p className="text-text-muted text-sm text-center py-10">No changes recorded yet.</p>
           ) : history.map(row => (
-            <div key={row.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
+            <div key={row.id} className="bg-surface border border-border-light rounded-xl px-4 py-3 shadow-sm">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-medium text-gray-800">
+                  <p className="text-sm font-medium text-text-primary">
                     {ACTION_ICONS[row.action_type] ?? '⭐'} {row.label}
                   </p>
                   <ul className="mt-1 space-y-0.5">
                     {diffLabel(row).map((d, i) => (
-                      <li key={i} className="text-xs text-gray-600">• {d}</li>
+                      <li key={i} className="text-xs text-text-secondary">• {d}</li>
                     ))}
                   </ul>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-xs text-gray-500">{row.changed_by_name ?? 'Unknown'}</p>
-                  <p className="text-xs text-gray-400">{formatDate(row.changed_at)}</p>
+                  <p className="text-xs text-text-muted">{row.changed_by_name ?? 'Unknown'}</p>
+                  <p className="text-xs text-text-muted">{formatDate(row.changed_at)}</p>
                 </div>
               </div>
             </div>
