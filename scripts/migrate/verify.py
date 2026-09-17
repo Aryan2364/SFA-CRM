@@ -19,8 +19,21 @@ base = sys.argv[2] if len(sys.argv) > 2 else 'HEAD'
 path = getattr(S, key)
 cfg = S.SITES[path]
 
-old = subprocess.check_output(['git', 'show', base + ':' + path]).decode('utf-8').split('\n')
-new = io.open(path, encoding='utf-8').read().split('\n')
+def _lines(text):
+    """Split into lines with CRLF and CR normalised to LF first.
+
+    `new` was never at risk: io.open(encoding=...) uses universal newlines and
+    already collapses CRLF on read. `old` is the exposed side -- it comes from
+    `git show`, which applies working-tree conversion, and core.autocrlf is
+    true. Today that path emits LF (measured: 0 CR bytes) so this changes
+    nothing, but the guard costs two lines and its absence would make every
+    derived block on such a file read as differing.
+    """
+    return text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+
+
+old = _lines(subprocess.check_output(['git', 'show', base + ':' + path]).decode('utf-8'))
+new = _lines(io.open(path, encoding='utf-8', newline='').read())
 
 fails = []
 
