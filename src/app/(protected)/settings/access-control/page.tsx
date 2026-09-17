@@ -40,13 +40,13 @@ function AccessControlContent() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-xl font-medium text-gray-900">Access Control</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <h1 className="text-xl font-medium text-text-primary">Access Control</h1>
+        <p className="text-sm text-text-muted mt-0.5">
           Configure roles, permissions, and who can view which users
         </p>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b border-gray-200">
+      <div className="flex gap-1 mb-6 border-b border-border-light">
         <TabButton active={tab === 'roles'} onClick={() => setTab('roles')}>Roles &amp; Permissions</TabButton>
         <TabButton active={tab === 'schema'} onClick={() => setTab('schema')}>Reporting Schema</TabButton>
         <TabButton active={tab === 'chart'} onClick={() => setTab('chart')}>Org Chart</TabButton>
@@ -68,7 +68,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     <button
       onClick={onClick}
       className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-        active ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+        active ? 'border-primary-border text-primary' : 'border-transparent text-text-secondary hover:text-text-secondary'
       }`}
     >
       {children}
@@ -269,7 +269,7 @@ function RolesPermissions() {
       {/* Left: Role list */}
       <div className="w-56 flex-shrink-0">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-normal text-gray-500 uppercase tracking-wide">Roles</span>
+          <span className="text-xs font-normal text-text-muted uppercase tracking-wide">Roles</span>
           <button
             onClick={() => setShowNewRole(v => !v)}
             className="text-xs text-blue-600 hover:text-blue-800 font-medium"
@@ -286,13 +286,13 @@ function RolesPermissions() {
               onChange={e => setNewRoleName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreateRole()}
               placeholder="Role name"
-              className="flex-1 text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 text-sm border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-ring"
               autoFocus
             />
             <button
               onClick={handleCreateRole}
               disabled={creating}
-              className="text-xs bg-blue-600 text-white px-2 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="text-xs bg-primary text-primary-foreground px-2 py-1.5 rounded-lg hover:bg-primary-hover disabled:opacity-50"
             >
               {creating ? '…' : 'Add'}
             </button>
@@ -304,24 +304,24 @@ function RolesPermissions() {
             <div
               key={role.id}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer group ${
-                selectedRole?.id === role.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'
+                selectedRole?.id === role.id ? 'bg-primary-subtle text-primary' : 'hover:bg-surface-sunken text-text-secondary'
               }`}
               onClick={() => { setSelectedRole(role); setDeleteConfirm(null) }}
             >
               <span className="flex-1 text-sm font-medium truncate">{role.name}</span>
               {role.is_system && (
-                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">System</span>
+                <span className="text-[10px] bg-surface-control text-text-muted px-1.5 py-0.5 rounded-full">System</span>
               )}
               {!role.is_system && selectedRole?.id === role.id && (
                 deleteConfirm === role.id ? (
                   <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => handleDeleteRole(role)} className="text-[10px] text-red-600 font-medium">Yes</button>
-                    <button onClick={() => setDeleteConfirm(null)} className="text-[10px] text-gray-400">No</button>
+                    <button onClick={() => handleDeleteRole(role)} className="text-[10px] text-danger font-medium">Yes</button>
+                    <button onClick={() => setDeleteConfirm(null)} className="text-[10px] text-text-muted">No</button>
                   </div>
                 ) : (
                   <button
                     onClick={e => { e.stopPropagation(); setDeleteConfirm(role.id) }}
-                    className="text-gray-300 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="text-text-muted hover:text-danger text-sm opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Delete role"
                   >×</button>
                 )
@@ -334,30 +334,30 @@ function RolesPermissions() {
       {/* Right: Permissions table */}
       <div className="flex-1">
         {!selectedRole && (
-          <p className="text-sm text-gray-400 py-8 text-center">Select a role to configure permissions</p>
+          <p className="text-sm text-text-muted py-8 text-center">Select a role to configure permissions</p>
         )}
         {selectedRole && (
           <>
             <div className="flex items-center gap-3 mb-4">
-              <h2 className="text-sm font-medium text-gray-800">{selectedRole.name} — Permissions</h2>
+              <h2 className="text-sm font-medium text-text-primary">{selectedRole.name} — Permissions</h2>
               {isAdmin && (
-                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                <span className="text-xs text-text-muted bg-surface-control px-2 py-0.5 rounded-full">
                   Administrator always has full access
                 </span>
               )}
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl overflow-auto max-h-[calc(100vh-280px)]">
+            <div className="bg-surface border border-border-light rounded-xl overflow-auto max-h-[calc(100vh-280px)]">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
+                <thead className="bg-surface-sunken border-b border-border-light sticky top-0 z-10">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600 w-48">Section</th>
-                    <th className="text-center px-3 py-3 font-medium text-gray-600 w-10">All</th>
-                    <th className="text-center px-3 py-3 font-medium text-gray-600">View</th>
-                    <th className="text-center px-3 py-3 font-medium text-gray-600">Create</th>
-                    <th className="text-center px-3 py-3 font-medium text-gray-600">Edit</th>
-                    <th className="text-center px-3 py-3 font-medium text-gray-600">Delete</th>
-                    <th className="text-center px-3 py-3 font-medium text-gray-600">Data Scope</th>
+                    <th className="text-left px-4 py-3 font-medium text-text-secondary w-48">Section</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-10">All</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary">View</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary">Create</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary">Edit</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary">Delete</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary">Data Scope</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -367,14 +367,14 @@ function RolesPermissions() {
                     return (
                     <>
                       {showModuleSep && (
-                        <tr key={`mod-${g.module}`} className="bg-blue-600 border-t-2 border-blue-700">
-                          <td colSpan={7} className="px-4 py-2 text-xs font-normal text-white uppercase tracking-wider">
+                        <tr key={`mod-${g.module}`} className="bg-primary border-t-2 border-primary-border">
+                          <td colSpan={7} className="px-4 py-2 text-xs font-normal text-primary-foreground uppercase tracking-wider">
                             {g.module}
                           </td>
                         </tr>
                       )}
-                      <tr key={g.group} className="bg-gray-50 border-t border-gray-200">
-                        <td colSpan={7} className="px-4 py-1.5 text-xs font-normal text-gray-500 uppercase tracking-wide pl-6">
+                      <tr key={g.group} className="bg-surface-sunken border-t border-border-light">
+                        <td colSpan={7} className="px-4 py-1.5 text-xs font-normal text-text-muted uppercase tracking-wide pl-6">
                           {g.group}
                         </td>
                       </tr>
@@ -384,10 +384,10 @@ function RolesPermissions() {
                         const noneOn = !p.view && !p.create && !p.edit && !p.delete
                         const partial = !allOn && !noneOn
                         return (
-                          <tr key={s.key} className="border-t border-gray-50">
-                            <td className="px-4 py-2.5 text-gray-700 pl-10">
+                          <tr key={s.key} className="border-t border-border-light">
+                            <td className="px-4 py-2.5 text-text-secondary pl-10">
                               {s.label}
-                              {saving === s.key && <span className="ml-2 text-xs text-orange-500">Saving…</span>}
+                              {saving === s.key && <span className="ml-2 text-xs text-warning">Saving…</span>}
                             </td>
                             <td className="px-3 py-2.5 text-center">
                               <button
@@ -396,10 +396,10 @@ function RolesPermissions() {
                                 title={allOn ? 'Deselect all' : partial ? 'Select all' : 'Select all'}
                                 className={`w-5 h-5 rounded flex items-center justify-center border transition-colors focus:outline-none disabled:cursor-default ${
                                   allOn
-                                    ? 'bg-blue-600 border-blue-600 text-white'
+                                    ? 'bg-primary border-primary-border text-primary-foreground'
                                     : partial
-                                    ? 'bg-blue-100 border-blue-400 text-blue-600'
-                                    : 'bg-white border-gray-300 hover:border-blue-400'
+                                    ? 'bg-primary-subtle border-primary-border text-primary'
+                                    : 'bg-surface border-border hover:border-primary-border'
                                 }`}
                               >
                                 {allOn && (
@@ -420,10 +420,10 @@ function RolesPermissions() {
                                   onClick={() => toggle(s.key, action, !p[action])}
                                   disabled={isAdmin}
                                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:cursor-default ${
-                                    p[action] ? 'bg-blue-600' : 'bg-gray-200'
+                                    p[action] ? 'bg-primary' : 'bg-surface-control'
                                   }`}
                                 >
-                                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-surface shadow transition-transform ${
                                     p[action] ? 'translate-x-4' : 'translate-x-0.5'
                                   }`} />
                                 </button>
@@ -431,14 +431,14 @@ function RolesPermissions() {
                             ))}
                             <td className="px-3 py-2.5 text-center">
                               {!s.isOperation ? (
-                                <span className="text-xs text-gray-400">—</span>
+                                <span className="text-xs text-text-muted">—</span>
                               ) : isAdmin ? (
-                                <span className="text-xs text-gray-400">All</span>
+                                <span className="text-xs text-text-muted">All</span>
                               ) : (
                                 <select
                                   value={p.data_scope}
                                   onChange={e => setScope(s.key, e.target.value)}
-                                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                                  className="text-xs border border-border-light rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary-ring bg-surface"
                                 >
                                   <option value="own">Own</option>
                                   <option value="team">Team</option>
@@ -458,11 +458,11 @@ function RolesPermissions() {
 
             <div className="mt-3 space-y-1">
               {isAdmin ? (
-                <p className="text-xs text-gray-400">Administrator always has full access. Permissions cannot be restricted.</p>
+                <p className="text-xs text-text-muted">Administrator always has full access. Permissions cannot be restricted.</p>
               ) : (
                 <>
-                  <p className="text-xs text-gray-400">Changes take effect on the user&apos;s next API request (no re-login needed).</p>
-                  <p className="text-xs text-gray-400">Access Control is always Administrator-only and is not configurable.</p>
+                  <p className="text-xs text-text-muted">Changes take effect on the user&apos;s next API request (no re-login needed).</p>
+                  <p className="text-xs text-text-muted">Access Control is always Administrator-only and is not configurable.</p>
                 </>
               )}
             </div>
@@ -583,54 +583,54 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
           <button
             onClick={handleImport}
             disabled={importing}
-            className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="text-sm px-3 py-1.5 border border-border rounded-lg hover:bg-surface-sunken disabled:opacity-50 transition-colors"
           >
             {importing ? 'Syncing...' : '⬇ Sync from Hierarchy'}
           </button>
-          {importMsg && <span className="text-xs text-green-600">{importMsg}</span>}
+          {importMsg && <span className="text-xs text-success">{importMsg}</span>}
         </div>
-        <span className={`text-xs ${saved ? 'text-green-600' : 'text-orange-500'}`}>
+        <span className={`text-xs ${saved ? 'text-success' : 'text-warning'}`}>
           {saved ? 'All changes saved ✓' : 'Saving...'}
         </span>
       </div>
 
       <div className="grid grid-cols-2 gap-4 h-[600px]">
         {/* Left panel */}
-        <div className="border border-gray-200 rounded-xl overflow-hidden flex flex-col">
-          <div className="p-3 border-b border-gray-200 bg-gray-50">
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">Select User</p>
+        <div className="border border-border-light rounded-xl overflow-hidden flex flex-col">
+          <div className="p-3 border-b border-border-light bg-surface-sunken">
+            <p className="text-xs font-normal text-text-muted uppercase tracking-wide mb-2">Select User</p>
             <input
               type="text"
               value={userSearch}
               onChange={e => setUserSearch(e.target.value)}
               placeholder="Search by name..."
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full text-sm border border-border-light rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-ring"
             />
           </div>
-          <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+          <div className="flex-1 overflow-y-auto divide-y divide-border-light">
             {filteredUsers.map(u => (
               <button
                 key={u.id}
                 onClick={() => setSelectedUser(u)}
-                className={`w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-gray-50 transition-colors ${
-                  selectedUser?.id === u.id ? 'bg-blue-50' : ''
+                className={`w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-surface-sunken transition-colors ${
+                  selectedUser?.id === u.id ? 'bg-primary-subtle' : ''
                 }`}
               >
                 <Avatar name={u.name} />
                 <span className="text-sm font-medium flex-1 truncate">{u.name}</span>
-                {selectedUser?.id === u.id && <span className="text-blue-500 text-xs font-medium">●</span>}
+                {selectedUser?.id === u.id && <span className="text-primary text-xs font-medium">●</span>}
               </button>
             ))}
             {filteredUsers.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-8">No users found</p>
+              <p className="text-sm text-text-muted text-center py-8">No users found</p>
             )}
           </div>
         </div>
 
         {/* Right panel */}
-        <div className="border border-gray-200 rounded-xl overflow-hidden flex flex-col">
-          <div className="p-3 border-b border-gray-200 bg-gray-50">
-            <p className="text-xs font-normal text-gray-500 uppercase tracking-wide mb-2">
+        <div className="border border-border-light rounded-xl overflow-hidden flex flex-col">
+          <div className="p-3 border-b border-border-light bg-surface-sunken">
+            <p className="text-xs font-normal text-text-muted uppercase tracking-wide mb-2">
               Can View &amp; Interact With
             </p>
             {selectedUser && (
@@ -640,15 +640,15 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
                   value={addSearch}
                   onChange={e => setAddSearch(e.target.value)}
                   placeholder="Search to add users..."
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full text-sm border border-border-light rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-ring"
                 />
                 {addSearch && addCandidates.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 z-10 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                  <div className="absolute top-full left-0 right-0 z-10 bg-surface border border-border-light rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
                     {addCandidates.map(u => (
                       <button
                         key={u.id}
                         onClick={() => handleAddUser(u)}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-sm"
+                        className="w-full text-left px-3 py-2 hover:bg-surface-sunken flex items-center gap-2 text-sm"
                       >
                         <Avatar name={u.name} />
                         <span className="flex-1">{u.name}</span>
@@ -657,7 +657,7 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
                   </div>
                 )}
                 {addSearch && addCandidates.length === 0 && (
-                  <div className="absolute top-full left-0 right-0 z-10 bg-white border border-gray-200 rounded-lg shadow mt-1 px-3 py-2 text-sm text-gray-400">
+                  <div className="absolute top-full left-0 right-0 z-10 bg-surface border border-border-light rounded-lg shadow mt-1 px-3 py-2 text-sm text-text-muted">
                     No users to add
                   </div>
                 )}
@@ -666,29 +666,29 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
           </div>
           <div className="flex-1 overflow-y-auto p-2">
             {!selectedUser && (
-              <p className="text-sm text-gray-400 text-center py-12 px-4">
+              <p className="text-sm text-text-muted text-center py-12 px-4">
                 ← Select a user to configure their visibility
               </p>
             )}
             {selectedUser && loadingVis && (
-              <p className="text-sm text-gray-400 text-center py-12">Loading...</p>
+              <p className="text-sm text-text-muted text-center py-12">Loading...</p>
             )}
             {selectedUser && !loadingVis && visibility.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-12 px-4">
+              <p className="text-sm text-text-muted text-center py-12 px-4">
                 No users configured. Add users above or sync from hierarchy.
               </p>
             )}
             {selectedUser && !loadingVis && visibility.map(entry => (
               <div
                 key={entry.id}
-                className="flex items-center gap-2 px-2 py-2 hover:bg-gray-50 rounded-lg group"
+                className="flex items-center gap-2 px-2 py-2 hover:bg-surface-sunken rounded-lg group"
               >
-                <span className="text-green-500 text-xs">✓</span>
+                <span className="text-success text-xs">✓</span>
                 <Avatar name={entry.name} />
                 <span className="text-sm font-medium flex-1 truncate">{entry.name}</span>
                 <button
                   onClick={() => handleRemove(entry)}
-                  className="text-gray-300 group-hover:text-red-400 hover:text-red-500 text-base leading-none ml-1 transition-colors"
+                  className="text-text-muted group-hover:text-danger hover:text-danger text-base leading-none ml-1 transition-colors"
                   title="Remove"
                 >×</button>
               </div>
@@ -749,15 +749,15 @@ function OrgChart() {
   const filteredRoots = q ? roots.filter(n => nodeContains(n, q)) : roots
   const filteredStandalone = q ? standalone.filter(u => u.name.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)) : standalone
 
-  if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading org chart...</p>
-  if (users.length === 0) return <p className="text-sm text-gray-400 py-8 text-center">No active users found.</p>
+  if (loading) return <p className="text-sm text-text-muted py-8 text-center">Loading org chart...</p>
+  if (users.length === 0) return <p className="text-sm text-text-secondary py-8 text-center">No active users found.</p>
 
   return (
     <div>
       <div className="mb-5">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search by name or role..."
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64" />
+          className="text-sm border border-border-light rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-ring w-64" />
       </div>
 
       {/* Scrollable canvas */}
@@ -771,18 +771,18 @@ function OrgChart() {
 
       {/* Standalone users */}
       {filteredStandalone.length > 0 && (
-        <div className="mt-8 pt-6 border-t border-dashed border-gray-200">
-          <p className="text-xs font-normal text-gray-400 uppercase tracking-wider mb-4">
+        <div className="mt-8 pt-6 border-t border-dashed border-border-light">
+          <p className="text-xs font-normal text-text-muted uppercase tracking-wider mb-4">
             Standalone — not in any reporting chain
           </p>
           <div className="flex flex-wrap gap-3">
             {filteredStandalone.map(u => (
-              <div key={u.id} className="w-36 rounded-lg overflow-hidden border border-gray-200 shadow-sm opacity-75">
+              <div key={u.id} className="w-36 rounded-lg overflow-hidden border border-border-light shadow-sm opacity-75">
                 <div className="bg-gray-500 px-3 py-1.5 text-center">
                   <p className="text-[11px] font-medium text-white truncate">{u.role || 'No Role'}</p>
                 </div>
-                <div className="bg-white px-3 py-2 text-center">
-                  <p className="text-xs text-gray-700 font-medium truncate">{u.name}</p>
+                <div className="bg-surface px-3 py-2 text-center">
+                  <p className="text-xs text-text-secondary font-medium truncate">{u.name}</p>
                 </div>
               </div>
             ))}
@@ -791,7 +791,7 @@ function OrgChart() {
       )}
 
       {q && filteredRoots.length === 0 && filteredStandalone.length === 0 && (
-        <p className="text-sm text-gray-400 py-4 text-center">No users match &ldquo;{search}&rdquo;</p>
+        <p className="text-sm text-text-muted py-4 text-center">No users match &ldquo;{search}&rdquo;</p>
       )}
     </div>
   )
@@ -808,11 +808,11 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
       <div className={`w-40 rounded-lg overflow-hidden shadow-sm border-2 transition-all ${
         isMatch ? 'border-yellow-400 shadow-yellow-100' : 'border-blue-700'
       }`}>
-        <div className="bg-blue-800 px-3 py-2 text-center">
-          <p className="text-[11px] font-medium text-white leading-tight truncate">{node.role || 'No Role'}</p>
+        <div className="bg-primary-pressed px-3 py-2 text-center">
+          <p className="text-[11px] font-medium text-primary-foreground leading-tight truncate">{node.role || 'No Role'}</p>
         </div>
-        <div className="bg-white px-3 py-2.5 text-center border-t border-blue-100">
-          <p className="text-xs font-medium text-gray-800 truncate">{node.name}</p>
+        <div className="bg-surface px-3 py-2.5 text-center border-t border-primary-border">
+          <p className="text-xs font-medium text-text-primary truncate">{node.name}</p>
         </div>
       </div>
 
@@ -820,12 +820,12 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
       {hasChildren && (
         <>
           {/* Line down from card */}
-          <div className="w-px h-4 bg-gray-300" />
+          <div className="w-px h-4 bg-surface-control" />
 
           {/* Collapse toggle */}
           <button
             onClick={() => setOpen(o => !o)}
-            className="w-5 h-5 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-500 text-xs hover:border-blue-400 hover:text-blue-600 transition-colors z-10 leading-none"
+            className="w-5 h-5 rounded-full border border-border bg-surface flex items-center justify-center text-text-muted text-xs hover:border-primary-border hover:text-primary transition-colors z-10 leading-none"
             title={open ? 'Collapse' : 'Expand'}
           >
             {open ? '−' : '+'}
@@ -834,7 +834,7 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
           {open && (
             <>
               {/* Line down from toggle to children row */}
-              <div className="w-px h-4 bg-gray-300" />
+              <div className="w-px h-4 bg-surface-control" />
 
               {/* Children row */}
               <div className="flex items-start">
@@ -847,14 +847,14 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
                       {/* Top connector per child */}
                       <div className="relative w-full h-4 flex items-end justify-center">
                         {/* Vertical drop */}
-                        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-px h-4 bg-gray-300" />
+                        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-px h-4 bg-surface-control" />
                         {/* Horizontal left half */}
                         {!isOnly && !isFirst && (
-                          <div className="absolute top-0 right-1/2 left-0 h-px bg-gray-300" />
+                          <div className="absolute top-0 right-1/2 left-0 h-px bg-surface-control" />
                         )}
                         {/* Horizontal right half */}
                         {!isOnly && !isLast && (
-                          <div className="absolute top-0 left-1/2 right-0 h-px bg-gray-300" />
+                          <div className="absolute top-0 left-1/2 right-0 h-px bg-surface-control" />
                         )}
                       </div>
                       <OrgNodeCard node={child} highlight={highlight} />
