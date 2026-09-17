@@ -55,11 +55,17 @@ export async function POST(req: NextRequest) {
 
   try {
     // onConflict 'viewer_user_id,target_user_id' is the real unique constraint.
-    // The row carries nothing else to update, so `update` is empty.
+    //
+    // `is_manual` is set on BOTH branches, and the update branch is the one that
+    // matters: granting a pair the hierarchy already implies hits `update`, and
+    // leaving it `{}` would leave the row is_manual=false, so the next
+    // rebuildVisibility() would delete it — the admin having been told `ok`.
+    // Promoting an existing derived row is also the right reading of the action:
+    // the admin is saying "hold this pair regardless of the hierarchy".
     await prisma.user_visibility.upsert({
       where: { viewer_user_id_target_user_id: { viewer_user_id: viewerId, target_user_id: targetId } },
-      create: { tenant_id: tenantId, viewer_user_id: viewerId, target_user_id: targetId },
-      update: {},
+      create: { tenant_id: tenantId, viewer_user_id: viewerId, target_user_id: targetId, is_manual: true },
+      update: { is_manual: true },
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
@@ -77,6 +83,23 @@ export async function DELETE(req: NextRequest) {
   const tenantId = getTenantId()
 
   try {
+    // A derived row cannot be revoked here: rebuildVisibility() would recreate it
+    // at the next manager change, so the delete would silently undo itself while
+    // reporting success. Gate on the row's stored is_manual, not on whether the
+    // chain currently implies the pair — a row marked manual is revocable, a
+    // derived one is not, and that rule stays readable as the hierarchy moves.
+    const row = await prisma.user_visibility.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { is_manual: true },
+    })
+
+    // No match stays silent, as it was before (PLAN.md 8.4).
+    if (row && !row.is_manual)
+      return NextResponse.json(
+        { error: 'This visibility comes from the reporting hierarchy. Change the user\'s manager to remove it.' },
+        { status: 400 }
+      )
+
     // deleteMany: a no-match was silent before (PLAN.md 8.4).
     await prisma.user_visibility.deleteMany({ where: { id, tenant_id: tenantId } })
     return NextResponse.json({ ok: true })

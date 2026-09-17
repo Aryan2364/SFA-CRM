@@ -4,6 +4,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { rebuildVisibility } from '@/lib/visibility'
 import bcrypt from 'bcryptjs'
 
 /**
@@ -121,9 +122,11 @@ export async function POST(req: NextRequest) {
       throw err
     }
 
-    // Cascade visibility: new user is visible to their manager and all ancestors
+    // Rebuild visibility: the new user becomes visible to their manager and all
+    // ancestors. A whole-tenant rebuild rather than a walk from this one user —
+    // see rebuildVisibility() for why.
     if (manager_user_id && data) {
-      await cascadeVisibilityUp(tid, data.id, manager_user_id)
+      await rebuildVisibility(tid)
     }
 
     // NOTE: the fire-and-forget `user_audit_logs` insert was removed here. That
@@ -133,33 +136,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(serialize(data, 'users'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
-  }
-}
-
-/** Insert visibility rows so managerId and all their managers can see userId. */
-async function cascadeVisibilityUp(
-  tenantId: string,
-  userId: string,
-  managerId: string
-) {
-  const rows: { tenant_id: string; viewer_user_id: string; target_user_id: string }[] = []
-  let currentId: string | null = managerId
-  const visited = new Set<string>()
-
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId)
-    rows.push({ tenant_id: tenantId, viewer_user_id: currentId, target_user_id: userId })
-    const parent: { manager_user_id: string | null } | null = await prisma.users.findUnique({
-      where: { id: currentId },
-      select: { manager_user_id: true },
-    })
-    currentId = parent?.manager_user_id ?? null
-  }
-
-  if (rows.length > 0) {
-    // .upsert(rows, { onConflict: 'viewer_user_id,target_user_id', ignoreDuplicates: true })
-    // — "do nothing on conflict" is createMany + skipDuplicates, and
-    // user_visibility carries that exact unique constraint.
-    await prisma.user_visibility.createMany({ data: rows, skipDuplicates: true })
   }
 }

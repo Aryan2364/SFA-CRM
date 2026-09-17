@@ -4,6 +4,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { rebuildVisibility } from '@/lib/visibility'
 import bcrypt from 'bcryptjs'
 
 /** `users_tenant_contact`: PostgreSQL 23505 under Supabase, P2002 under Prisma. */
@@ -79,17 +80,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     // removed here — that table does not exist, so they had been failing
     // silently. See PLAN.md §13.1.
 
-    // Sync user_visibility when manager changes
+    // Sync user_visibility when manager changes.
+    //
+    // This used to remove the old ancestors' rows and cascade up the new chain,
+    // both keyed on params.id alone — so a re-parented user's own subtree was
+    // never re-cascaded. The old manager kept seeing the grandchildren and the
+    // new manager never got them. A whole-tenant rebuild has no subtree to miss.
     const newManagerId = ('manager_user_id' in body) ? (body.manager_user_id ?? null) : oldManagerId
     if (oldManagerId !== newManagerId) {
-      // Remove all old ancestor visibility for this user (cascade down was from old manager up)
-      if (oldManagerId) {
-        await removeAncestorVisibility(tid, params.id, oldManagerId)
-      }
-      // Add new cascade visibility up the new manager chain
-      if (newManagerId) {
-        await cascadeVisibilityUp(tid, params.id, newManagerId)
-      }
+      await rebuildVisibility(tid)
     }
 
     return NextResponse.json(serialize(data, 'users'))
@@ -160,13 +159,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data: updatePayload,
     })
 
-    // Restore visibility chain when reactivating a user with a manager
+    // Restore the visibility chain when reactivating. Reactivate can also move
+    // the user (it accepts manager_user_id), and the old cascade-only call never
+    // removed the rows from the previous chain — a second way stale rows
+    // accumulated. Deactivate does not touch manager_user_id, so the closure is
+    // unchanged and needs no rebuild.
     if (action === 'reactivate') {
-      const effectiveManagerId = (('manager_user_id' in updatePayload ? updatePayload.manager_user_id : null) as string | null)
-        ?? targetUser.manager_user_id
-      if (effectiveManagerId) {
-        await cascadeVisibilityUp(tid, params.id, effectiveManagerId)
-      }
+      await rebuildVisibility(tid)
     }
 
     // NOTE: the deactivated/reactivated `user_audit_logs` insert was removed
@@ -221,57 +220,5 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ ok: true })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
-  }
-}
-
-/** Insert visibility rows so managerId and all their managers can see userId. */
-async function cascadeVisibilityUp(tenantId: string, userId: string, managerId: string) {
-  const rows: { tenant_id: string; viewer_user_id: string; target_user_id: string }[] = []
-  let currentId: string | null = managerId
-  const visited = new Set<string>()
-
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId)
-    rows.push({ tenant_id: tenantId, viewer_user_id: currentId, target_user_id: userId })
-    const parent: { manager_user_id: string | null } | null = await prisma.users.findUnique({
-      where: { id: currentId },
-      select: { manager_user_id: true },
-    })
-    currentId = parent?.manager_user_id ?? null
-  }
-
-  if (rows.length > 0) {
-    // ignoreDuplicates: true -> skipDuplicates, on the (viewer, target) unique.
-    await prisma.user_visibility.createMany({ data: rows, skipDuplicates: true })
-  }
-}
-
-/** Remove visibility rows from old manager chain that were auto-cascaded.
- *  Only removes rows where the viewer is in the old manager ancestor chain
- *  AND the visibility is not manually overridden (i.e., still part of the cascade).
- *  Safe approach: delete all rows where target=userId and viewer is in old ancestor chain. */
-async function removeAncestorVisibility(tenantId: string, userId: string, oldManagerId: string) {
-  const ancestorIds: string[] = []
-  let currentId: string | null = oldManagerId
-  const visited = new Set<string>()
-
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId)
-    ancestorIds.push(currentId)
-    const parent: { manager_user_id: string | null } | null = await prisma.users.findUnique({
-      where: { id: currentId },
-      select: { manager_user_id: true },
-    })
-    currentId = parent?.manager_user_id ?? null
-  }
-
-  if (ancestorIds.length > 0) {
-    await prisma.user_visibility.deleteMany({
-      where: {
-        tenant_id: tenantId,
-        target_user_id: userId,
-        viewer_user_id: { in: ancestorIds },
-      },
-    })
   }
 }
