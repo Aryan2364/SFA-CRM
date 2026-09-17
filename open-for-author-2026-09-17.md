@@ -421,3 +421,681 @@ rather than edited, because both live in approved sections.
 hierarchy in item 5. The row is correct in general and wrong there. Item 5 has
 the reasoning; this is the note that the row itself needs a carve-out or the
 next sweep re-applies it.
+
+---
+
+# PHASE 2 — the remaining 41 files
+
+Raised 17 Sep 2026 by the phase-2 converting session, during the pre-flight,
+before any file was touched. Every site named here is **left untouched** and the
+worker has moved on. Nothing blocks.
+
+Scope: 957 palette occurrences across 41 files, measured on `main` with §12's
+method. §12 says "the remaining 42 files"; one of its 42 holds no palette class,
+so the 957 is exact and the file count is 41. The classification was cleared by
+the review session (sfacrm-01) on 17 Sep; **conversion was not**, and none of it
+has run.
+
+    957 = 752 straight row conversions
+        +   6 §11.5 manual (conversations/page.tsx only)
+        + 199 deferred, on 94 lines
+
+The deferral registry is `scripts/migrate/sites-phase2.py` — deliberately a
+separate file from phase 1's `sites.py`, which is not edited from here. It
+validates against `main`: every protected occurrence exists at its line, every
+`white` line carries a `text-white`, every `exceptions` line carries a grey text
+shade, and the three counts above reconcile to 957 with nothing left over.
+
+### What has been proved before conversion, and what has not
+
+The whole phase was run as a **dry run** in a scratch tree staged from `main` via
+`git cat-file blob` and written out as CRLF, which is what a fresh worktree under
+`core.autocrlf=true` produces. Three results:
+
+1. **The registry is complete.** `tokens.py` raised `Unmapped` on **nothing**.
+   No occurrence in the 41 is left for the engine to guess at — which is the
+   property that matters, because the engine stopping is the only thing between
+   a missing row and a silently wrong token. 752 mapped by row, 6 applied by
+   hand, 199 left raw.
+2. **§11.8's exit check passes on all 41** — every protected site byte-identical
+   to its pre-phase blob, no palette class outside the declared groups, and
+   line-for-line with the blob with line endings normalised. Residue **199**,
+   exactly as declared.
+3. **No set in these 41 files is half-converted**, and the extent of every set
+   was **derived, not declared**. Phase 1's `scripts/migrate/literals.py` walks
+   the source for the enclosing object/array literal of each palette line; armed
+   against this registry it finds **23 literals holding 65 palette lines, and
+   every one is uniform** — wholly deferred or wholly converted. Zero mixed, so
+   nothing in phase 2 needs a `mixed_ok` acknowledgement. That includes every
+   set this document argues about: `StatusBadge`'s nine entries (literal 1–11),
+   `usage-intelligence`'s five (16–22), `ToastContext`'s four (10–15),
+   `Header`'s three (26–30), `lead-temperatures`' three (9–13) plus its fallback,
+   `conversations`' three (40–44), `masters/page`'s four cards (7–41, 42–67,
+   68–93, 94–119) and `points`' four-branch medal ternary (187–192).
+
+   **Zero mixed literals is a weaker claim than it sounds, and should be read
+   narrowly.** It says every set is internally *consistent* — no literal is half
+   in tokens and half raw. It says nothing about whether any of them is
+   *correctly disposed*. `StatusBadge`'s literal is uniform because all nine
+   entries are deferred; whether it should be deferred at all is **P1**, still
+   open. Uniformity is a property of the registry. Correctness is still the
+   eleven items below. This is §15's *"coverage can be derived; disposition
+   cannot"* observed from phase 2's side: the walker removed the whole class of
+   miss where a set is half-converted, and moved none of the eleven.
+
+   Two by-products of deriving rather than declaring, both of which would
+   otherwise have been typed and could therefore have been typed wrong:
+   **`masters/page`'s unit is each card object, not the `SECTIONS` array** —
+   which is the right granularity for P4 — and **`dealers:187–208` is one
+   literal containing all three of P7's sibling lines**, so "those three are one
+   control" stops being an argument and becomes a derivation.
+
+**What none of that proves is that the mapping is right — and §15 is now the
+statement of why.** The registry check verifies that the engine raises
+`Unmapped` on nothing; §15: *"None of them can see a row applied where it does
+not belong… A wrong token is indistinguishable from a right one to every check
+this phase owns."* That argument is not restated here, because §15 makes it
+better and from five defects' worth of evidence rather than from one phase's
+dry run. Two consequences specific to phase 2:
+
+- **The three results above are all completeness results.** Nothing in them
+  reaches disposition. §15's corollary is the exact line: *"Coverage can be
+  derived; disposition cannot."* The literal walker is the derived-coverage half
+  and the eleven items below are the half it cannot do.
+- **§15 says the open items are "this phase's real output, not its leftovers."**
+  That is why they are worth answering before 37 commits land, and the cost
+  asymmetry is one-sided: re-running the dry run is cheap now that it exists,
+  re-doing 37 commits is not, and P1, P4 and P8 could each change which sites
+  are protected.
+
+*(First attempt at result 3 passed vacuously — it was run against the dry run's
+**output**, where the converted lines hold no palette class any more, so "mixed"
+could never be observed. That is the failure `literals.py`'s own docstring names:
+"its incompleteness looks identical to success." It now stages pristine content
+and asserts 957 palette classes are present before it will report a verdict.)*
+
+Two things phase 1 never had to weigh, and both changed how this was read:
+
+- **Nine of the 41 are shared components** (`CrudPage`, `SearchableSelect`,
+  `StatusBadge`, `Modal`, `Header`, `Sidebar`, `Toggle`, `CalendarPicker`,
+  `RemarksPanel`) plus `contexts/ToastContext`. A wrong token in one renders on
+  every screen, not one, so those were read ahead of the per-file counts. Six
+  of the nine open items below are in them.
+- **Phase 2 is a colour pass and consolidates nothing.** Several of these files
+  duplicate each other and several duplicate a kit component (§14). That is a
+  different job and is not attempted here. But it is *why* four of these items
+  cannot be answered as colour questions: the duplicate has to be resolved
+  before the colour can be.
+
+§11.6 G3 (`accent-` on a status family) and G5 (coloured shadows) **do not
+recur** — there is no `accent-` and no `shadow-` palette class anywhere in the
+41. Prefixes present: `text` 488, `bg` 239, `border` 158, `ring` 69, `from` 1,
+`to` 1, `divide` 1.
+
+---
+
+## P1. `components/ui/StatusBadge.tsx` — one status vocabulary, seven entries with tokens and two without
+
+**Status: OPEN. All 20 occurrences left raw, in full. 10 lines.**
+
+```
+:2   Draft:               'bg-gray-100 text-gray-600'      -> surface-control / secondary
+:3   Submitted:           'bg-blue-100 text-blue-700'      -> primary-subtle / primary
+:4   Approved:            'bg-green-100 text-green-700'    -> success-bg / success
+:5   Rejected:            'bg-red-100 text-red-700'        -> danger-bg / danger
+:6   'On Hold':           'bg-yellow-100 text-yellow-700'  -> warning-bg / warning
+:7   'Edited by Manager': 'bg-purple-100 text-purple-700'  -> NO ROW
+:8   Resubmitted:         'bg-indigo-100 text-indigo-700'  -> NO ROW
+:9   Active:              'bg-green-100 text-green-700'    -> success-bg / success
+:10  Inactive:            'bg-red-100 text-red-700'        -> danger-bg / danger
+:15  fallback             'bg-gray-100 text-gray-600'      -> surface-control / secondary
+```
+
+The two without a row are **already deferred by name elsewhere, at sites these
+groups do not list**:
+
+- `:7` is **§11.6 E's own element**. E names `(protected)/page.tsx:93` for the
+  "Edited by Manager" chip and describes it as *"a weekly-plan status, one of
+  seven; §2.4 has no token for it"*. This is that chip in the shared component
+  every screen actually renders it through.
+- `:8` is **§11.6 F's** `bg-indigo-100 text-indigo-700`, which F does name here.
+  It is also E's gap restated: "Resubmitted" is an eighth weekly-plan state, and
+  §2.4 has three roles.
+
+**The question is not what the two become.** It is whether the other seven move
+without them. Converting seven leaves one shared, app-wide status vocabulary
+half in tokens and half in raw palette — and unlike the phase-1 analogues, this
+map is not local to a screen. §11.6 C's argument is the closest precedent
+("settled… together, because the two maps must not diverge"), and `sites.py`
+implements C at line level for exactly that reason. But C's sites were two
+copies of one map; this is one map with a hole in it, which C does not address.
+
+A coherence judgement, not a row lookup. Both readings are defensible and
+whichever is taken should be written down, because the same shape is waiting in
+`lead-temperatures` (P5) and `ToastContext`.
+
+**Phase 1 has already answered this shape once, and the answer was "the set goes
+raw whole".** `leads/page.tsx:11–18`, `STAGE_COLORS`, is a six-step lead pipeline
+in which `:14` and `:15` were already raw under §11.6 F. `sites.py`'s own note on
+it:
+
+> *"Converting it flattened Proposal (`bg-amber-50`) and Negotiation
+> (`bg-orange-50`) onto one identical `bg-warning-bg text-warning` — two of six
+> stages rendering the same chip. `:14` and `:15` were already raw under F, so
+> the map was four tokens and two raw with two of the four colliding. The set
+> goes raw whole."*
+
+That is this item's argument, arrived at independently, on a map with the same
+defect structure — some entries tokenised, some deferred by F, and the tokenised
+ones colliding with each other. It is **not** binding here: `STAGE_COLORS` had a
+collision among its converted entries and `StatusBadge` does not, so the
+precedent covers the stronger case and leaves the weaker one open. But it is the
+closest thing to a decided instance, it was cleared rather than reverted under
+protest, and it points at taking the whole map.
+
+`StatusBadge` differs from it in one way that cuts the other direction and should
+be weighed: `STAGE_COLORS` is local to one screen, and `StatusBadge` is the
+component every screen renders a weekly-plan state through, so leaving it whole
+leaves 20 palette classes in the residue of a shared component rather than of a
+page.
+
+---
+
+## P2. `components/ui/Sidebar.tsx` — the dark green shell, 20 occurrences, and §11.4's rows reach every one
+
+**Status: DECIDED by the review session against the documents — all 20 defer,
+not one converts. Recorded here because it is the largest single deferral in
+phase 2 and because the *question underneath it* is still open.**
+
+```
+:179  bg-green-900  border-green-800     the aside itself
+:185  bg-green-700                       logo tile
+:186  text-white                           its icon
+:191  text-white                         "RGB SFA"
+:192  text-green-300                     tenant name
+:199  text-green-500                     "Navigation" section label
+:205  bg-green-700  text-white           active nav item
+:206  text-green-100  hover:bg-green-800  hover:text-white   resting nav item
+:209  text-white / text-green-400        the item icon, both states
+:217  border-green-800                   footer divider
+:220  text-white                         user name
+:221  text-green-300                     user phone
+:223  text-green-300  hover:text-red-400  hover:bg-red-900/30   logout
+```
+
+Converted mechanically, §11.4 sends all of it to success and danger: the sidebar
+becomes a `#dcfce7` near-white panel with `#166534` text, and the active item
+renders white on near-white. Three documents settle that it must not:
+
+1. **§11.4's own preamble** — *"Every call site still has to be read for whether
+   it meant the status at all."* A dark green shell is not Approved and a red
+   logout hover is not Rejected. The row disclaims itself here.
+2. **AGENTS.md §12.1** — *"Active item: `primary-subtle` background, body strong
+   weight, and a 3px accent bar in `primary` on its left edge."* And
+   `globals.css:167` sets `--sidebar: var(--surface)`. **The kit's sidebar is a
+   light surface; this product's is a dark green shell.**
+3. **§6's phase plan** — §12's sidebar belongs to **Phase 5**, which is blocked
+   on §4 item 6 (whether `components/shell` is built here or inherited).
+
+**What is open is not the deferral, it is the hole.** This is **not** §11.6 B. B
+is the dark *neutral* hole — `bg-gray-900`/`800` fills with no dark surface
+token — and B's sites have **no row at all**, which is why they are safe. These
+have rows, and the rows are wrong. It is the same hole in another family, and it
+is the one place in the product where a §11.4 row would destroy a whole screen
+rather than one element. B asks the kit for a dark surface token *or* a rule that
+dark fills are outside the system; this asks the same question about a brand-ish
+surface that is not the brand — the product's `--primary` is indigo `#3d3a6e`,
+so the sidebar green is an orphan.
+
+Same reasoning attaches **`components/ui/Header.tsx:103`**, the notification
+bell's unread count (`bg-red-500 text-white`, which §11.4 would render at
+1.22:1). AGENTS.md §12.2 — *"Notification bell with unread dot in `primary`"* —
+settles it outright, but that changes a rendered colour from red to indigo and
+§12.2 is the shell. Phase 5's, with the sidebar.
+
+---
+
+## P3. `components/ui/Header.tsx:26–29` — a second copy of §11.5's own map, reordered and rekeyed
+
+**Status: OPEN. 6 occurrences left raw. The review session instructed that it
+must not be mapped by declaration order; what it becomes instead is yours.**
+
+```
+Header.tsx:26-29                       conversations/page.tsx:40-43   (§11.5's named site)
+  weekly_plan:  purple    -> chart-1     meeting:          blue    -> chart-1
+  meeting:      blue      -> chart-2     expense:          orange  -> chart-2
+  expense:      orange    -> chart-3     weekly_plan_day:  purple  -> chart-3
+```
+
+§11.5: *"The assignment is by §21 position and is not to be reordered. Position 1
+before position 2, and so on, **in the order the categories are declared**. A
+category that changes colour because somebody re-sorted a map is the failure
+this is meant to prevent."*
+
+Mapping this copy by its own declaration order produces **exactly that failure**:
+a meeting is chart-1 in the conversations list and chart-2 in the header, and the
+weekly-plan chip swaps with it. The rule that protects the named site destroys
+the unnamed one.
+
+**The two copies disagree on the keys as well as the order** — `weekly_plan`
+here, `weekly_plan_day` there. Two copies of one map that differ in both is §4
+rule 2 before it is a colour question, and it is the same shape as §11.6 D's two
+avatar implementations: *"the same person is a different colour in the remarks
+panel than in the org chart"*, here *the same activity type is a different colour
+in the header than in the list*. D's answer was one component, one key, then a
+palette. The parallel answer here would be one map, imported twice — at which
+point §11.5's named site covers both and this item disappears.
+
+---
+
+## P4. `masters/page.tsx` — §11.5 assigns 8 of these 16 and is silent on the other 8
+
+**Status: OPEN. A gap in an APPROVED section, so not a phase-2 call. All 16 left
+raw across 12 lines.**
+
+§11.5's table: *"Masters section cards, `masters/page.tsx:10-12, 45-47, 71-73,
+97-99` — 4, fixed in code — sections 1–4 → `bg-chart-1` … `bg-chart-4`, in
+declaration order."* Its closing line: *"The chip foreground on each takes
+`text-primary-foreground`."*
+
+**These cards have no chip.** Each is four classes in three roles:
+
+```
+:10  color:     'border-blue-200 bg-blue-50/40'    a card border + a 40%-alpha ground
+:11  headerBg:  'bg-blue-50'                       a header band
+:12  iconColor: 'text-blue-600'                    an icon stroke
+```
+
+§11.5's `bg-chart-N` reaches the two `bg-` halves of each card — 8 of the 16.
+The **4 `border-*-200` and 4 `text-*-600` have no target**: there is no
+`border-chart-N`, `text-primary-foreground` is not an icon stroke on a pale card,
+and converting the `bg-` halves alone splits every one of the four cards.
+
+Two further facts worth having before answering:
+
+- `bg-chart-N` is a **saturated** colour. `bg-blue-50/40` is a 4%-ish tint;
+  `bg-chart-1/40` is indigo at 40%. The alpha suffix survives conversion, so
+  these four card grounds become strong tints, not pale ones — a visible change
+  that §11's three declared changes do not describe. (§11.5's chip conversions
+  *are* declared; these are not chips.)
+- **§11.5's headline of 30 is 22 with a target and 8 without.** The 30
+  reconciles exactly — `conversations` 6 + `orders:518/:711` 8 + `masters` 16 —
+  so the count is right and the coverage is not.
+
+`conversations/page.tsx:41–43` is unaffected and **is** being converted, by hand,
+as §11.5's manual case: it has real chips with real foregrounds, so the closing
+line lands. The purple on `:43` also has no row at all, which means the engine
+stops there rather than guessing — the safety net working as designed.
+
+---
+
+## P5. `masters/lead-temperatures/page.tsx:9–12` — an ordered scale that is also master data
+
+**Status: OPEN. 8 occurrences left raw across 4 lines. Added by the converting
+session; not instructed, and flagged as such.**
+
+```
+const TEMP_COLORS = { Cold: 'bg-blue-50 text-blue-700',
+                      Warm: 'bg-amber-50 text-amber-700',
+                      Hot:  'bg-red-50 text-red-700' }
+:18  const cls = TEMP_COLORS[v] ?? 'bg-gray-100 text-gray-600'
+```
+
+Two of §11.6's existing arguments both reach it, and they point the same way:
+
+- **§11.6 C.** `lead_temperatures` is master data with its own CRUD page — *this
+  very file*. C's words: *"the real set is whatever an administrator has
+  created… a seventh category falls to the grey fallback silently today. §21
+  caps at six and answers a seventh by grouping the smallest into 'Other', which
+  is a decision about the data and cannot be made by a colour map."* The `??`
+  fallback on `:18` is that exact mechanism.
+- **§11.6 G2.** It passes §11.5's stated test (categories fixed in code) without
+  being one of §11.5's three named sites — the identical position G2 records for
+  `review:345`'s `typeColor`: *"Adding it is a §11.5 decision, not a phase-1
+  one."*
+
+And converted under the rows as they stand, **Cold renders in brand indigo**
+(`bg-blue-50` → `primary-subtle`, `text-blue-700` → `text-primary`) in the middle
+of a Cold/Warm/Hot ramp — a scale whose first step is the brand and whose other
+two are warning and danger.
+
+**This is not hypothetical: the identical map exists twice, and phase 1 has
+already converted the other copy.** `leads/page.tsx:20–23` declares the same
+three keys with byte-identical class strings:
+
+```
+lead-temperatures/page.tsx:10-12        leads/page.tsx:21-23
+  Cold: 'bg-blue-50 text-blue-700'        Cold: 'bg-blue-50 text-blue-700'
+  Warm: 'bg-amber-50 text-amber-700'      Warm: 'bg-amber-50 text-amber-700'
+  Hot:  'bg-red-50 text-red-700'          Hot:  'bg-red-50 text-red-700'
+```
+
+`leads` is a phase-1 file and `sites.py`'s `LD` entry protects `:12–:17`
+(`STAGE_COLORS`), `:14`/`:15` (F), `:29` (E) and `:152` (§11.9) — **`:20–23` is
+in none of them**, so `Cold` is brand indigo on a shipped screen today. Verified
+against `main` and against `sites.py` directly, not inferred. Routed to phase 1
+by the review session as a defect on this reasoning.
+
+**Which makes this §11.6 C's shape twice over.** C's operative sentence is
+*"settled… together, because the two maps must not diverge"* — and these are two
+copies of one master-data-backed map in two files, exactly as C's own two
+`CATEGORY_COLORS` copies were. Whatever `TEMP_COLORS` becomes, it has to become
+it in both places or the same lead temperature renders one colour in the leads
+list and another in its own master screen. **The single-file version of this item
+understates it; the answer has to cover both copies, and §4 rule 2 says there
+should only be one.**
+
+---
+
+## P6. `points/page.tsx:187–191` — the rank medals are ordinal, and no row is
+
+**Status: OPEN. 8 occurrences left raw across 4 lines.**
+
+```
+entry.rank === 1 ? 'bg-yellow-400 text-white' :
+entry.rank === 2 ? 'bg-gray-300 text-gray-700' :
+entry.rank === 3 ? 'bg-orange-400 text-white' :
+                   'bg-gray-100 text-gray-500'
+```
+
+Gold, silver, bronze, rest — rendered behind 🥇🥈🥉. The colour carries **rank
+order**: not status (nothing is approved or overdue), not category (the four are
+ordered, not parallel), and not magnitude (§21's ramp is for a measure across a
+range, and rank 1 is not "more" of anything). §11 has rows for status, brand,
+neutral and categorical, and **ordinal is a fifth kind it does not have.**
+
+Converted, §11.4 puts gold and bronze on `warning-bg` — **the same token, so
+first and third place become indistinguishable** — under `text-white` at 1.11:1,
+while silver and fourth place both land on the neutral scale. Four ranks render
+as two colours, one of them invisible.
+
+**The collapse half of that is a defect phase 1 has already found and fixed, and
+this is its only recurrence in the 41.** `bg-yellow-400` and `bg-orange-400` are
+distinct categories that §11.4's warning family maps to one token — the same
+failure `sites.py` records at `leads/page.tsx:16`/`:17`, where *"Proposal
+(`bg-amber-50`) and Negotiation (`bg-orange-50`)"* flattened *"onto one identical
+`bg-warning-bg text-warning` — two of six stages rendering the same chip."*
+§11.4 collapses three hues into `warning` (amber + yellow + orange) and two into
+`success` (green + emerald), so **any set that distinguishes two members of one
+family loses that distinction on conversion.** Worth stating as a general
+property of §11.4's rows rather than as two incidents: the rows are correct for
+a single status and lossy for a set. I swept the 41 for it — `points:188`/`:190`
+is the only other instance; every other multi-entry set in these files draws one
+member per family.
+
+One element, four states, four lines. Line-level in full per the ternary rule.
+
+Related and in the same file: **`:93–96`**, the Total Points gradient card,
+`from-yellow-400 to-orange-500`. A straight **§11.6 G4** recurrence — §11 has no
+gradient row and §2 is flat fills — with one addition G4 did not have to handle:
+`:94` and `:96` are **`text-yellow-100` sitting on that gradient**. They *do*
+have a row (`text-warning`), and their ground does not. Deferred together, on
+§11.6 B's stated reasoning that a fill and the text on it are one decision.
+
+---
+
+## P7. `masters/dealers/page.tsx:191, :197, :202` — sibling buttons that would split
+
+**Status: OPEN. 16 occurrences left raw across 4 lines (`:224` is the file's
+§11.9 line and is separate).**
+
+```
+:191  !showUnassigned ? 'bg-gray-800 text-white'   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+:197   showUnassigned ? 'bg-amber-500 text-white'  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+:202   showUnassigned ? 'bg-white/20 text-white'   : 'bg-amber-100 text-amber-700'
+```
+
+Two buttons of one segmented filter — "All (n)" and "Unassigned (n)" — with
+identical resting styles and differently-coloured active fills.
+
+- `:191`'s active fill is `bg-gray-800`, a **§11.6 B** site: no row, deferred.
+- `:197`'s active fill is `bg-amber-500`, which **§11.4's closing rule reaches**:
+  a saturated status colour that is a filled button, not a badge ground, takes
+  `bg-<role>` — and `--warning` exists.
+
+So the mechanical answer converts one of two siblings and leaves its neighbour
+raw. **Global rule 1: "Treat parallel items identically — sibling tabs/rows/
+buttons get the same style."** §4 rule 2 is the same point structurally. This is
+the ternary-split shape one level up: not two branches of one element, but two
+elements that are peers, and §11.6's line-level rule does not reach across lines.
+
+`:202` adds a third thing the rows do not scope: **`bg-white/20`** is a
+translucent pill *on* the amber fill, not a surface. §11.1's `bg-white` row is
+unconditional and would give `bg-surface/20`, which is only legible while its
+ground stays amber — so it is tied to `:197`'s answer, not independent of it.
+
+---
+
+## P8. §11.6 G6's principle is sound and its DERIVATION is incomplete — two more rows reach the same failure
+
+**Status: OPEN, and the only item here with a live defect on a converted
+screen.** G6 is ratified and nothing below asks to reopen it. What is wrong is
+its coverage, not its argument.
+
+G6 was reasoned from **§11.4's background row alone**: *"§11.4's rows carry a
+role — text, background, border — and the background role was measured against a
+badge ground, where the token sits behind dark text and the text carries the
+signal… Where the shape IS the signal — a dot, a stripe, a bar, a legend swatch —
+the same token has nothing left."* That is right, and the shapes it names are the
+right shapes. But the failure is a property of **any pale token under a
+shape-carrying element**, and two other rows deliver one:
+
+| Row | Renders today | on white | Becomes | on white |
+|---|---|---|---|---|
+| §11.1 neutrals | `bg-gray-300` `#d1d5db` | **1.47:1** | `surface-control` `#f5f5f5` | **1.09:1** |
+| §11.1 neutrals | `bg-gray-200` `#e5e7eb` | 1.24:1 | `surface-control` `#f5f5f5` | **1.09:1** |
+| §11.4 background, **300-level** | `bg-red-300` `#fca5a5` | **1.90:1** | `danger-bg` `#fee2e2` | **1.22:1** |
+| §11.4 background (G6's own) | `bg-green-500` `#22c55e` | 2.28:1 | `success-bg` `#dcfce7` | 1.10:1 |
+
+Computed with the WCAG relative-luminance formula; the method reproduces G6's
+own three published figures exactly (`success-bg` 1.10:1 on `surface` and 1.01:1
+on `surface-control`, `warning-bg` 1.11:1 on `surface`), which is how I know it
+agrees with whatever G6 used.
+
+**The live instance, in a phase-1 file already converted:**
+`companies/[id]:268–273` is the Engagement Breakdown stacked bar and `:281–287`
+its legend — **one set of five classifications, declared twice**:
+
+```
+actively_using  bg-emerald-400   <- G6 protected
+passive         bg-amber-400     <- G6 protected
+low_usage       bg-blue-400      <- G6 protected
+dormant_enabled bg-gray-300      -> bg-surface-control  #f5f5f5   CONVERTED
+not_using       bg-red-300       -> bg-danger-bg        #fee2e2   CONVERTED
+```
+
+G6 caught three of five and missed two, and it missed them **because of where
+they arrive from**: the two it missed come through §11.1's neutral row and
+§11.4's 300-level background row rather than the saturated-fill path G6 was
+derived against. Two of five segments of an `h-4` bar, and two of five 10px
+legend dots, are now near-white on a white card. `sites.py`'s note on the site
+reads *"legend dots, 3 categories fixed in code"* — **the code declares five**,
+which is the same undercount from the other end.
+
+**Phase 2's three switch tracks are the same defect, found from the opposite
+direction** — `Toggle.tsx:15`, `settings/points:183`, `companies/page:117`, where
+`bg-gray-300` → `surface-control` makes the OFF state of every switch in the
+product disappear, and on two of the three `bg-green-500` → `success-bg` takes
+the ON state with it. So does `CalendarPicker:148`, the "No activity" legend
+swatch (`bg-gray-200`). Those are deferred here. The `companies/[id]` pair is
+not, and is with phase 1.
+
+**And the gap survived the fix, which is the strongest argument in this item.**
+*Reported by the review session, 17 Sep; not verified by this session, which is
+barred from reading phase 1's branch.* Phase 1's revert of the `companies/[id]`
+site was applied to the lines that had been **named** rather than to a diff of
+the whole literal, and took three of the four converted segments — the bar's two
+and the legend's `not_using`. **The legend's `dormant_enabled` at `:285` was
+left as `bg-surface-control`**, so the bar segment renders `bg-gray-300` while
+its own legend key renders near-white: a legend that does not match the thing it
+labels, which is a worse state than before the revert. It was found by diffing
+the literal after a line citation in this item was corrected from `:283–287` to
+`:285`/`:286`. *Also reported and not verified here: `:285` has since been
+corrected to `bg-gray-300` in the working tree, uncommitted, as a one-line
+content change.*
+
+That is the same undercount a fourth time — in §11.4's row, in G6's derivation,
+in `sites.py`'s *"3 categories fixed in code"* note, and now in the fix. All four
+share one cause: **the set was reasoned about through the sites someone had
+already written down, rather than through the literal in the file.** Which is
+the case for the sentence below being in G6 rather than in a per-site list.
+
+**What is being asked.** Not a token — a sentence in G6 saying the principle is
+role-and-shape, not family-and-shade: *where the shape is the signal, no pale
+token carries it, whichever row delivered it.* Written that way, G6 catches
+`bg-gray-300` under a bar and `bg-red-300` under a dot without anyone having to
+re-derive it per row. Written as it is, it catches the saturated status fills and
+nothing else, and the next person to sweep a stacked bar loses the same two
+segments.
+
+Two things this is deliberately **not**:
+
+- not an argument that `bg-gray-300` → `bg-surface-control` is a wrong row. It is
+  right for a control fill, which is what it was measured for. This is §11.0's
+  and G6's shared point — a token used outside the role it was measured for —
+  arriving through a third door.
+- not a claim that every `bg-gray-300` in the 41 is affected. It is not: the
+  sweep found the three switch tracks and one legend swatch, and the remaining
+  `bg-gray-300` sites are control fills where the row is correct. **The test is
+  the element, not the class**, which is why this is worth one sentence in G6
+  rather than a row change.
+
+---
+
+## P9. Recorded, not open — decided against the documents, no author input needed
+
+Listed so the sections above are not read as the whole of what the pre-flight
+found.
+
+- **§11.6 G grows with phase 2, as §11.6 G itself says it would**: *"G is the ten
+  files only. The remaining 42 files have not been read in context yet and will
+  add to this group as their phases run."* Eight G6-shaped recurrences were
+  placed by the converting session under G6's ratified principle — the shape is
+  the signal, and a background token measured against a badge ground has nothing
+  left. Sites: `Toggle.tsx:15`, `settings/points:183`, `companies/page:117`
+  (three copies of one switch track, where **both** states vanish —
+  `bg-gray-300` 1.47:1 → `surface-control` 1.09:1, and `bg-green-500` 2.28:1 →
+  `success-bg` 1.10:1, both on white); `points:167–168` (a progress bar that is
+  `companies/[id]:251` again to the pixel, 1.01:1); `review/page:143`+`:147` (a
+  two-series legend dot pair that splits one-visible-one-not, exactly
+  `daily-activity:1125`/`:1148`); `CalendarPicker:130`/`:133` (the "has activity"
+  dot in its unselected and selected states) and `:144`/`:148` (its two-item
+  legend). Three of those eight — the switch tracks — and `CalendarPicker:148`
+  arrive through §11.1's *neutral* row rather than §11.4's, which is **P8** and
+  not a footnote to this bullet.
+- **`CalendarPicker:130`/`:133` is the exception to G6's own exception.** G6's
+  closing note exempts `daily-activity:142` and `review/[userId]:102` because
+  `bg-blue-500` → `primary` and `bg-blue-200` → `primary-subtle` read coherently
+  in both states. This is the same element with `bg-emerald-500` in the
+  unselected state, and emerald does not: a 4px dot at `#dcfce7` on white. The
+  note's reasoning does not carry across the family.
+- **`lib/usage-intelligence.ts:17–21`** — `CLASSIFICATION_COLORS`, a five-step
+  ordered scale (actively_using → passive → low_usage → not_using → dormant)
+  that would convert to success / warning / **brand indigo** / danger / neutral.
+  Left and declared, because it also renders **nowhere**: both
+  `CLASSIFICATION_COLORS` and `CLASSIFICATION_LABELS` are exported and imported
+  by nothing, and their consumer was the endpoint `PLAN.md` §13.6 records as
+  dead. CLAUDE.md: dead code is *"preserved deliberately rather than 'fixed'…
+  Do not treat their failures as regressions."*
+  **It is the third copy of that palette, and the three disagree.** The same five
+  classifications are declared at `companies/[id]:269–273` and again at `:282–286`
+  (P8's live instance) at the 300/400 level, and here at the 50 level:
+  `bg-emerald-50` against `bg-emerald-400`, `bg-red-50` against `bg-red-300`, and
+  so on. So whoever settles P8's bar settles the shades for a set that exists in
+  two files and three literals — §4 rule 2 again, and worth knowing before the
+  bar is fixed in isolation.
+- **`contexts/ToastContext.tsx:39`**, `bg-black/5` on an `h-1` progress track —
+  already named in §11.6 G and in §11.1's addendum as the reason the `bg-black`
+  row is scoped to dialog, alert-dialog and sheet backdrops only. Unchanged.
+  Lines `:11–:14` defer as well, on two grounds at once: §11.9 (`btn:` collapses
+  to one token) and G6 (`bar:` is an `h-1` progress bar of `bg-*-500` on a
+  `bg-*-50` ground, so `danger-bg` on `danger-bg`).
+- **The four remaining `bg-black` sites in these files are in scope and convert**
+  — `login:124` (forgot-password modal scrim), `RemarksPanel:133` (panel scrim),
+  `Modal:19`, `(protected)/layout:43` (mobile sidebar scrim). All are dialog or
+  sheet backdrops, which is what §11.1's addendum scopes the row to. For the
+  arithmetic: §11.7's "19 mapped as backdrops" is the ten files' 19 exactly, so
+  these four sit **beside** that figure rather than inside it, and
+  `ToastContext:39` adds one to its UNMAPPED 29. No decision, just a count that
+  moves.
+- **The CRLF/LF split phase 2 leaves in the working tree means nothing, and must
+  not be "fixed".** Recorded once, here, so it is not read as a defect later.
+  Every blob on `main` is LF-only — measured with `git cat-file blob` on all 41,
+  zero CR bytes — because `core.autocrlf=true` and `.gitattributes` says nothing
+  about `*.tsx`. But `tokens.py` reads with universal newlines and writes with
+  `newline=''`, so **a CRLF file goes in and an LF file comes out**. A fresh
+  worktree checks all 41 out as CRLF, so after phase 2 every converted file is
+  LF on disk and every fully-deferred file is still CRLF. Harmless, and tested
+  rather than assumed: the engine over an LF blob with every line protected
+  returns it byte-identical, and since the blobs are already LF the rewrite
+  produces no `git diff` and cannot move a line count, so §11.8's line-for-line
+  check is unaffected. **Normalising line endings in a colour phase would be
+  exactly the structure-moved change §11.8 forbids**, and would put every line
+  of 24 files into a diff whose whole purpose is to be readable — so if it is
+  ever proposed it is routed, not done. The exit check compares each converted
+  file to its pre-phase blob **with line endings normalised**, so the rewrite
+  neither masks a real structural change nor is mistaken for one.
+  *Method note, because it cost both sessions a wrong conclusion:* `grep -c
+  $'\r'` does **not** count CRs — it counts matching lines, and in Git Bash
+  `$'\r'` does not reliably expand, so the pattern silently becomes empty,
+  matches every line, and returns the file's line count as a believable wrong
+  answer. Both sessions reported line counts as CR counts before it was caught.
+  Count bytes in Python against `git cat-file blob` — **not** `git show
+  rev:path`, which applies working-tree conversion and would have hidden it.
+- **`components/ui/SearchableSelect.tsx:70` is NOT an §11.9 line**, and the
+  review session conceded it after listing it. `hover:bg-blue-50` and the
+  selected branch's `bg-blue-50` are the **same class**, so the dead hover is
+  pre-existing — which §11.9 excludes by name — and conversion preserves it
+  exactly. The unselected option's real hover also survives unchanged.
+
+---
+
+## P10. Two corrections to approved text, neither changing an outcome
+
+Raised because an approved section stating a wrong reason is a thing the next
+reader will rely on.
+
+1. **§11.2 files `points/page.tsx:84` under "Prices and quantities".** The line
+   is a period-filter segmented tab:
+   `${period === p.value ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`.
+   Not a price, not a quantity. The **exception's outcome still holds** —
+   AGENTS.md §33.3 puts resting tabs at `text-secondary` — but the reason is
+   wrong, and the exception is what *creates* an §11.9 collision here (promoting
+   the resting half to secondary lands it on `hover:text-gray-700`'s token).
+   That is the `daily-activity:1536` shape, and it is item 4 of the 17 Sep list
+   recurring in phase 2. Two more in the same list are mis-bucketed without
+   changing anything: `settings/points:119` is filed under prices and is a helper
+   line (*"How often the leaderboard and totals reset"*) — §2.3 lists helpers as
+   a legitimate `text-muted` use, so this one arguably should not be an exception
+   at all; and `BusinessPartnerForm:306` is filed under statuses and is a section
+   label reading the words "Lead Status".
+2. **`analyse.py`'s §11.9 detector cannot see a template literal's static
+   part.** Its `SEG` regex matches `'…'` and `"…"` only, so a class written
+   outside the `${…}` — `` `… hover:bg-blue-50 ${cond ? 'a' : 'b'}` `` — is
+   invisible to it. It costs nothing on these 41 (a whole-line pass adds no
+   lines), but **`daily-activity:217` is exactly that shape** and is open item 3,
+   so the tool cannot check the site the open question is about. A whole-line
+   pass is kept alongside the segment pass in phase 2.
+
+---
+
+## P11. Verified against the plan and found correct — reported so they are not re-checked
+
+- **§11.5's "30 occurrences" is exact**: `conversations:41–43` 6 +
+  `orders:518`/`:711` 8 + `masters/page` 16.
+- **§11.7's "67 white/black in the ten files" is right**, once read as *"with no
+  row"*: `text-white` 48 + `bg-black` 19 = 67, `bg-white`'s 97 excluded because
+  §11.1 already gave it a row. 61 mapped / 6 UNMAPPED follows. The same
+  accounting on the 41 gives 43 with no row — `text-white` 38 + `bg-black` 5 —
+  of which 21 are deferred with their grounds.
+- **§11.7's structural facts reproduce on `main`** at the start of phase 2:
+  white/black 247 (`bg-white` 137, `text-white` 86, `bg-black` 24), families
+  2,445, the ten phase-1 files 1,735, these 41 files 957 — which is §12's stated
+  957 to the occurrence.
+- **Every §11.6 A–G and §11.9 line number that falls in these 41 lands where the
+  plan says it does**, checked individually against `main`: B's seven sites, D at
+  `RemarksPanel:41`, F at `StatusBadge:8`, G at `ToastContext:39`, §11.5's three
+  named sites, and all seven §11.2 exception lines.
+- **`scripts/migrate/sites.py` ∩ these 41 files is empty**, asserted in code
+  against all ten of its file constants. No phase-1 protected site is reachable
+  from phase 2.
