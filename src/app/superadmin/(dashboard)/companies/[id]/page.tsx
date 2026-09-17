@@ -43,11 +43,11 @@ const STATUS_STYLES = {
 }
 
 const CLS_STYLES: Record<string, string> = {
-  actively_using:  'bg-success-bg text-success border border-success-border',
-  passive:         'bg-warning-bg text-warning border border-warning-border',
-  low_usage:       'bg-primary-subtle text-primary border border-primary-border',
-  not_using:       'bg-danger-bg text-danger border border-danger-border',
-  dormant_enabled: 'bg-surface-control text-text-muted border border-border',
+  actively_using:  'bg-emerald-50 text-emerald-700 border border-emerald-200',
+  passive:         'bg-amber-50 text-amber-700 border border-amber-200',
+  low_usage:       'bg-blue-50 text-blue-700 border border-blue-200',
+  not_using:       'bg-red-50 text-red-600 border border-red-200',
+  dormant_enabled: 'bg-gray-100 text-gray-500 border border-gray-300',
 }
 
 const CLS_LABELS: Record<string, string> = {
@@ -269,8 +269,8 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
                   { key: 'actively_using', count: summary.actively_using,  color: 'bg-emerald-400' },
                   { key: 'passive',        count: summary.passive,          color: 'bg-amber-400'   },
                   { key: 'low_usage',      count: summary.low_usage,        color: 'bg-blue-400'    },
-                  { key: 'dormant_enabled',count: summary.dormant_enabled,  color: 'bg-surface-control'    },
-                  { key: 'not_using',      count: summary.not_using,        color: 'bg-danger-bg'     },
+                  { key: 'dormant_enabled',count: summary.dormant_enabled,  color: 'bg-gray-300'    },
+                  { key: 'not_using',      count: summary.not_using,        color: 'bg-red-300'     },
                 ].filter(s => s.count > 0).map(s => (
                   <div key={s.key} className={`${s.color} transition-all`}
                     style={{ width: `${(s.count / summary.total_users) * 100}%` }}
@@ -283,7 +283,7 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
                   { key: 'passive',        color: 'bg-amber-400'   },
                   { key: 'low_usage',      color: 'bg-blue-400'    },
                   { key: 'dormant_enabled',color: 'bg-surface-control'    },
-                  { key: 'not_using',      color: 'bg-danger-bg'     },
+                  { key: 'not_using',      color: 'bg-red-300'     },
                 ].map(s => (
                   <div key={s.key} className="flex items-center gap-1.5">
                     <div className={`w-2.5 h-2.5 rounded-full ${s.color}`} />

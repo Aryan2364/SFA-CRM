@@ -9,12 +9,12 @@ import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/Busin
 import { useToast } from '@/contexts/ToastContext'
 
 const STAGE_COLORS: Record<string, string> = {
-  Prospect:    'bg-surface-control text-text-secondary',
-  Contacted:   'bg-primary-subtle text-primary',
+  Prospect:    'bg-gray-100 text-gray-600',
+  Contacted:   'bg-blue-50 text-blue-700',
   Interested:  'bg-cyan-50 text-cyan-700',
   Qualified:   'bg-indigo-50 text-indigo-700',
-  Proposal:    'bg-warning-bg text-warning',
-  Negotiation: 'bg-warning-bg text-warning',
+  Proposal:    'bg-amber-50 text-amber-700',
+  Negotiation: 'bg-orange-50 text-orange-700',
 }
 
 const TEMP_COLORS: Record<string, string> = {

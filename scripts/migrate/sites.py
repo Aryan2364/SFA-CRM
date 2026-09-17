@@ -115,9 +115,23 @@ SITES[CO] = dict(
         (269, 'bg-emerald-400'), (270, 'bg-amber-400'), (271, 'bg-blue-400'),
         (282, 'bg-emerald-400'), (283, 'bg-amber-400'), (284, 'bg-blue-400'),
     ],
+    # G6, corrected after the end-of-phase pass: the stacked usage bar and its
+    # legend are ONE five-segment set and the first sweep took three of five.
+    # bg-gray-300 and bg-red-300 sit in 11.1 and 11.4 rows, so they converted
+    # to surface-control #f5f5f5 and danger-bg #fee2e2 -- both near-white on a
+    # white card, leaving two of five segments with no visible presence and two
+    # legend dots blank. Exactly G6's own stated failure, in an array literal
+    # rather than a ternary.
     protect_lines=[
         # B: the dark-surface hole. bg-gray-900 fill, its text-white foreground
         # and its hover:bg-gray-800 are all one deferred element.
+        # 46-50: CLASSIFICATION set, open-for-author. A five-step ORDINAL
+        # usage scale, and its live twin in lib/usage-intelligence.ts:17-21 is
+        # deferred by phase 2 -- 11.6 C's "the two maps must not diverge"
+        # applies across phases as well as within one.
+        46, 47, 48, 49, 50,
+        # 272-273 and 286-287: the two missed segments of the G6 usage bar
+        272, 273, 286, 287,
         683, 722,
         # Section 11.9. :553 warning fill and :672 a text pair; :585 is the
         # 11.2-created collision -- the exception promotes text-gray-500 to
@@ -246,6 +260,12 @@ SITES[DB] = dict(
 SITES[US] = dict(
     protect=[],
     protect_lines=[
+        # 26-31: ACTION_COLORS. open-for-author. created (bg-green-100) and
+        # reactivated (bg-emerald-100) both became 'bg-success-bg text-success'
+        # -- two distinct audit actions, one chip. 11.4 routes green and
+        # emerald to one role, which is right for a status and wrong for a set
+        # that used the two shades to separate two categories.
+        27, 28, 29, 30, 31,
         324,                    # B: bg-gray-900 fill and its text-white
         252, 261, 440, 500,     # 11.9
     ],
@@ -281,6 +301,13 @@ SITES[TM] = dict(
 SITES[LD] = dict(
     protect=[],
     protect_lines=[
+        # 12-17: STAGE_COLORS, the whole six-step ordered pipeline.
+        # open-for-author. Converting it flattened Proposal (bg-amber-50) and
+        # Negotiation (bg-orange-50) onto one identical 'bg-warning-bg
+        # text-warning' -- two of six stages rendering the same chip. :14 and
+        # :15 were already raw under F, so the map was four tokens and two raw
+        # with two of the four colliding. The set goes raw whole.
+        12, 13, 16, 17,
         14, 15,   # F: the cyan and indigo strays in the lead-status map
         29,       # E: the leads type chip -- every type renders the same
                   # purple, so it separates nothing; decoration, not category

@@ -24,11 +24,11 @@ const ACTION_LABELS: Record<string, string> = {
   name_changed: 'Name changed',
 }
 const ACTION_COLORS: Record<string, string> = {
-  created: 'bg-success-bg text-success',
-  deactivated: 'bg-danger-bg text-danger',
-  reactivated: 'bg-success-bg text-success',
-  role_changed: 'bg-primary-subtle text-primary',
-  name_changed: 'bg-surface-control text-text-secondary',
+  created: 'bg-green-100 text-green-700',
+  deactivated: 'bg-red-100 text-red-700',
+  reactivated: 'bg-emerald-100 text-emerald-700',
+  role_changed: 'bg-blue-100 text-blue-700',
+  name_changed: 'bg-gray-100 text-gray-700',
 }
 
 const COLS: Column[] = [

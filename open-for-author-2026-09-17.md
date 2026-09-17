@@ -285,3 +285,77 @@ are. That argument covers the blue exactly as much as the green.
 
 **All seven left raw.** Whether `accent-blue-600` keeps its §11.3 row when it is
 one level of a categorical hierarchy is an §11 question, not a conversion one.
+
+---
+
+## Item 6 — ordered and categorical sets flattened onto status tokens
+
+Raised 17 Sep 2026 by the review session's end-of-phase pass; reverted and
+recorded by the converting session. **Three sets, all reverted to raw, none
+decided here.**
+
+**The shape is one thing seen three times.** Each is a set whose members use
+*different shades of the same or adjacent hue families to separate categories*.
+§11.4 routes those shades to one role, because for a status that is exactly
+right — `green-100` and `emerald-100` are both "success". For a set that used
+the two shades to mean two different things, it destroys the distinction. This
+is §11.6 G6's argument arriving through a map literal instead of a dot.
+
+### 6a. `leads/page.tsx:12-17` — `STAGE_COLORS`, a six-step ordered pipeline
+
+Prospect → Contacted → Interested → Qualified → Proposal → Negotiation.
+
+**Proposal (`bg-amber-50`) and Negotiation (`bg-orange-50`) both became the
+byte-identical string `'bg-warning-bg text-warning'`** — two of six stages
+rendering as the same chip. `Interested` and `Qualified` are already raw under
+§11.6 F, so the map was four tokens and two raw with two of the four colliding.
+
+§11.5 names this case: "Colour that separates one category from another and
+means nothing in itself has a vocabulary already." Whether an *ordered* pipeline
+is categorical (§21's palette, capped at six — this is exactly six) or ordinal
+(§21's sequential ramp) is the question. **The whole map is raw.**
+
+### 6b. `masters/users/page.tsx:26-31` — `ACTION_COLORS`, an audit-action set
+
+**`created` (`bg-green-100`) and `reactivated` (`bg-emerald-100`) both became
+`'bg-success-bg text-success'`** — two distinct audit actions, one chip. Whole
+map raw.
+
+### 6c. `companies/[id]/page.tsx:46-50` — `CLS_STYLES`, and it diverges from phase 2
+
+A five-step **ordinal** usage scale: actively_using → passive → low_usage →
+not_using → dormant_enabled. Converted to success / warning / primary / danger /
+surface-control — four status roles and the brand, for a scale that measures
+degree rather than state.
+
+**Its live twin is `lib/usage-intelligence.ts:17-21`, which phase 2 deferred**
+on the grounds that it is ordinal and no row fits ordinal. §11.6 C's reason —
+"the two maps must not diverge" — applies across phases as well as within one.
+**Raw, and it must be settled together with phase 2's copy.**
+
+### Also fixed, and it had a home already
+
+`companies/[id]:272-273` and `:286-287` are **not** part of this item. The
+stacked usage bar and its legend are one five-segment set; §11.6 G6 correctly
+took `bg-emerald-400`, `bg-amber-400` and `bg-blue-400` and **missed two**,
+because `bg-gray-300` and `bg-red-300` sit in §11.1 and §11.4 rows the G6 sweep
+did not cross-check. They converted to `surface-control` `#f5f5f5` and
+`danger-bg` `#fee2e2` — both near-white on a white card, so two of five bar
+segments had no visible presence and two legend dots went blank. **Placed in G6
+with their three siblings**, not routed here.
+
+## Item 7 — two plan counts drifted, and one §11.3 row that must not be applied
+
+**Counts.** §11.6 G1 records 20 and measures **22**. §11.9 records 34 lines / 80
+declarations, which counts the *collapsing* declarations only — the residue
+actually left on those lines is **91**, because leaving a line untouched in full
+also strands its non-collapsing classes (mostly `text-white`). Both figures move
+again after item 6's reverts. Neither changes any site's disposition. Recorded
+rather than edited, because both live in approved sections.
+
+**A row that must not be applied.** §11.3 maps `accent-blue-600` →
+`accent-primary`, 2 occurrences, and both are at
+`territory-mapping:320` and `:356` — levels 1 of the four-level checkbox
+hierarchy in item 5. The row is correct in general and wrong there. Item 5 has
+the reasoning; this is the note that the row itself needs a carve-out or the
+next sweep re-applies it.
