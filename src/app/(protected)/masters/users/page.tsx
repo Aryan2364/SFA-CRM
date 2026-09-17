@@ -517,23 +517,36 @@ export default function UsersPage() {
   return (
     <>
       {/*
-        OVERNIGHT: /masters/users is not in the sidebar, so the link up to Masters is the only route back and list-page has no slot for it — see overnight-queue-2026-09-18.md
+        OVERNIGHT: §1 rule 11 forbids a back arrow; breadcrumb replaces it. list-page has no breadcrumb zone — see overnight-queue-2026-09-18.md
 
-        Section 11.2's breadcrumb, which section 11.2 also makes the
-        replacement for the back arrow this screen used to carry. It is
-        specified for a detail page and this is a list page, so the
-        template has no zone for it; the alternatives were the action
-        slot (navigation dressed as an action) and `toolbarExtra`
-        (zone 2, which section 11.6 reserves for the view switcher), and
-        both put it somewhere a reader would not look for it.
+        `CrudPage` gave this screen `backHref="/masters"`, which renders
+        a left-chevron "Back to Masters" link — the control section 1
+        rule 11 and section 11.2 both forbid outright. The NAVIGATION is
+        not forbidden and must not be dropped: /masters/users is absent
+        from the sidebar by design (see shell/nav.ts), so this is the
+        only route back. Section 11.2's breadcrumb is the sanctioned
+        replacement, and `components/ui/breadcrumb.tsx` already exists.
 
-        The wrapper is NOT a plain div: `templates/list-page` is
-        `h-full` inside the shell's definite-height content box, and a
-        static wrapper would break that chain and hand the scroll to the
-        page. This one is a flex column of the same definite height with
-        the breadcrumb `shrink-0` and the template `flex-1 min-h-0`, so
-        zone 3 keeps the whole of the remaining height and still owns
-        the only scroll. Measured at 1280, 1024 and 768 — see the report.
+        It is placed here rather than in the template because section
+        11.1 has four zones and none of them is a breadcrumb — that is
+        section 11.2's zone 1, on a detail page. Rejected: the `action`
+        slot (navigation dressed up as an action) and `toolbarExtra`
+        (zone 2, which section 11.6 reserves for the view switcher).
+
+        THE HEIGHT CHAIN. The shell's content box is `h-full` with a
+        definite height and `overflow-y-auto`, so a plain block wrapper
+        — or the breadcrumb as a bare sibling of a `h-full` ListPage —
+        would sum to more than 100% and hand the scroll to the PAGE,
+        which is the one thing section 10 does not allow here. This
+        wrapper is therefore a flex column of that same definite height:
+        the breadcrumb is `shrink-0` and the template is `flex-1
+        min-h-0` with its own `h-full` merged away by `cn`, so the
+        template's root is sized purely by the remaining space and zone
+        3 still owns the only scroll.
+
+        Reasoned from the CSS, NOT verified in a browser — no session
+        was available this run. This is the highest-risk unverified
+        claim on the screen; see the report.
       */}
       <div className="flex h-full min-h-0 flex-col">
         <Breadcrumb className="mb-4 shrink-0">
@@ -549,7 +562,10 @@ export default function UsersPage() {
         </Breadcrumb>
 
         <ListPage<UserRow>
-          className="min-h-0 flex-1"
+          /* `h-auto` is not cosmetic: it is what makes `cn` drop the
+             template's own `h-full`, so the root carries no
+             `height: 100%` to argue with the flex basis. */
+          className="h-auto min-h-0 flex-1"
           title="Users"
           noun={{ one: 'user', many: 'users' }}
           action={action}
