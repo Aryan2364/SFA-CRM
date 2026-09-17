@@ -2,32 +2,20 @@ import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
+import { ALL_PERMISSION_KEYS } from '@/lib/masters-registry'
 
 type SectionPerm = { view: boolean; edit: boolean; delete: boolean }
 type Permissions = Record<string, SectionPerm>
 
-const ALL_SECTIONS = [
-  // Locations
-  'states', 'districts', 'talukas', 'villages', 'territory_mapping',
-  // Business
-  'dealers', 'distributors', 'institutions',
-  // Products
-  'product_categories', 'product_subcategories', 'products',
-  // Organisation
-  'departments', 'designations', 'expense_categories',
-  // Lead config
-  'lead_types', 'lead_stages', 'lead_temperatures',
-  // Operations
-  'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
-  // Points
-  'leaderboard', 'points_config',
-] as const
-
-const allTrue: Permissions = ALL_SECTIONS.reduce(
+// The permission map the client reads. It carries the two points sections as
+// well as the 23 storable ones, which is why it uses ALL_PERMISSION_KEYS rather
+// than ALL_SECTIONS — see the note on POINTS_SECTIONS in the registry. This
+// response never writes, so an unstorable key here is harmless.
+const allTrue: Permissions = ALL_PERMISSION_KEYS.reduce(
   (acc, s) => ({ ...acc, [s]: { view: true, edit: true, delete: true } }),
   {} as Permissions
 )
-const allFalse: Permissions = ALL_SECTIONS.reduce(
+const allFalse: Permissions = ALL_PERMISSION_KEYS.reduce(
   (acc, s) => ({ ...acc, [s]: { view: false, edit: false, delete: false } }),
   {} as Permissions
 )
@@ -79,7 +67,7 @@ export async function GET() {
 
   const permissions: Permissions = { ...allFalse }
   for (const row of permRows) {
-    if ((ALL_SECTIONS as readonly string[]).includes(row.section)) {
+    if (ALL_PERMISSION_KEYS.includes(row.section)) {
       permissions[row.section] = {
         view: row.can_view,
         edit: row.can_edit || row.can_create,

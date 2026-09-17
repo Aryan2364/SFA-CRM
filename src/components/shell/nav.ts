@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
+import { MASTER_SECTION_KEYS } from '@/lib/masters-registry'
 import type { Me } from '@/hooks/useMe'
 
 /**
@@ -89,29 +90,15 @@ function canView(me: Me, section: string): boolean {
 }
 
 /*
- * Masters is one entry over seventeen master sections. It appears when
- * the user can view any of them, which is the same test the Masters page
+ * Masters is one entry over every master section. It appears when the
+ * user can view any of them, which is the same test the Masters page
  * itself applies before deciding it has nothing to show.
+ *
+ * The list is MASTER_SECTION_KEYS from src/lib/masters-registry.ts. It
+ * used to be a literal here and a second, divergent literal in
+ * Sidebar.tsx, and the two had already disagreed about dealers,
+ * distributors and institutions.
  */
-const MASTER_SECTIONS = [
-  'states',
-  'districts',
-  'talukas',
-  'villages',
-  'territory_mapping',
-  'dealers',
-  'distributors',
-  'institutions',
-  'product_categories',
-  'product_subcategories',
-  'products',
-  'departments',
-  'designations',
-  'expense_categories',
-  'lead_types',
-  'lead_stages',
-  'lead_temperatures',
-]
 
 /*
  * THE ONE ROLE CHECK, and why it is not the thing CLAUDE.md forbids.
@@ -183,7 +170,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Masters',
     href: '/masters',
     icon: Database,
-    visible: me => MASTER_SECTIONS.some(section => canView(me, section)),
+    visible: me => MASTER_SECTION_KEYS.some(section => canView(me, section)),
   },
   {
     /*

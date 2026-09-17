@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { useMe, invalidateMeCache } from '@/hooks/useMe'
+import { MASTER_SECTION_KEYS } from '@/lib/masters-registry'
 
 const DASHBOARD_NAV = {
   label: 'Dashboard', href: '/',
@@ -130,13 +131,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const isAdmin = me?.role === 'Administrator'
   const perms = me?.permissions
 
-  const MASTER_SECTIONS = [
-    'states', 'districts', 'talukas', 'villages', 'territory_mapping',
-    'product_categories', 'product_subcategories', 'products',
-    'departments', 'designations', 'expense_categories',
-    'lead_types', 'lead_stages', 'lead_temperatures',
-  ]
-  const showMasters = isAdmin || MASTER_SECTIONS.some(k => perms?.[k]?.view ?? false)
+  // MASTER_SECTION_KEYS, not a literal. The literal that used to sit here
+  // omitted dealers, distributors and institutions, so a user whose only
+  // master access was one of those three never saw the Masters entry.
+  const showMasters = isAdmin || MASTER_SECTION_KEYS.some(k => perms?.[k]?.view ?? false)
   const showDailyActivity = isAdmin || (perms?.meetings?.view ?? false)
   const showWeeklyPlan = isAdmin || (perms?.weekly_plan?.view ?? false)
   const showOrders = isAdmin || (perms?.orders?.view ?? false)

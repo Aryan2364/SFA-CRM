@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
+import { SEEDED_MASTERS } from '@/lib/masters-registry'
 
 async function requireSuperAdmin() {
   const user = await getCurrentUser()
@@ -96,36 +97,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
 
-  // Seed lead masters (stages, temperatures, types)
-  await Promise.all([
-    prisma.lead_stages.createMany({ data: [
-      { tenant_id: tid, name: 'Prospect',    sort_order: 1,   is_fixed: true },
-      { tenant_id: tid, name: 'Contacted',   sort_order: 2,   is_fixed: false },
-      { tenant_id: tid, name: 'Interested',  sort_order: 3,   is_fixed: false },
-      { tenant_id: tid, name: 'Qualified',   sort_order: 4,   is_fixed: false },
-      { tenant_id: tid, name: 'Proposal',    sort_order: 5,   is_fixed: false },
-      { tenant_id: tid, name: 'Negotiation', sort_order: 6,   is_fixed: false },
-      { tenant_id: tid, name: 'Existing',    sort_order: 999, is_fixed: true },
-    ] }),
-    prisma.lead_temperatures.createMany({ data: [
-      { tenant_id: tid, name: 'Cold', sort_order: 1 },
-      { tenant_id: tid, name: 'Warm', sort_order: 2 },
-      { tenant_id: tid, name: 'Hot',  sort_order: 3 },
-    ] }),
-    prisma.lead_types.createMany({ data: [
-      { tenant_id: tid, name: 'Dealer',       sort_order: 1 },
-      { tenant_id: tid, name: 'Distributor',  sort_order: 2 },
-      { tenant_id: tid, name: 'Institution',  sort_order: 3 },
-      { tenant_id: tid, name: 'End Consumer', sort_order: 4 },
-    ] }),
-    prisma.expense_categories.createMany({ data: [
-      { tenant_id: tid, name: 'Travel',        sort_order: 1 },
-      { tenant_id: tid, name: 'Food',          sort_order: 2 },
-      { tenant_id: tid, name: 'Accommodation', sort_order: 3 },
-      { tenant_id: tid, name: 'Communication', sort_order: 4 },
-      { tenant_id: tid, name: 'Miscellaneous', sort_order: 5 },
-    ] }),
-  ])
+  // Seed the masters that have defaults. The values come from MASTERS[].seeded
+  // in src/lib/masters-registry.ts — the same registry the permission matrix
+  // and the Masters page read — so a new master with defaults is seeded here
+  // without this file changing.
+  //
+  // ⚠️ The values themselves are load-bearing: `Prospect` and `Existing` are
+  // is_fixed and are matched BY NAME in six route files, and `Existing` sorts
+  // 999 so it stays last. The registry carries all three facts; do not
+  // "normalise" them there.
+  //
+  // `model` is the Prisma model name, which is also the delegate name — every
+  // seeded master is a flat (tenant_id, name, sort_order[, is_fixed]) table, so
+  // one loop covers all of them.
+  type SeedDelegate = {
+    createMany: (args: {
+      data: { tenant_id: string; name: string; sort_order: number; is_fixed?: boolean }[]
+    }) => Promise<unknown>
+  }
+  const seedClient = prisma as unknown as Record<string, SeedDelegate>
+
+  await Promise.all(
+    SEEDED_MASTERS.map(m =>
+      seedClient[m.model].createMany({
+        data: m.seeded!.map(row => ({
+          tenant_id: tid,
+          name: row.name,
+          sort_order: row.sort_order,
+          ...(row.is_fixed === undefined ? {} : { is_fixed: row.is_fixed }),
+        })),
+      })
+    )
+  )
 
   // Create admin user
   let adminUser

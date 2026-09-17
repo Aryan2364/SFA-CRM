@@ -2,32 +2,33 @@ import { NextResponse } from 'next/server'
 import { prisma } from './db'
 import { getTenantId } from './tenant'
 import { SessionUser } from './auth'
+import {
+  MASTERS,
+  MASTER_SECTION_KEYS,
+  OPERATION_SECTIONS,
+  POINTS_SECTIONS,
+} from './masters-registry'
+
+// Master sections, operation sections and points sections all come from the
+// one registry — src/lib/masters-registry.ts. Adding a section is one edit
+// there, not seven edits spread across the tree. MasterSection stays a union of
+// literals because MASTERS is `as const`; that is what keeps checkPermission's
+// signature narrow, and `tsc --noEmit` is what proves it.
 
 // Master sections — data_scope not used (always tenant-wide)
-export type MasterSection =
-  | 'states' | 'districts' | 'talukas' | 'villages' | 'territory_mapping'
-  | 'dealers' | 'distributors' | 'institutions'
-  | 'product_categories' | 'product_subcategories' | 'products'
-  | 'departments' | 'designations' | 'expense_categories'
-  | 'lead_types' | 'lead_stages' | 'lead_temperatures'
+export type MasterSection = typeof MASTERS[number]['key']
 
 // Operations sections — data_scope applies (own / team / all)
-export type OperationSection = 'meetings' | 'expenses' | 'weekly_plan' | 'orders' | 'leads' | 'users'
+export type OperationSection = typeof OPERATION_SECTIONS[number]
 
 // Points sections
-export type PointsSection = 'leaderboard' | 'points_config'
+export type PointsSection = typeof POINTS_SECTIONS[number]
 
 export type PermSection = MasterSection | OperationSection | PointsSection
 export type PermAction = 'view' | 'create' | 'edit' | 'delete'
 export type DataScope = 'own' | 'team' | 'all'
 
-const MASTER_SECTIONS: ReadonlySet<string> = new Set<MasterSection>([
-  'states', 'districts', 'talukas', 'villages', 'territory_mapping',
-  'dealers', 'distributors', 'institutions',
-  'product_categories', 'product_subcategories', 'products',
-  'departments', 'designations', 'expense_categories',
-  'lead_types', 'lead_stages', 'lead_temperatures',
-])
+const MASTER_SECTIONS: ReadonlySet<string> = new Set<string>(MASTER_SECTION_KEYS)
 
 export async function checkPermission(
   user: SessionUser,

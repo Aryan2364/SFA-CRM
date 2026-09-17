@@ -2,15 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
 import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
+import { ALL_SECTIONS } from '@/lib/masters-registry'
 
-const ALL_SECTIONS = [
-  'states', 'districts', 'talukas', 'villages', 'territory_mapping',
-  'dealers', 'distributors', 'institutions',
-  'product_categories', 'product_subcategories', 'products',
-  'departments', 'designations', 'expense_categories',
-  'lead_types', 'lead_stages', 'lead_temperatures',
-  'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
-]
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()

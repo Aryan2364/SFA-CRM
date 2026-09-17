@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
+import { ALL_SECTIONS } from '@/lib/masters-registry'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,15 +39,10 @@ export async function POST(req: NextRequest) {
       data: { tenant_id: tid, name: name.trim(), is_system: false },
     })
 
-    // Seed empty permissions for all 22 sections for this new role
-    const ALL_SECTIONS = [
-      'states', 'districts', 'talukas', 'villages', 'territory_mapping',
-      'dealers', 'distributors', 'institutions',
-      'product_categories', 'product_subcategories', 'products',
-      'departments', 'designations', 'expense_categories',
-      'lead_types', 'lead_stages', 'lead_temperatures',
-      'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
-    ]
+    // Seed an empty permission row per section, from the one registry.
+    // ALL_SECTIONS deliberately excludes leaderboard/points_config: they are
+    // not in the role_permissions_section_check constraint, and inserting
+    // either one would fail the whole createMany and abort role creation.
     // ignoreDuplicates: true -> skipDuplicates, against the real
     // @@unique([tenant_id, profile, section]).
     await prisma.role_permissions.createMany({

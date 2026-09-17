@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { invalidateMeCache } from '@/hooks/useMe'
 import { useToast } from '@/contexts/ToastContext'
+import { mastersInGroup, type MasterGroup } from '@/lib/masters-registry'
 
 type UserEntry = { id: string; name: string }
 type VisibilityEntry = { id: string; target_user_id: string; name: string }
@@ -82,45 +83,36 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 type PermSectionDef = { key: string; label: string; isOperation?: boolean }
 type PermGroup = { group: string; module: string; sections: PermSectionDef[] }
 
+/**
+ * The Masters Module half of the matrix is DERIVED from src/lib/masters-registry.ts.
+ *
+ * It used to be a literal, and the literal omitted dealers, distributors and
+ * institutions — which meant no administrator could ever grant those three
+ * permissions, because this table is the only place the toggle exists. The
+ * registry is now the only list, so a master cannot be added without its row
+ * appearing here.
+ *
+ * distributors and institutions have no screen yet (P1-T18), but their APIs are
+ * live and do check the permission, so the toggle is real and belongs here.
+ *
+ * Group headings live here rather than in the registry: this table and the
+ * Masters page group the same masters under different headings, in a different
+ * order. `group` in the registry is an id; this is its label.
+ */
+const MASTER_GROUP_LABELS: { group: MasterGroup; label: string }[] = [
+  { group: 'locations',         label: 'Locations' },
+  { group: 'business_partners', label: 'Business Partners' },
+  { group: 'products',          label: 'Products' },
+  { group: 'organisation',      label: 'Organisation' },
+  { group: 'lead_config',       label: 'Lead Configuration' },
+]
+
 const PERM_GROUPS: PermGroup[] = [
-  {
+  ...MASTER_GROUP_LABELS.map(({ group, label }) => ({
     module: 'Masters Module',
-    group: 'Locations',
-    sections: [
-      { key: 'states', label: 'States' },
-      { key: 'districts', label: 'Districts' },
-      { key: 'talukas', label: 'Talukas' },
-      { key: 'villages', label: 'Villages' },
-      { key: 'territory_mapping', label: 'Territory Mapping' },
-    ],
-  },
-  {
-    module: 'Masters Module',
-    group: 'Products',
-    sections: [
-      { key: 'product_categories', label: 'Product Categories' },
-      { key: 'product_subcategories', label: 'Product Sub-Categories' },
-      { key: 'products', label: 'Products' },
-    ],
-  },
-  {
-    module: 'Masters Module',
-    group: 'Organisation',
-    sections: [
-      { key: 'departments', label: 'Departments' },
-      { key: 'designations', label: 'Designations' },
-      { key: 'expense_categories', label: 'Expense Categories' },
-    ],
-  },
-  {
-    module: 'Masters Module',
-    group: 'Lead Configuration',
-    sections: [
-      { key: 'lead_types', label: 'Lead Types' },
-      { key: 'lead_stages', label: 'Lead Stages' },
-      { key: 'lead_temperatures', label: 'Lead Temperatures' },
-    ],
-  },
+    group: label,
+    sections: mastersInGroup(group).map(m => ({ key: m.key, label: m.label })),
+  })),
   {
     module: 'Operations Module',
     group: 'Daily Operations',
@@ -134,6 +126,9 @@ const PERM_GROUPS: PermGroup[] = [
     ],
   },
   {
+    // ⚠️ Neither key is in the role_permissions_section_check constraint, so
+    // these two toggles do not persist. That was true before the registry and
+    // is unchanged by it; see POINTS_SECTIONS in src/lib/masters-registry.ts.
     module: 'Points Module',
     group: 'Gamification',
     sections: [
