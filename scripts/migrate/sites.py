@@ -2,10 +2,26 @@
 """
 Per-file site data for the phase-1 migration.
 
-`protect` entries are (line, class) pairs taken from plan-2026-09-16-1522.md
-section 11.6 A-G. Protection is per SITE, not per line: a protected class does
-not shield its neighbours on the same line, which matters because group C's
-CATEGORY_COLORS sits within two lines of mapped sites in files 1 and 3.
+Protection has TWO granularities, and the distinction is load-bearing:
+
+  `protect`        (line, class) -- OCCURRENCE-level. The default. A protected
+                   class does not shield its neighbours on the same line, which
+                   matters because group C's CATEGORY_COLORS sits within two
+                   lines of mapped sites in files 1 and 3.
+
+  `protect_lines`  line -- LINE-level, the whole line untouched. Used where a
+                   ternary's branches are one element with two states, because
+                   you cannot settle half a state pair. Converting one branch
+                   leaves the element half-migrated in a way section 11.8's exit
+                   check reads as clean.
+
+Line-level covers two cases:
+  - section 11.6 G1's location panels, where :361 is the bg-red-50 mismatch
+    branch of the same element whose :362 teal branch G1 defers.
+  - every section 11.9 line, where resting and hover are two shades from one
+    section 11 row and the token layer has no hover partner to split them onto.
+
+Both are taken from plan-2026-09-16-1522.md.
 
 `exceptions` are section 11.2's 42 sites where text-gray-{500,400,300} means a
 price, a status or an instruction and so takes text-secondary, never text-muted.
@@ -41,10 +57,10 @@ SITES[DA] = dict(
         (219, 'bg-emerald-400'),
         # G2 "New" entity badge
         (226, 'bg-purple-100'), (226, 'text-purple-700'),
-        # G1 teal location panel
+        # G1 teal location panel (:361-:362 are line-level, below)
         (300, 'bg-teal-50'), (300, 'text-teal-700'),
         (353, 'bg-teal-50'), (354, 'text-teal-600'),
-        (362, 'bg-teal-50'), (365, 'text-teal-600'),
+        (365, 'text-teal-600'),
         # G6 legend dots (2 series, fixed in code)
         (985, 'bg-green-400'), (986, 'bg-blue-400'),
         # C CATEGORY_COLORS + its fallback
@@ -62,8 +78,21 @@ SITES[DA] = dict(
         # G6 pulsing "1 active" dot
         (1565, 'bg-amber-400'),
     ],
+    protect_lines=[
+        # G1: the mismatch ternary -- :361 bg-red-50 / :362 bg-teal-50 are one
+        # element with two states. Section 11.6 G1, corrected 17 Sep.
+        361, 362,
+        # Section 11.9: hover and resting are two shades from one row
+        242, 282, 379, 1280, 1286,
+        # :243 is the svg inside the button whose fill is on :242 -- one element
+        # across two lines. Converting its text-white to primary-foreground over
+        # a raw bg-red-500 half-migrates the element, same rule as the ternary.
+        243,
+    ],
     exceptions=[1158, 1536],
-    white=[131, 138, 236, 243, 341, 642, 764, 927, 1098, 1280, 1286, 1587, 1653],
-    fill=[(242, 'bg-red-500'), (1280, 'bg-green-600'), (1286, 'bg-amber-500')],
-    hover_fill=[(242, 'bg-red-600'), (1280, 'bg-green-700'), (1286, 'bg-amber-600')],
+    white=[131, 138, 236, 341, 642, 764, 927, 1098, 1280, 1286, 1587, 1653],
+    # 242 / 1280 / 1286 are section 11.9 lines and are protected in full, so
+    # they are NOT listed here -- their hover half has no token to land on.
+    fill=[],
+    hover_fill=[],
 )

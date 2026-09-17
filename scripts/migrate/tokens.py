@@ -136,6 +136,13 @@ def migrate(path, protect=(), protect_lines=(), exceptions=(), white=(),
     for idx, line in enumerate(lines):
         n = idx + 1
         edits = []
+        if n in protect_lines:
+            # LINE-level protection: the whole line is one element whose states
+            # cannot be settled by halves. Nothing on it moves.
+            for m in TOKEN.finditer(line):
+                stats['left'] += 1
+                left_sites.append((n, m.group('base')))
+            continue
         for m in TOKEN.finditer(line):
             base = m.group('base')
             variants = m.group('variants')
