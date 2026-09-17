@@ -1,9 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { ExternalLinkIcon } from 'lucide-react'
+
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { useToast } from '@/contexts/ToastContext'
+import {
+  ListPage,
+  type ListColumn,
+  type ListFilter,
+  type ListPageProps,
+} from '@/components/templates/list-page'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 type Conversation = {
   context_type: string
@@ -37,11 +47,50 @@ const SECTION_LABELS: Record<string, string> = {
   weekly_plan_day: 'Weekly Plan',
 }
 
-const SECTION_COLORS: Record<string, string> = {
-  meeting: 'bg-chart-1 text-primary-foreground',
-  expense: 'bg-chart-2 text-primary-foreground',
-  weekly_plan_day: 'bg-chart-3 text-primary-foreground',
+function sectionLabel(conv: Conversation) {
+  return SECTION_LABELS[conv.context_type] ?? conv.context_type
 }
+
+/**
+ * The template treats `''` as "filter not applied", so it is also the
+ * key of every picker's "any" option.
+ *
+ * The section values are the route's, not the column's: `/api/conversations`
+ * maps `weekly_plan` onto the `weekly_plan_day` context type it stores.
+ */
+const SECTION_OPTIONS: Record<string, string> = {
+  '': 'Any section',
+  meeting: 'Meetings',
+  expense: 'Expenses',
+  weekly_plan: 'Weekly Plan',
+}
+
+/**
+ * Today's third filter was a three-way `all | unread | read`, and `all`
+ * was its default. The template's inactive value IS `''`, so the two
+ * collapse into one: no chip, no count, same result.
+ */
+const READ_OPTIONS: Record<string, string> = {
+  '': 'Read and unread',
+  unread: 'Unread',
+  read: 'Read',
+}
+
+/**
+ * Section 27.1 asks the search field to carry the list of fields it
+ * covers, and asks for any exclusion to be declared. There is nothing to
+ * declare: every text a conversation carries — its section, the last
+ * author's name and the latest message — is searched, and each one is
+ * its own column, so a match is always visible in the row that matched.
+ *
+ * `/api/conversations` takes no `q`, so the filtering happens over the
+ * array `load` returns rather than in the route's `where` clause. That is
+ * honest for this screen — the route answers with the caller's whole
+ * conversation list, already narrowed by section, user and read state —
+ * and it is a real limit worth naming: a list long enough to need server
+ * paging would need `q` in the route as well.
+ */
+const SEARCH_HINT = 'Searches the section, the last author and the message.'
 
 function getRedirectPath(conv: Conversation, currentUserId: string | null) {
   // If the context owner is not the current user, redirect to review page
@@ -64,18 +113,136 @@ function getRedirectPath(conv: Conversation, currentUserId: string | null) {
   return '/'
 }
 
+/**
+ * COLUMN CLASSIFICATION — section 10 rule 4 requires every table to
+ * declare one, and section 10 rule 2 makes it the alternative to
+ * scrolling sideways.
+ *
+ *   essential          Section, Latest message, Unread, Actions
+ *   hide-below-1024    Author, Remarks
+ *   hide-below-768     Updated
+ *
+ * A conversation IS its latest message and what that message is about,
+ * so Section and Latest message stay to the narrowest width. Unread is
+ * the reason this screen exists rather than being a view of the remark
+ * table — it is what the read filter filters on and what the user came
+ * to clear — and Actions is the only route into the thread, so a row
+ * without it is a dead end.
+ *
+ * Author and Remarks go first because they are the two a reader can most
+ * afford to lose: the author's name is the first thing the panel's own
+ * header shows, and the remark count is a size, not content. Updated
+ * survives to 768 because the list is sorted by it, and a recency order
+ * with no visible recency reads as no order at all. All three are on the
+ * panel or in the sort, so nothing becomes unreachable.
+ *
+ * Section is NOT a coloured chip. It is a category, and section 2.4 has
+ * a colour for success, warning and danger and for nothing else; the
+ * `bg-chart-N` this screen used to paint it with is the chart palette,
+ * which section 21 says a caller never names. Plain text, consistent
+ * with the same decision on leads.
+ */
+function conversationColumns(
+  onOpen: (conv: Conversation) => void,
+  onSource: (conv: Conversation) => void
+): ListColumn<Conversation>[] {
+  return [
+    {
+      id: 'section',
+      header: 'Section',
+      className: 'whitespace-nowrap',
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-20',
+      truncate: true,
+      cell: sectionLabel,
+    },
+    {
+      id: 'message',
+      header: 'Latest message',
+      grow: true,
+      truncate: true,
+      cellClassName: 'text-text-primary',
+      skeletonWidth: 'w-64',
+      cell: conv => conv.last_body,
+    },
+    {
+      id: 'author',
+      header: 'Author',
+      tier: 'hide-below-1024',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-28',
+      cell: conv => conv.last_author || '—',
+    },
+    {
+      id: 'remarks',
+      header: 'Remarks',
+      tier: 'hide-below-1024',
+      numeric: true,
+      className: 'whitespace-nowrap',
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-10',
+      cell: conv => conv.count,
+    },
+    {
+      id: 'unread',
+      header: 'Unread',
+      numeric: true,
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-10',
+      /* Section 7.3: a plain count is neither success nor failure, so the
+         badge is the primary one rather than a status colour. Capped at
+         9+ exactly as the card feed capped it. */
+      cell: conv =>
+        conv.unread_count > 0 ? (
+          <Badge variant="primary">
+            {conv.unread_count > 9 ? '9+' : conv.unread_count}
+          </Badge>
+        ) : (
+          <span className="text-text-muted">—</span>
+        ),
+    },
+    {
+      id: 'updated',
+      header: 'Updated',
+      tier: 'hide-below-768',
+      className: 'whitespace-nowrap',
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-16',
+      cell: conv => formatRelative(conv.updated_at),
+    },
+    {
+      id: 'actions',
+      header: '',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'h-control-sm w-28',
+      /* Two routes out of a row, exactly as the card had: the thread
+         itself, and the record the thread is attached to. Open is the
+         one the row used to be a click target for — section 11.1 has no
+         row click, and orders already settled that a button in the last
+         column is how this product opens a record from a list. */
+      cell: conv => (
+        <div className="flex items-center justify-end gap-1">
+          <Button variant="secondary" size="sm" onClick={() => onOpen(conv)}>
+            Open
+          </Button>
+          <Button variant="in-field" size="sm" onClick={() => onSource(conv)}>
+            <ExternalLinkIcon />
+            Source
+          </Button>
+        </div>
+      ),
+    },
+  ]
+}
+
 export default function ConversationsPage() {
   const router = useRouter()
   const { toast } = useToast()
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [loading, setLoading] = useState(true)
   const [users, setUsers] = useState<UserOption[]>([])
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-
-  // Filters
-  const [section, setSection] = useState('')
-  const [userId, setUserId] = useState('')
-  const [status, setStatus] = useState('all')
+  /* Bumped when closing the panel makes the unread counts stale. */
+  const [refreshKey, setRefreshKey] = useState(0)
 
   // Remarks panel for inline reply
   const [remarksPanel, setRemarksPanel] = useState<{
@@ -83,20 +250,6 @@ export default function ConversationsPage() {
     contextId: string
     title: string
   } | null>(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    const p = new URLSearchParams()
-    if (section) p.set('section', section)
-    if (userId) p.set('userId', userId)
-    if (status !== 'all') p.set('status', status)
-    const r = await fetch(`/api/conversations?${p}`)
-    if (r.ok) setConversations(await r.json())
-    else toast('Failed to load conversations', 'error')
-    setLoading(false)
-  }, [section, userId, status, toast])
-
-  useEffect(() => { load() }, [load])
 
   useEffect(() => {
     // Load subordinates for user filter
@@ -107,137 +260,95 @@ export default function ConversationsPage() {
     fetch('/api/auth/me').then(r => r.json()).then(d => {
       if (d?.userId) setCurrentUserId(d.userId)
     }).catch(() => {})
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleConversationClick(conv: Conversation) {
-    // Open inline remarks panel
+  /*
+   * Deliberately NOT memoised: the template holds `load` in a ref and
+   * never makes it an effect dependency. No deadline and no catch here
+   * either — the template races this against its own timer, so a
+   * rejection IS the failed state (section 14 rule 4).
+   */
+  const load: ListPageProps<Conversation>['load'] = async ({ search, filters, signal }) => {
+    const p = new URLSearchParams()
+    if (filters.section) p.set('section', filters.section)
+    if (filters.user) p.set('userId', filters.user)
+    if (filters.read) p.set('status', filters.read)
+    const query = p.toString()
+    const r = await fetch(`/api/conversations${query ? `?${query}` : ''}`, { signal })
+    if (!r.ok) throw new Error(String(r.status))
+    const body = await r.json()
+    const rows: Conversation[] = Array.isArray(body) ? body : []
+    if (!search) return rows
+    const needle = search.toLowerCase()
+    return rows.filter(conv =>
+      sectionLabel(conv).toLowerCase().includes(needle) ||
+      conv.last_author.toLowerCase().includes(needle) ||
+      conv.last_body.toLowerCase().includes(needle)
+    )
+  }
+
+  const filters: ListFilter[] = [
+    { id: 'section', label: 'Section', kind: 'select', options: SECTION_OPTIONS },
+    /* The user picker only exists for somebody with reports, exactly as
+       before. Section 16.3: a team runs past six names sooner than it
+       does not, so it is the searchable kind. */
+    ...(users.length > 0
+      ? [
+          {
+            id: 'user',
+            label: 'Author',
+            kind: 'select' as const,
+            searchable: true,
+            options: {
+              '': 'Anyone',
+              ...Object.fromEntries(users.map(u => [u.id, u.name])),
+            },
+          },
+        ]
+      : []),
+    { id: 'read', label: 'Read state', kind: 'select', options: READ_OPTIONS },
+  ]
+
+  function openPanel(conv: Conversation) {
     const ctxType = conv.context_type as 'meeting' | 'expense' | 'weekly_plan_day'
     setRemarksPanel({
       contextType: ctxType,
       contextId: conv.context_id,
-      title: `${SECTION_LABELS[conv.context_type] ?? conv.context_type} — ${conv.last_author}`,
+      title: `${sectionLabel(conv)} — ${conv.last_author}`,
     })
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-xl font-medium text-text-primary">Conversations</h2>
-        {conversations.length > 0 && (
-          <span className="text-sm text-text-muted">{conversations.length} thread{conversations.length !== 1 ? 's' : ''}</span>
+    <>
+      <ListPage<Conversation>
+        title="Conversations"
+        noun={{ one: 'conversation', many: 'conversations' }}
+        columns={conversationColumns(openPanel, conv =>
+          router.push(getRedirectPath(conv, currentUserId))
         )}
-      </div>
+        rowKey={conv => `${conv.context_type}::${conv.context_id}`}
+        filters={filters}
+        load={load}
+        refreshKey={refreshKey}
+        searchHint={SEARCH_HINT}
+        emptyYet={{
+          heading: 'No conversations yet',
+          body: 'Remarks on meetings, expenses and plans appear here as threads.',
+        }}
+      />
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-5">
-        <select value={section} onChange={e => setSection(e.target.value)}
-          className="border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring">
-          <option value="">All sections</option>
-          <option value="meeting">Meetings</option>
-          <option value="expense">Expenses</option>
-          <option value="weekly_plan">Weekly Plan</option>
-        </select>
-
-        {users.length > 0 && (
-          <select value={userId} onChange={e => setUserId(e.target.value)}
-            className="border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring">
-            <option value="">All users</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-        )}
-
-        <select value={status} onChange={e => setStatus(e.target.value)}
-          className="border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring">
-          <option value="all">All</option>
-          <option value="unread">Unread</option>
-          <option value="read">Read</option>
-        </select>
-      </div>
-
-      {/* List */}
-      {loading ? (
-        <div className="text-center py-16 text-text-muted">Loading...</div>
-      ) : conversations.length === 0 ? (
-        <div className="text-center py-16">
-          <div className="w-16 h-16 bg-surface-control rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
-            </svg>
-          </div>
-          <p className="text-text-muted font-medium">No conversations yet</p>
-          <p className="text-sm text-text-muted mt-1">Remarks on meetings, expenses and plans will appear here</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {conversations.map(conv => (
-            <div
-              key={`${conv.context_type}::${conv.context_id}`}
-              className="bg-surface rounded-2xl border border-border-light px-5 py-4 hover:border-primary-border hover:shadow-sm transition"
-            >
-              <button
-                onClick={() => handleConversationClick(conv)}
-                className="w-full text-left"
-              >
-                <div className="flex items-start gap-3">
-                  {/* Avatar placeholder */}
-                  <div className="w-9 h-9 rounded-full bg-surface-control flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                    </svg>
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${SECTION_COLORS[conv.context_type] ?? 'bg-surface-control text-text-secondary'}`}>
-                        {SECTION_LABELS[conv.context_type] ?? conv.context_type}
-                      </span>
-                      <span className="text-xs text-text-muted ml-auto">{formatRelative(conv.updated_at)}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-text-muted truncate">
-                        <span className="font-medium text-text-secondary">{conv.last_author}:</span>{' '}
-                        {conv.last_body}
-                      </p>
-                      {conv.unread_count > 0 && (
-                        <span className="shrink-0 ml-auto w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-medium flex items-center justify-center">
-                          {conv.unread_count > 9 ? '9+' : conv.unread_count}
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-text-muted mt-1">{conv.count} remark{conv.count !== 1 ? 's' : ''}</p>
-                  </div>
-                </div>
-              </button>
-
-              {/* Secondary: Go to source link */}
-              <div className="mt-2 pt-2 border-t border-border-light flex justify-end">
-                <button
-                  onClick={() => router.push(getRedirectPath(conv, currentUserId))}
-                  className="text-[11px] text-text-muted hover:text-primary transition flex items-center gap-1"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                  </svg>
-                  Go to source
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Remarks Panel */}
       {remarksPanel && (
         <RemarksPanel
           isOpen={!!remarksPanel}
-          onClose={() => { setRemarksPanel(null); load() }}
+          onClose={() => {
+            setRemarksPanel(null)
+            setRefreshKey(k => k + 1)
+          }}
           contextType={remarksPanel.contextType}
           contextId={remarksPanel.contextId}
           contextTitle={remarksPanel.title}
         />
       )}
-    </div>
+    </>
   )
 }
