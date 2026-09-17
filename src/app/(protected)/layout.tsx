@@ -1,12 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import Sidebar from '@/components/ui/Sidebar'
-import Header from '@/components/ui/Header'
+import { AppShell } from '@/components/shell/app-shell'
 import { useMe } from '@/hooks/useMe'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
   const me = useMe()
 
   // Show "define role" screen for users with no role assigned yet
@@ -36,19 +33,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  return (
-    <div className="flex h-dvh overflow-hidden bg-surface-sunken">
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-(--backdrop) md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <Header onToggleSidebar={() => setSidebarOpen(o => !o)} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
-      </div>
-    </div>
-  )
+  return <AppShell>{children}</AppShell>
 }
