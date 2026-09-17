@@ -34,40 +34,40 @@ export default function SearchableSelect({ value, onChange, options, placeholder
         type="button"
         disabled={disabled}
         onClick={() => { setOpen(o => !o); setQuery('') }}
-        className="w-full flex items-center justify-between border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-between border border-border rounded-lg px-3 py-2 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <span className={selected ? 'text-gray-800' : 'text-gray-400'}>{selected?.label ?? placeholder}</span>
-        <span className="text-gray-400 text-xs ml-2">▼</span>
+        <span className={selected ? 'text-text-primary' : 'text-text-muted'}>{selected?.label ?? placeholder}</span>
+        <span className="text-text-muted text-xs ml-2">▼</span>
       </button>
 
       {open && (
-        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-          <div className="p-2 border-b border-gray-100">
+        <div className="absolute z-20 mt-1 w-full bg-surface border border-border-light rounded-lg shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-border-light">
             <input
               autoFocus
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search…"
-              className="w-full text-sm px-2 py-1.5 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full text-sm px-2 py-1.5 border border-border-light rounded focus:outline-none focus:ring-1 focus:ring-primary-ring"
             />
           </div>
           <ul className="max-h-48 overflow-y-auto">
             {value && (
               <li
                 onClick={() => { onChange(''); setOpen(false) }}
-                className="px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 cursor-pointer italic"
+                className="px-3 py-2 text-sm text-text-muted hover:bg-surface-sunken cursor-pointer italic"
               >
                 — Clear selection —
               </li>
             )}
             {filtered.length === 0 ? (
-              <li className="px-3 py-2 text-sm text-gray-400">No results</li>
+              <li className="px-3 py-2 text-sm text-text-muted">No results</li>
             ) : filtered.map(o => (
               <li
                 key={o.value}
                 onClick={() => { onChange(o.value); setOpen(false) }}
-                className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 ${o.value === value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}
+                className={`px-3 py-2 text-sm cursor-pointer hover:bg-primary-subtle ${o.value === value ? 'bg-primary-subtle text-primary font-medium' : 'text-text-secondary'}`}
               >
                 {o.label}
               </li>
