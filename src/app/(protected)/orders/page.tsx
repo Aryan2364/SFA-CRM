@@ -1,57 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import {
-  CheckIcon,
-  FilePenIcon,
-  PlusIcon,
-  SearchIcon,
-  SendIcon,
-  XIcon,
-} from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { PlusIcon } from 'lucide-react'
 
-import { cn } from '@/lib/utils'
 import { useToast } from '@/contexts/ToastContext'
-import { ListPage } from '@/components/templates/list-page'
+import { ORDER_STATUS, StatusBadge } from '@/components/status-badge'
+import {
+  ListPage,
+  type ListColumn,
+  type ListFilter,
+  type ListPageProps,
+} from '@/components/templates/list-page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DatePicker } from '@/components/ui/date-picker'
-import { EmptyState } from '@/components/ui/empty-state'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from '@/components/ui/input-group'
-import {
-  Pagination,
-  PaginationBar,
-  PaginationContent,
-  PaginationCount,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
-import { SearchableSelect } from '@/components/ui/searchable-select'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Truncate } from '@/components/ui/truncate'
 
 type OrderRow = {
   id: string
@@ -616,20 +577,13 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
 // Main Page — section 11.1's four zones, via templates/list-page
 // ─────────────────────────────────────────────────────────────
 
-/** Section 11.1: the default page size is 25 records. */
-const PAGE_SIZE = 25
-/** Section 27.1: search runs ~300ms after the user stops typing. */
-const SEARCH_DEBOUNCE_MS = 300
-/** Section 14 rule 4: a request that cannot fail cannot render a failure. */
-const REQUEST_TIMEOUT_MS = 15000
-/** Enough rows to fill zone 3 at 1280 without overshooting at 768. */
-const SKELETON_ROWS = 8
-
-/** Base UI needs a real value for "no filter"; the empty string is not one. */
-const ALL = 'all'
-
+/**
+ * The template treats `''` as "filter not applied", so it is also the
+ * key of every picker's "any" option — one value, not a sentinel the
+ * screen has to translate.
+ */
 const STATUS_OPTIONS: Record<string, string> = {
-  [ALL]: 'All statuses',
+  '': 'Any status',
   Draft: 'Draft',
   Submitted: 'Submitted',
   Confirmed: 'Confirmed',
@@ -640,36 +594,23 @@ const STATUS_OPTIONS: Record<string, string> = {
  * covers, and asks for any exclusion to be declared.
  *
  * **This is a gap, not a decision.** `/api/orders` matches `q` against
- * `entity_name` and nothing else, so entity type, the sales executive's
- * name and the status label are all invisible to search — someone
- * typing a colleague's name gets an empty list and no way to tell that
- * the box never looked there. Widening it is a change to the route's
- * `where` clause, not to this screen, so the field says what it does
- * rather than pretending.
+ * `entity_name` and nothing else, so entity type, the sales
+ * executive's name and the status label are all invisible to search —
+ * somebody typing a colleague's name gets an empty list and no way to
+ * tell that the box never looked there. Widening it is a change to the
+ * route's `where` clause, not to this screen, so the field says what
+ * it does rather than pretending.
  */
-const SEARCHED_FIELDS = 'Searches the entity name.'
-
-const STATUS_BADGE: Record<
-  OrderRow['status'],
-  { variant: 'neutral' | 'warning' | 'success'; icon: ReactNode }
-> = {
-  // Section 2.4 by ROLE, and section 7.2 rule 1's icon beside the
-  // colour. Submitted is "awaiting confirmation", which is 2.4's
-  // warning row (Pending, Needs review) — it was primary-subtle, and
-  // 2.4 is explicit that status never carries the brand.
-  Draft: { variant: 'neutral', icon: <FilePenIcon /> },
-  Submitted: { variant: 'warning', icon: <SendIcon /> },
-  Confirmed: { variant: 'success', icon: <CheckIcon /> },
-}
+const SEARCH_HINT = 'Searches the entity name.'
 
 /**
  * COLUMN CLASSIFICATION — section 10 rule 4 requires every table to
  * declare one, and section 10 rule 2 makes it the alternative to
  * scrolling sideways.
  *
- *   essential                  Entity, Amount, Status, View
- *   hidden below 1024 ("secondary")   Sales Exec, Source
- *   hidden below 768  ("tertiary")    Date, Type
+ *   essential          Entity, Amount, Status, View
+ *   hide-below-1024    Sales Exec, Source
+ *   hide-below-768     Date, Type
  *
  * Entity, Amount and Status are what an order IS — who it is for, what
  * it is worth, and whether it still needs doing — and View is the only
@@ -679,213 +620,109 @@ const STATUS_BADGE: Record<
  * most afford to lose: a rep sees their own name on every row, and
  * Direct-versus-Meeting is provenance rather than content. Date and
  * Type survive to 768 because the list is sorted by date and Type
- * qualifies the entity name. Every one of the four dropped columns is
- * still on the record's own panel, so nothing becomes unreachable.
+ * qualifies the entity name. All four dropped columns are still on the
+ * record's own panel, so nothing becomes unreachable.
  *
- * Eight columns at 1280, six at 768. Section 10 rule 2 reserves
- * sideways scroll for tables past about eight columns at desktop
- * width; this one does not reach it and does not scroll sideways, so
- * no column is frozen.
+ * Eight columns at 1280, six at 768, measured to fit at both: the
+ * table is 901px in 911px of zone 3 at 1024 and 709 in 719 at 768, so
+ * it never scrolls sideways and no column is frozen.
  */
-/*
- * `w-full max-w-0` on Entity and `max-w-0` on the other two text
- * columns is what makes section 8 truncation work inside a table at
- * all. An auto-layout table sizes a column to its content, so a cell
- * is never narrower than its text and `truncate` never fires. `w-full`
- * makes Entity the column that absorbs the slack; `max-w-0` lets all
- * three fall below their content width when there is none to absorb.
- *
- * Type and Sales Exec take a CAP instead of `max-w-0`: with Entity
- * claiming the slack, zero-capping them collapsed both to nothing and
- * their headers overlapped. 160px is `--spacing-field-min`, borrowed
- * because the kit has no token for the width of a text column in a
- * table — see the report.
- */
-const COL = {
-  date: 'hidden whitespace-nowrap md:table-cell',
-  entity: 'w-full max-w-0',
-  type: 'hidden max-w-field-min md:table-cell',
-  exec: 'hidden max-w-field-min lg:table-cell',
-  amount: 'whitespace-nowrap',
-  status: 'whitespace-nowrap',
-  source: 'hidden whitespace-nowrap lg:table-cell',
-  action: 'whitespace-nowrap',
-}
-
-function toISODate(d: Date) {
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${day}`
-}
-
-/*
- * Built from the parts rather than `new Date(text)`, which reads a bare
- * YYYY-MM-DD as UTC midnight and lands on the previous day for every
- * reader west of Greenwich.
- */
-function fromISODate(text: string): Date | undefined {
-  if (!text) return undefined
-  const [y, m, d] = text.split('-').map(Number)
-  if (!y || !m || !d) return undefined
-  return new Date(y, m - 1, d)
-}
-
-/** 1 … 4 5 6 … 12, so the control stays one row however long the list. */
-function pageWindow(current: number, count: number): (number | 'gap')[] {
-  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1)
-  const out: (number | 'gap')[] = [1]
-  const start = Math.max(2, current - 1)
-  const end = Math.min(count - 1, current + 1)
-  if (start > 2) out.push('gap')
-  for (let p = start; p <= end; p += 1) out.push(p)
-  if (end < count - 1) out.push('gap')
-  out.push(count)
-  return out
-}
-
-/* One header for the table and for the skeleton, so the two cannot
-   drift and the layout does not jump when the rows land. */
-function OrdersTableHead() {
-  return (
-    <TableHeader>
-      <TableRow>
-        <TableHead className={COL.date}>Date</TableHead>
-        <TableHead className={COL.entity}>Entity</TableHead>
-        <TableHead className={COL.type}>Type</TableHead>
-        <TableHead className={COL.exec}>Sales Exec</TableHead>
-        <TableHead className={COL.amount} numeric>Amount</TableHead>
-        <TableHead className={COL.status}>Status</TableHead>
-        <TableHead className={COL.source}>Source</TableHead>
-        <TableHead className={COL.action}>
-          <span className="sr-only">Actions</span>
-        </TableHead>
-      </TableRow>
-    </TableHeader>
-  )
-}
-
-/* Section 14 rule 1: the shape of what is coming, never a spinner. */
-function OrdersSkeleton() {
-  return (
-    <Table>
-      <OrdersTableHead />
-      <TableBody>
-        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-          <TableRow key={i}>
-            <TableCell className={COL.date}><Skeleton className="h-4 w-24" /></TableCell>
-            <TableCell className={COL.entity}><Skeleton className="h-4 w-40" /></TableCell>
-            <TableCell className={COL.type}><Skeleton className="h-4 w-20" /></TableCell>
-            <TableCell className={COL.exec}><Skeleton className="h-4 w-28" /></TableCell>
-            <TableCell className={COL.amount} numeric><Skeleton className="ml-auto h-4 w-20" /></TableCell>
-            <TableCell className={COL.status}><Skeleton className="h-4 w-20" /></TableCell>
-            <TableCell className={COL.source}><Skeleton className="h-4 w-16" /></TableCell>
-            <TableCell className={COL.action}><Skeleton className="h-control-sm w-16" /></TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  )
-}
-
-function OrdersTable({
-  rows, onOpen,
-}: {
-  rows: OrderRow[]
-  onOpen: (id: string) => void
-}) {
-  return (
-    <Table>
-      <OrdersTableHead />
-      <TableBody>
-        {rows.map(order => {
-          const status = STATUS_BADGE[order.status] ?? STATUS_BADGE.Draft
-          return (
-            <TableRow key={order.id}>
-              <TableCell className={COL.date}>{fmtDate(order.order_date)}</TableCell>
-              <TableCell className={COL.entity}>
-                {/* Section 8: table cells truncate, and the tooltip only
-                    attaches when the text is genuinely cut. */}
-                <Truncate className="font-medium text-text-primary">
-                  {order.entity_name ?? '—'}
-                </Truncate>
-              </TableCell>
-              <TableCell className={COL.type}>
-                <Truncate className="text-text-secondary">
-                  {order.entity_type ?? '—'}
-                </Truncate>
-              </TableCell>
-              <TableCell className={COL.exec}>
-                <Truncate className="text-text-secondary">
-                  {order.users?.name ?? '—'}
-                </Truncate>
-              </TableCell>
-              <TableCell className={COL.amount} numeric>
-                <span className="font-medium text-text-primary">
-                  {fmtAmount(Number(order.total_amount))}
-                </span>
-              </TableCell>
-              <TableCell className={COL.status}>
-                <Badge variant={status.variant}>
-                  {status.icon}
-                  {order.status}
-                </Badge>
-              </TableCell>
-              <TableCell className={COL.source}>
-                {/* Not a status, so not a status colour. These two are
-                    the categorical pair this screen already carried;
-                    they are left exactly as they were. */}
-                <Badge
-                  className={
-                    order.order_source === 'direct'
-                      ? 'border-chart-1 bg-chart-1 text-primary-foreground'
-                      : 'border-chart-2 bg-chart-2 text-primary-foreground'
-                  }
-                >
-                  {order.order_source === 'direct' ? 'Direct' : 'Meeting'}
-                </Badge>
-              </TableCell>
-              <TableCell className={COL.action}>
-                <Button variant="secondary" size="sm" onClick={() => onOpen(order.id)}>
-                  View
-                </Button>
-              </TableCell>
-            </TableRow>
-          )
-        })}
-      </TableBody>
-    </Table>
-  )
+function orderColumns(onOpen: (id: string) => void): ListColumn<OrderRow>[] {
+  return [
+    {
+      id: 'date',
+      header: 'Date',
+      tier: 'hide-below-768',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-24',
+      cell: order => fmtDate(order.order_date),
+    },
+    {
+      id: 'entity',
+      header: 'Entity',
+      grow: true,
+      truncate: true,
+      cellClassName: 'font-medium text-text-primary',
+      skeletonWidth: 'w-40',
+      cell: order => order.entity_name ?? '—',
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      tier: 'hide-below-768',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-20',
+      cell: order => order.entity_type ?? '—',
+    },
+    {
+      id: 'exec',
+      header: 'Sales Exec',
+      tier: 'hide-below-1024',
+      truncate: true,
+      cellClassName: 'text-text-secondary',
+      skeletonWidth: 'w-28',
+      cell: order => order.users?.name ?? '—',
+    },
+    {
+      id: 'amount',
+      header: 'Amount',
+      numeric: true,
+      className: 'whitespace-nowrap',
+      cellClassName: 'font-medium text-text-primary',
+      skeletonWidth: 'w-20',
+      cell: order => fmtAmount(Number(order.total_amount)),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-20',
+      cell: order => <StatusBadge vocabulary={ORDER_STATUS} status={order.status} />,
+    },
+    {
+      id: 'source',
+      header: 'Source',
+      tier: 'hide-below-1024',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-16',
+      /* Not a status, so not a status colour. These two are the
+         categorical pair this screen already carried, left as they
+         were — see status-badge.tsx for what IS status here. */
+      cell: order => (
+        <Badge
+          className={
+            order.order_source === 'direct'
+              ? 'border-chart-1 bg-chart-1 text-primary-foreground'
+              : 'border-chart-2 bg-chart-2 text-primary-foreground'
+          }
+        >
+          {order.order_source === 'direct' ? 'Direct' : 'Meeting'}
+        </Badge>
+      ),
+    },
+    {
+      id: 'actions',
+      header: '',
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'h-control-sm w-16',
+      cell: order => (
+        <Button variant="secondary" size="sm" onClick={() => onOpen(order.id)}>
+          View
+        </Button>
+      ),
+    },
+  ]
 }
 
 export default function OrdersPage() {
   const { toast } = useToast()
-
-  /*
-   * Section 14 rule 3: `orders === null` is true before the first
-   * response AND after a failed one, so it cannot be the only thing the
-   * render branches on. `failed` exists for exactly that reason, and
-   * the branches below read it first.
-   */
-  const [orders, setOrders] = useState<OrderRow[] | null>(null)
-  const [failed, setFailed] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [detailOrder, setDetailOrder] = useState<OrderDetail | null>(null)
   const [hasSubordinates, setHasSubordinates] = useState(false)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-
-  // `qInput` is what the user is typing; `q` is what has been sent.
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [qInput, setQInput] = useState('')
-  const [q, setQ] = useState('')
-  const [statusFilter, setStatusFilter] = useState(ALL)
-  const [userFilter, setUserFilter] = useState(ALL)
-  const [page, setPage] = useState(1)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setQ(qInput.trim()), SEARCH_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [qInput])
+  /* Bumped when a create or a status change makes the list stale. */
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => {
@@ -901,297 +738,88 @@ export default function OrdersPage() {
     }
   }, [hasSubordinates, toast])
 
-  const loadOrders = useCallback(async () => {
-    /*
-      Cleared before the request, not after it. Without this, Retry left
-      the failed state on screen for the whole of the second attempt and
-      the button read as dead; with it, `orders` is still null so the
-      skeleton takes over while the retry is in flight. Rows are NOT
-      cleared here - a filter change keeps its table until the new one
-      lands, so the page does not flash a skeleton on every keystroke.
-    */
-    setFailed(false)
-    const params = new URLSearchParams()
-    if (dateFrom) params.set('dateFrom', dateFrom)
-    if (dateTo) params.set('dateTo', dateTo)
-    if (q) params.set('q', q)
-    if (statusFilter !== ALL) params.set('status', statusFilter)
-    if (userFilter !== ALL) params.set('userId', userFilter)
-
-    /*
-     * Section 14 rule 4. `fetch` has no timeout of its own, so a stalled
-     * request never settles and the failed state below could never
-     * render however well it is written. The deadline is what makes the
-     * promise capable of rejecting at all.
-     */
-    const abort = new AbortController()
-    const deadline = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
-    try {
-      const r = await fetch(
-        `/api/orders${params.toString() ? '?' + params.toString() : ''}`,
-        { signal: abort.signal }
-      )
-      if (!r.ok) throw new Error(String(r.status))
-      const d = await r.json()
-      setOrders(Array.isArray(d) ? d : [])
-      setFailed(false)
-    } catch {
-      /*
-       * Section 7.1: a load failure stays true until it is resolved, so
-       * it is a state on the screen rather than a toast that vanishes
-       * and leaves an empty table behind it.
-       */
-      setOrders(null)
-      setFailed(true)
-    } finally {
-      clearTimeout(deadline)
-    }
-  }, [dateFrom, dateTo, q, statusFilter, userFilter])
-
-  useEffect(() => { loadOrders() }, [loadOrders])
-
-  // A filter change re-pages from the top: page 4 of the old result set
-  // means nothing in the new one.
-  useEffect(() => {
-    setPage(1)
-  }, [dateFrom, dateTo, q, statusFilter, userFilter])
-
   async function openDetail(orderId: string) {
     const r = await fetch(`/api/orders/${orderId}`)
     if (!r.ok) { toast('Could not load order details', 'error'); return }
     setDetailOrder(await r.json())
   }
 
-  function clearFilters() {
-    setDateFrom(''); setDateTo(''); setQInput(''); setQ('')
-    setStatusFilter(ALL); setUserFilter(ALL)
-  }
-
-  const filtersActive =
-    Boolean(dateFrom || dateTo || q) || statusFilter !== ALL || userFilter !== ALL
-
-  const total = orders?.length ?? 0
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const current = Math.min(page, pageCount)
-  const firstOnPage = (current - 1) * PAGE_SIZE
-  const rows = orders ? orders.slice(firstOnPage, firstOnPage + PAGE_SIZE) : []
-
-  const teamOptions: Record<string, string> = {
-    [ALL]: 'All team',
-    ...Object.fromEntries(teamMembers.map(m => [m.id, m.name])),
-  }
-
   /*
-   * Zone 1's meta line. Section 11.1 puts the record count under the
-   * title; section 27.1 puts the result count beside the search field.
-   * One number, said once, with the wording saying which it is.
+   * Deliberately NOT memoised. The template holds `load` in a ref and
+   * never makes it an effect dependency, so a new function on every
+   * render costs nothing — and a screen getting that wrong is the
+   * failure mode the ref exists to remove.
+   *
+   * No deadline and no catch here: the template races this against its
+   * own timer, so a rejection IS the failed state and a hang becomes
+   * one (section 14 rule 4).
    */
-  const meta =
-    orders === null
-      ? null
-      : q
-        ? `${total} ${total === 1 ? 'result' : 'results'} for “${q}”`
-        : `${total} ${total === 1 ? 'order' : 'orders'}`
+  const load: ListPageProps<OrderRow>['load'] = async ({ search, filters, signal }) => {
+    const params = new URLSearchParams()
+    if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
+    if (filters.dateTo) params.set('dateTo', filters.dateTo)
+    if (search) params.set('q', search)
+    if (filters.status) params.set('status', filters.status)
+    if (filters.user) params.set('userId', filters.user)
+    const query = params.toString()
+    const r = await fetch(`/api/orders${query ? `?${query}` : ''}`, { signal })
+    if (!r.ok) throw new Error(String(r.status))
+    const body = await r.json()
+    return Array.isArray(body) ? (body as OrderRow[]) : []
+  }
+
+  const filters: ListFilter[] = [
+    { id: 'dateFrom', label: 'From', kind: 'date' },
+    { id: 'dateTo', label: 'To', kind: 'date' },
+    { id: 'status', label: 'Status', kind: 'select', options: STATUS_OPTIONS },
+    /* Section 26: the team picker only exists for somebody who has a
+       team. Section 16.3: a team runs past six names sooner than it
+       does not, so it is the searchable kind. */
+    ...(hasSubordinates
+      ? [
+          {
+            id: 'user',
+            label: 'Team member',
+            kind: 'select' as const,
+            searchable: true,
+            options: {
+              '': 'Anyone',
+              ...Object.fromEntries(teamMembers.map(m => [m.id, m.name])),
+            },
+          },
+        ]
+      : []),
+  ]
 
   return (
     <>
-      <ListPage
+      <ListPage<OrderRow>
         title="Orders"
-        meta={meta}
+        noun={{ one: 'order', many: 'orders' }}
         action={
           <Button onClick={() => setCreateOpen(true)}>
             <PlusIcon />
             Create order
           </Button>
         }
-        search={
-          <Tooltip>
-            <TooltipTrigger render={<div />}>
-              <InputGroup>
-                <InputGroupAddon>
-                  <SearchIcon />
-                </InputGroupAddon>
-                <InputGroupInput
-                  type="search"
-                  aria-label="Search orders"
-                  placeholder="Search orders"
-                  value={qInput}
-                  onChange={e => setQInput(e.target.value)}
-                />
-                {/* Section 27.1: a clear button appears inside the field
-                    once there is text. Section 23.1 maps Close to `x`. */}
-                {qInput !== '' && (
-                  <InputGroupAddon align="inline-end">
-                    <Button
-                      variant="in-field"
-                      size="icon-sm"
-                      onClick={() => setQInput('')}
-                    >
-                      <XIcon />
-                      <span className="sr-only">Clear search</span>
-                    </Button>
-                  </InputGroupAddon>
-                )}
-              </InputGroup>
-            </TooltipTrigger>
-            <TooltipContent>{SEARCHED_FIELDS}</TooltipContent>
-          </Tooltip>
-        }
-        filters={
-          <>
-            {/*
-              Each control is sized by the WRAPPER, not by a className on
-              the control. `date-picker` and `select` are both `w-full
-              max-w-field-max` internally, and a `w-*` passed in did not
-              beat their own `w-full` — tailwind-merge does not recognise
-              this product's custom spacing names in the `w-` group, the
-              same shape of bug section 4.1 records for the type scale.
-              A wrapper cannot lose that argument.
-            */}
-            <div className="w-field-min">
-              <DatePicker
-                value={fromISODate(dateFrom)}
-                onValueChange={d => setDateFrom(d ? toISODate(d) : '')}
-                placeholder="From"
-              />
-            </div>
-            <div className="w-field-min">
-              <DatePicker
-                value={fromISODate(dateTo)}
-                onValueChange={d => setDateTo(d ? toISODate(d) : '')}
-                placeholder="To"
-              />
-            </div>
-            <div className="w-field-min">
-              <Select
-                items={STATUS_OPTIONS}
-                value={statusFilter}
-                onValueChange={v => setStatusFilter(String(v))}
-              >
-                <SelectTrigger aria-label="Status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(STATUS_OPTIONS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {hasSubordinates && (
-              /* Section 16.3: a team runs past six names sooner than it
-                 does not, and past six the menu needs a search box.
-                 That is what this component is. */
-              <div className="w-field-min">
-                <SearchableSelect
-                  options={teamOptions}
-                  value={userFilter}
-                  onValueChange={setUserFilter}
-                  searchPlaceholder="Search team"
-                />
-              </div>
-            )}
-            {filtersActive && (
-              <Button variant="secondary" onClick={clearFilters}>Clear</Button>
-            )}
-          </>
-        }
-        pagination={
-          <PaginationBar>
-            <PaginationCount>
-              {total === 0
-                ? 'No orders'
-                : `Showing ${firstOnPage + 1} to ${Math.min(firstOnPage + PAGE_SIZE, total)} of ${total}`}
-            </PaginationCount>
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  {/* Section 6.4: a control with nowhere to go reads as
-                      disabled - reduced contrast and no pointer - rather
-                      than looking live and doing nothing. `pagination.tsx`
-                      has no disabled state of its own; see the report. */}
-                  <PaginationPrevious
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    aria-disabled={current === 1}
-                    tabIndex={current === 1 ? -1 : undefined}
-                    className={cn(current === 1 && "pointer-events-none text-text-muted")}
-                  />
-                </PaginationItem>
-                {pageWindow(current, pageCount).map((entry, i) =>
-                  entry === 'gap' ? (
-                    <PaginationItem key={`gap-${i}`}>
-                      <PaginationEllipsis />
-                    </PaginationItem>
-                  ) : (
-                    <PaginationItem key={entry}>
-                      <PaginationLink
-                        isActive={entry === current}
-                        onClick={() => setPage(entry)}
-                      >
-                        {entry}
-                      </PaginationLink>
-                    </PaginationItem>
-                  )
-                )}
-                <PaginationItem>
-                  <PaginationNext
-                    onClick={() => setPage(p => Math.min(pageCount, p + 1))}
-                    aria-disabled={current === pageCount}
-                    tabIndex={current === pageCount ? -1 : undefined}
-                    className={cn(current === pageCount && "pointer-events-none text-text-muted")}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          </PaginationBar>
-        }
-      >
-        {/*
-          Zone 3. Four branches, never three (section 14 rule 3): failed
-          is read before "not loaded yet", and "nothing found" before
-          "nothing yet", so a filter matching no rows never invites
-          somebody to create their first order (section 13).
-        */}
-        {failed ? (
-          <EmptyState
-            className="h-full"
-            variant="failed"
-            heading="Orders could not be loaded"
-            onAction={loadOrders}
-          >
-            The server did not answer. Check your connection, then try again.
-          </EmptyState>
-        ) : orders === null ? (
-          <OrdersSkeleton />
-        ) : total === 0 && filtersActive ? (
-          <EmptyState
-            className="h-full"
-            variant="nothing-found"
-            heading={q ? `No orders match “${q}”` : 'No orders match these filters'}
-            onAction={clearFilters}
-          >
-            Nothing here matches what you are looking for. Clearing the filters
-            brings every order back.
-          </EmptyState>
-        ) : total === 0 ? (
-          <EmptyState
-            className="h-full"
-            variant="nothing-yet"
-            heading="No orders yet"
-            actionLabel="Create order"
-            onAction={() => setCreateOpen(true)}
-          >
-            Orders raised against a dealer, distributor or lead are listed here.
-          </EmptyState>
-        ) : (
-          <OrdersTable rows={rows} onOpen={openDetail} />
-        )}
-      </ListPage>
+        columns={orderColumns(openDetail)}
+        rowKey={order => order.id}
+        filters={filters}
+        load={load}
+        refreshKey={refreshKey}
+        searchHint={SEARCH_HINT}
+        emptyYet={{
+          heading: 'No orders yet',
+          body: 'Orders raised against a dealer, distributor or lead are listed here.',
+          actionLabel: 'Create order',
+          onAction: () => setCreateOpen(true),
+        }}
+      />
 
       {createOpen && (
         <CreateOrderModal
           onClose={() => setCreateOpen(false)}
-          onSaved={loadOrders}
+          onSaved={() => setRefreshKey(k => k + 1)}
           hasSubordinates={hasSubordinates}
         />
       )}
@@ -1199,7 +827,10 @@ export default function OrdersPage() {
         <OrderDetailDrawer
           order={detailOrder}
           onClose={() => setDetailOrder(null)}
-          onStatusChange={() => { loadOrders(); setDetailOrder(null) }}
+          onStatusChange={() => {
+            setRefreshKey(k => k + 1)
+            setDetailOrder(null)
+          }}
         />
       )}
     </>
