@@ -57,10 +57,14 @@ SITES[DA] = dict(
         (219, 'bg-emerald-400'),
         # G2 "New" entity badge
         (226, 'bg-purple-100'), (226, 'text-purple-700'),
-        # G1 teal location panel (:361-:362 are line-level, below)
-        (300, 'bg-teal-50'), (300, 'text-teal-700'),
+        # G1 teal location panel (:300 :361 :362 are line-level, below)
         (353, 'bg-teal-50'), (354, 'text-teal-600'),
         (365, 'text-teal-600'),
+        # G5's shadow sits in a ternary branch; the card's two border states are
+        # the other branch of the same element, so both borders stay raw too.
+        # bg-white on :217 is OUTSIDE the ternary and converts -- whether
+        # line-level reaches it is open-for-author.
+        (217, 'border-amber-300'), (217, 'border-gray-200'),
         # G6 legend dots (2 series, fixed in code)
         (985, 'bg-green-400'), (986, 'bg-blue-400'),
         # C CATEGORY_COLORS + its fallback
@@ -81,20 +85,25 @@ SITES[DA] = dict(
     protect_lines=[
         # G1: the mismatch ternary -- :361 bg-red-50 / :362 bg-teal-50 are one
         # element with two states. Section 11.6 G1, corrected 17 Sep.
-        361, 362,
+        # :300's every palette class is inside the ternary, so line-level and
+        # branch-level coincide.
+        300, 361, 362,
         # Section 11.9: hover and resting are two shades from one row
-        242, 282, 379, 1280, 1286,
-        # :243 is the svg inside the button whose fill is on :242 -- one element
-        # across two lines. Converting its text-white to primary-foreground over
-        # a raw bg-red-500 half-migrates the element, same rule as the ternary.
-        243,
+        282, 379, 1280, 1286,
+        # :1536 -- the active-tab ternary. 11.2 promotes the resting
+        # text-gray-500 to secondary, which is where hover:text-gray-700 already
+        # lands, so the exception CREATES the collision. Line-level because the
+        # branches are the tab's active and inactive states; that also leaves
+        # border-blue-600 raw rather than risking the wrong accent token.
+        1536,
     ],
     exceptions=[1158, 1536],
-    white=[131, 138, 236, 341, 642, 764, 927, 1098, 1280, 1286, 1587, 1653],
-    # 242 / 1280 / 1286 are section 11.9 lines and are protected in full, so
-    # they are NOT listed here -- their hover half has no token to land on.
-    fill=[],
-    hover_fill=[],
+    white=[131, 138, 236, 243, 341, 642, 764, 927, 1098, 1280, 1286, 1587, 1653],
+    # :242 is a filled DANGER button and 11.4's closing rule resolves it --
+    # danger-hover exists (globals.css:97). :1280 success and :1286 warning do
+    # not, so they stay in 11.9.
+    fill=[(242, 'bg-red-500')],
+    hover_fill=[(242, 'bg-red-600')],
 )
 
 # ---------------------------------------------------------------- file 2: CO
@@ -110,12 +119,15 @@ SITES[CO] = dict(
         # B: the dark-surface hole. bg-gray-900 fill, its text-white foreground
         # and its hover:bg-gray-800 are all one deferred element.
         683, 722,
-        # Section 11.9
-        553, 672, 742, 756,
+        # Section 11.9. :553 warning fill and :672 a text pair; :585 is the
+        # 11.2-created collision -- the exception promotes text-gray-500 to
+        # secondary, where hover:text-gray-700 already lands.
+        553, 585, 672,
     ],
     exceptions=[319, 367, 384, 566, 576, 585, 658, 669],
-    # every text-white in this file sits on a B or 11.9 line, so none converts
-    white=[],
-    fill=[],
-    hover_fill=[],
+    # :742 and :756 are filled DANGER buttons -- 11.4's closing rule resolves
+    # them and their text-white converts with them. :553 is warning and stays.
+    white=[742, 756],
+    fill=[(742, 'bg-red-600'), (756, 'bg-red-600')],
+    hover_fill=[(742, 'bg-red-700'), (756, 'bg-red-700')],
 )

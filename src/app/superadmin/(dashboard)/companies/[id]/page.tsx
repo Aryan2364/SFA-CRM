@@ -582,7 +582,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
         <div className="flex gap-6">
           {(['settings', 'analytics'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-primary text-text-primary' : 'border-transparent text-text-secondary hover:text-text-secondary'}`}>
+              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
               {tab === 'settings' ? 'Company Settings' : 'Users & Analytics'}
             </button>
           ))}
@@ -739,7 +739,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
             <p className="text-sm text-text-muted mb-1"><strong>{revokeTarget.name}</strong> will lose Administrator access immediately.</p>
             <p className="text-sm text-text-muted mb-5">They can still log in but will see a &quot;role not configured&quot; screen until the company admin assigns them a role.</p>
             <div className="flex gap-3">
-              <button onClick={handleRevokeAdmin} disabled={revokeSaving} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors">{revokeSaving ? 'Revoking…' : 'Revoke'}</button>
+              <button onClick={handleRevokeAdmin} disabled={revokeSaving} className="flex-1 bg-danger text-primary-foreground py-2 rounded-lg text-sm font-medium hover:bg-danger-hover disabled:opacity-50 transition-colors">{revokeSaving ? 'Revoking…' : 'Revoke'}</button>
               <button onClick={() => setRevokeTarget(null)} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">Cancel</button>
             </div>
           </div>
@@ -753,7 +753,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
             <h3 className="font-medium text-text-primary mb-2">Disable All Logins?</h3>
             <p className="text-sm text-text-muted mb-5">All users of <strong>{company.name}</strong> will be blocked from logging in immediately.</p>
             <div className="flex gap-3">
-              <button onClick={confirmDisableAction} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">Disable</button>
+              <button onClick={confirmDisableAction} className="flex-1 bg-danger text-primary-foreground py-2 rounded-lg text-sm font-medium hover:bg-danger-hover transition-colors">Disable</button>
               <button onClick={() => setConfirmDisable(false)} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">Cancel</button>
             </div>
           </div>

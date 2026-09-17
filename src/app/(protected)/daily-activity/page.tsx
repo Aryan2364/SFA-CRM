@@ -214,7 +214,7 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
       : 'bg-surface-control text-text-muted'
 
   return (
-    <div className={`bg-surface rounded-2xl border overflow-hidden transition-all ${visit.status === 'Active' ? 'border-warning-border shadow-md shadow-amber-50' : 'border-border-light'}`}>
+    <div className={`bg-surface rounded-2xl border overflow-hidden transition-all ${visit.status === 'Active' ? 'border-amber-300 shadow-md shadow-amber-50' : 'border-gray-200'}`}>
       {visit.status === 'Active' && <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-400 animate-pulse" />}
       {visit.status === 'Completed' && <div className="h-1 bg-emerald-400" />}
 
@@ -239,8 +239,8 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
             {visit.status === 'Active' && (
               <>
                 <button onClick={() => onStop(visit.id)}
-                  className="w-12 h-12 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow transition">
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z" /></svg>
+                  className="w-12 h-12 rounded-full bg-danger hover:bg-danger-hover flex items-center justify-center shadow transition">
+                  <svg className="w-5 h-5 text-primary-foreground" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z" /></svg>
                 </button>
                 <span className="text-xs font-mono font-medium text-warning tabular-nums">{formatDuration(elapsed)}</span>
               </>
@@ -297,7 +297,7 @@ function VisitCard({ visit, onStart, onStop, onDelete, onOrderEntry, onRemarks, 
           )}
           {visit.latitude != null && (
             <button onClick={() => setLocationOpen(o => !o)}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${locationOpen ? 'bg-teal-50 text-teal-700' : 'text-text-muted hover:text-teal-700 hover:bg-teal-50'}`}>
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${locationOpen ? 'bg-teal-50 text-teal-700' : 'text-gray-500 hover:text-teal-700 hover:bg-teal-50'}`}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
@@ -1533,7 +1533,7 @@ function DailyActivityInner() {
       <div className="flex items-center gap-1 mb-5 border-b border-border-light">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`pb-3 px-3 text-sm font-medium border-b-2 transition ${activeTab === t.id ? 'border-primary-border text-primary' : 'border-transparent text-text-secondary hover:text-text-secondary'}`}>
+            className={`pb-3 px-3 text-sm font-medium border-b-2 transition ${activeTab === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {t.label}
           </button>
         ))}

@@ -24,12 +24,38 @@ came from. Read-only: I instruct and verify, I do not write code or commit.
 | 16 | `e85a6c0` amended an approved section by commit | Process correction sent once: route amendments, do not commit them — binds me equally | author |
 | 17 | Worker's §11.8 draft read in progress: byte-identical protected sites, empty remainder, line-for-line with the pre-phase blob | Accepted as written; line-for-line is now the phase standard | §11.8 as drafted |
 | 18 | Ten source files still byte-identical to baseline; worker doing the plan commit first | No instruction — order being followed | `git hash-object` × 10 |
+| 19 | `12d5d73` converts file 1: 363 → 55, 1,686 lines both sides, group arithmetic reconciles | Accepted the bulk; four defects returned as a follow-up commit | verified against pre-phase blob, not the report |
+| 20 | `:1536` active tab accent written `border-primary-border` | Write `border-primary` | `AGENTS.md` §33.3 "a 2px `primary` accent"; §11.1's own `border-gray-900` → `border-primary` row for the sibling site |
+| 21 | `:1536` resting/hover both became `text-text-secondary` | Add to §11.9, leave raw; detector must apply §11.2's exceptions before testing collision | §11.2 (site is in its status list) + §6.4 |
+| 22 | `:300` ternary — one branch converted, four teals left | Revert; every palette class on the line is inside the ternary, so line-level and branch-level coincide | author's ternary rule |
+| 23 | `:217` ternary branches converted around a G5 shadow | Revert both branches; `bg-white` outside the ternary routed to open-for-author §3 | author's ternary rule |
+| 24 | Worker protected `:243` (white on the `:242` danger fill) and asked me to confirm | Reversed: both convert. `:242` is a filled danger button and `danger-hover` exists | §11.4 closing rule; `globals.css:97`, `:324` |
+| 25 | Hover counts disagreed — mine 52/59 and 41 in the ten, its 53/126 and 34 | Conceded mine; sent my corrected list for a site-by-site diff | two errors of my own, below |
+| 26 | Worker claimed `12d5d73` was "on its own, nothing else in it" | Noted: it also carries `sites.py`, `tokens.py`, `verify.py`. Not asked to split — the claim was the problem, not the commit | verified `--name-only` |
+| 27 | Author changed the pace | Instructed: run all ten straight through, commit per file, no review between; one pass at the end | author |
 
 ## Corrections to my own findings
 
 - **Encoding damage — withdrawn.** I reported a mangled `·` at
   `daily-activity:265`. That was my console re-encoding the file through cp1252,
   not the file. Verified: zero lines with changed non-ASCII characters.
+- **Hover count — wrong twice, and the worker's was better founded.** My
+  ten-file figure of 41 came from matching file paths on substrings, which swept
+  in `companies/page.tsx`, `companies/new` and `review/page.tsx` — none of them
+  in the ten. And my repo-wide 59/52 counted every saturated status fill as a
+  collapse, including the red ones that §11.4's closing rule resolves through
+  `danger-hover`. Corrected: 45 lines / 51 declarations repo-wide, 32 lines in
+  the ten. The worker derived its number independently before seeing mine, which
+  is the only reason the error surfaced — worth keeping as a habit.
+
+## Change of pace — 17 Sep 2026
+
+Per-commit review retired mid-phase at the author's instruction; the worker runs
+all ten straight through and I make one pass at the end. During the run I answer
+lookups only. The end pass is: protected sites untouched, undeclared survivors,
+scope bleed, tokens semantically wrong for the element, and the screens opened
+against the three declared visible changes. **Count reconciliation against §11.7
+is retired and I will not run it.**
 
 ## Baselines I hold, measured before any work
 

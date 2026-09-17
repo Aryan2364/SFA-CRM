@@ -140,7 +140,57 @@ commit them.
 
 ---
 
-## 3. Recorded, not open — decisions already made
+## 3. `daily-activity:217` — does "line-level" reach outside the ternary?
+
+**Status: OPEN. One line, one occurrence. Left as committed meanwhile.**
+
+```
+{`bg-white rounded-2xl border overflow-hidden transition-all ${
+   visit.status === 'Active' ? 'border-amber-300 shadow-md shadow-amber-50'
+                             : 'border-gray-200'}`}
+```
+
+Your rule: *"G is line-level where a ternary's branches are one element,
+occurrence-level elsewhere."* G5 protects `shadow-amber-50` inside the Active
+branch, and the two branches are the Active and non-Active states of one card —
+so the branches are protected and `border-amber-300` and `border-gray-200`
+revert. I have instructed that much, because it follows under any reading.
+
+`bg-white` is the open question. It sits **outside** the ternary, in the static
+part of the template literal. "Line-level" read literally covers it;
+"the ternary's branches" read literally does not. It is currently converted to
+`bg-surface`.
+
+This will recur — a static prefix plus a stateful ternary is the commonest
+className shape in this codebase — so the general answer is worth more than the
+site.
+
+---
+
+## 4. `daily-activity:1536` — §33.3 settles the tab hover, but visibly
+
+**Status: OPEN. Site protected as §11.9 meanwhile, so nothing renders wrong.**
+
+```
+old: 'border-transparent text-gray-500 hover:text-gray-700'
+```
+
+`AGENTS.md` §33.3: *"Resting tabs are `text-secondary` and go `text-primary` on
+hover."* That settles the site outright — `text-text-secondary
+hover:text-primary` — and resolves the collapse §11.2's exception creates here.
+
+I have not instructed it, because it changes a resting tab's hover from dark
+grey to indigo, and that is a fourth visible change. The site is protected as a
+§11.9 hover-collapse line meanwhile, which is correct but leaves two raw palette
+classes in the residue.
+
+Note this is not only about one line: §33.3 describes the whole tab bar, and
+applying it properly is a §33 job rather than a colour one. If the answer is
+"yes, §33.3 governs", it may belong to phase 9 rather than here.
+
+---
+
+## 5. Recorded, not open — decisions already made
 
 Listed so the sections above are not read as the whole of what came up.
 
@@ -151,3 +201,61 @@ Listed so the sections above are not read as the whole of what came up.
   ternary's branches are one element, occurrence-level elsewhere.
 - **§11.1's border-gray row** 221 → 233, **§11.6 F** 8 → 6, and §11.7's restated
   basis — decided by you, transcribed by the worker.
+
+---
+
+## Item 3 — does line-level protection reach outside the ternary?
+
+Raised 17 Sep 2026 by the converting session, during file 1.
+
+`daily-activity:217`:
+
+```
+<div className={`bg-white rounded-2xl border overflow-hidden transition-all ${
+  visit.status === 'Active' ? 'border-amber-300 shadow-md shadow-amber-50'
+                            : 'border-gray-200'}`}>
+```
+
+`shadow-amber-50` is §11.6 G5 and `border-amber-300` / `border-gray-200` are the
+two branches of the same element, so all three stay raw under the ternary rule.
+**`bg-white` is on the same line but OUTSIDE the ternary**, in the static part of
+the template literal.
+
+Read narrowly, the rule protects the ternary and `bg-white` converts to
+`bg-surface`. Read broadly, "line-level" means the line and it stays raw.
+**Converted meanwhile**, which is the reversible direction — if the rule is read
+broadly it reverts with the rest.
+
+This recurs: the same shape is in `review/[userId]:354` and anywhere a card's
+static classes share a line with its state ternary.
+
+## Item 4 — §11.1's active-tab row against §11.3's generic border row
+
+Raised 17 Sep 2026 by the converting session; the reviewer raised the token half
+of it independently.
+
+`daily-activity:1536` is an active-tab accent:
+
+```
+${activeTab === t.id ? 'border-blue-600 text-blue-600'
+                     : 'border-transparent text-gray-500 hover:text-gray-700'}
+```
+
+Two rows reach `border-blue-600`. §11.3's generic row sends every
+`border-blue-*` to `border-primary-border`. §11.1 has a row that names this
+element type — `border-gray-900` → `border-primary`, count 1, noted "active tab
+accent, §33.3" — and AGENTS.md §33.3 requires "a **2px** `primary` accent along
+its bottom edge". `border-primary-border` is `#D2D0E4`, a border tint, not an
+accent, so applying §11.3 here leaves this codebase's two active-tab accents
+rendering different colours.
+
+**The site is left raw in full and is not converted either way**, because it is
+also an §11.9 collision (§11.2 promotes the resting `text-gray-500` to
+`text-secondary`, which is where `hover:text-gray-700` already lands) and the
+ternary's branches are one element. Leaving it raw is a declared deferral;
+writing the wrong token would be a defect. **Which row governs an element that two
+rows both reach is an §11 question, not a conversion one.**
+
+Related, and also the author's: §33.3 says "Resting tabs are `text-secondary` and
+go `text-primary` on hover", which would settle the hover half outright — but
+that changes a hover colour visibly, so it is outside the three declared changes.
