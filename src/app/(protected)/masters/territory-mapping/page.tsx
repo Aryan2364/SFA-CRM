@@ -28,47 +28,47 @@ export default function TerritoryMappingPage() {
 
   return (
     <div>
-      <a href="/masters" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-4">
+      <a href="/masters" className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-secondary mb-4">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
         Back to Masters
       </a>
 
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-xl font-medium text-gray-800">Territory Mapping</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Assign geographical territories to users</p>
+          <h2 className="text-xl font-medium text-text-primary">Territory Mapping</h2>
+          <p className="text-sm text-text-muted mt-0.5">Assign geographical territories to users</p>
         </div>
       </div>
 
       <div className="mb-3">
         <input type="text" placeholder="Search users…" value={search} onChange={e => setSearch(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="border border-border rounded-lg px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-primary-ring" />
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-surface rounded-xl border border-border-light overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-100">
+          <thead className="bg-surface-sunken border-b border-border-light">
             <tr>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">User</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Contact</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Mapped Districts</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-600">Action</th>
+              <th className="text-left px-4 py-3 font-medium text-text-secondary">User</th>
+              <th className="text-left px-4 py-3 font-medium text-text-secondary">Contact</th>
+              <th className="text-left px-4 py-3 font-medium text-text-secondary">Mapped Districts</th>
+              <th className="px-4 py-3 text-right font-medium text-text-secondary">Action</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={4} className="text-center py-12 text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={4} className="text-center py-12 text-text-muted">Loading…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={4} className="text-center py-12 text-gray-400">No users found.</td></tr>
+              <tr><td colSpan={4} className="text-center py-12 text-text-muted">No users found.</td></tr>
             ) : filtered.map(user => (
-              <tr key={user.id} className="border-t border-gray-50 hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-800">{user.name}</td>
-                <td className="px-4 py-3 text-gray-600">{user.contact}</td>
-                <td className="px-4 py-3 text-gray-600">
+              <tr key={user.id} className="border-t border-border-light hover:bg-surface-sunken">
+                <td className="px-4 py-3 font-medium text-text-primary">{user.name}</td>
+                <td className="px-4 py-3 text-text-secondary">{user.contact}</td>
+                <td className="px-4 py-3 text-text-secondary">
                   {user.district_summary ? (
                     <span>{user.district_summary}</span>
                   ) : (
-                    <span className="text-gray-400 text-xs italic">Not mapped</span>
+                    <span className="text-text-muted text-xs italic">Not mapped</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -79,11 +79,11 @@ export default function TerritoryMappingPage() {
                     </Link>
                   ) : user.has_mapping ? (
                     <Link href={`/masters/territory-mapping/${user.id}`}
-                      className="text-gray-500 hover:text-gray-700 text-xs font-medium">
+                      className="text-text-muted hover:text-text-secondary text-xs font-medium">
                       View Territory
                     </Link>
                   ) : (
-                    <span className="text-gray-300 text-xs">—</span>
+                    <span className="text-text-muted text-xs">—</span>
                   )}
                 </td>
               </tr>
