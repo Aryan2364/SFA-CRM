@@ -377,10 +377,29 @@ export const SEEDED_MASTERS: readonly MasterDef[] =
  * Its rows are backfilled from each role's existing `leads` grant — the Deals
  * pipeline is what the Leads screen was being used as — so "whatever you could
  * do to Leads" is the right starting point, `data_scope` included.
+ *
+ * ---------------------------------------------------------------------------
+ * `system_settings` (P3-T1)
+ *
+ * The odd one out: it is NOT a record type and `data_scope` is meaningless for
+ * it — `tenant_settings` holds exactly one row per tenant, so there is no
+ * "own" or "team" to scope to. It lives here rather than in MASTERS because
+ * MASTERS is a registry of CRUD master-data screens (every entry needs an
+ * `api`, a `model` and a `group`) and this is a single settings form. Nothing
+ * calls `getDataScope(user, 'system_settings')`; if something ever does, the
+ * answer it gets is whatever the row happens to carry and should not be
+ * trusted.
+ *
+ * ⚠️ Its rows are seeded DENIED (all four flags false) rather than copied from
+ * another section — see `scripts/backfill-system-settings-permission.mjs` for
+ * the reasoning. In short: these three values govern attendance and the
+ * location flag for the whole tenant, and no existing grant implies consent to
+ * change them. A brand-new section denied by default is not a regression the
+ * way `companies` replacing `leads` was; nobody held this permission before.
  */
 export const OPERATION_SECTIONS = [
   'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
-  'companies', 'contacts', 'deals',
+  'companies', 'contacts', 'deals', 'system_settings',
 ] as const
 
 /**

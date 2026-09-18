@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ShieldCheckIcon, TrophyIcon } from 'lucide-react'
+import { ShieldCheckIcon, SlidersHorizontalIcon, TrophyIcon } from 'lucide-react'
 
 import { canReachAccessControl } from '@/components/shell/nav'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -40,6 +40,14 @@ const SETTINGS = [
     title: 'Points Config',
     description: 'What each activity is worth on the leaderboard.',
     visible: (me: Me | null) => me?.permissions?.points_config?.view ?? false,
+  },
+  {
+    href: '/settings/system',
+    icon: SlidersHorizontalIcon,
+    title: 'System Settings',
+    description:
+      'Auto check-out, the meeting location flag, and deal stage ageing.',
+    visible: (me: Me | null) => me?.permissions?.system_settings?.view ?? false,
   },
 ]
 

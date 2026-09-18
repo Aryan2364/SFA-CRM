@@ -126,6 +126,30 @@ const PERM_GROUPS: PermGroup[] = [
     ],
   },
   {
+    /*
+     * P3-T1. `system_settings` is storable — it is in OPERATION_SECTIONS, so
+     * ALL_SECTIONS carries it and the GET/PUT above round-trip it — unlike the
+     * two Points keys below.
+     *
+     * It needs a row HERE as well as in the registry because this literal is
+     * the only place the toggle exists: a section absent from PERM_GROUPS can
+     * be held in the database but can never be granted or revoked by an
+     * administrator through the UI. (`companies`, `contacts` and `deals` are
+     * in OPERATION_SECTIONS and missing from this list for exactly that
+     * reason — a pre-existing gap, not one this task introduced, and not one
+     * it fixes either.)
+     *
+     * `isOperation: false` renders "—" in the Data Scope column, which is
+     * correct: `tenant_settings` holds one row per tenant, so there is no
+     * own/team/all to choose between.
+     */
+    module: 'Settings Module',
+    group: 'Configuration',
+    sections: [
+      { key: 'system_settings', label: 'System Settings', isOperation: false },
+    ],
+  },
+  {
     // ⚠️ Neither key is in the role_permissions_section_check constraint, so
     // these two toggles do not persist. That was true before the registry and
     // is unchanged by it; see POINTS_SECTIONS in src/lib/masters-registry.ts.
