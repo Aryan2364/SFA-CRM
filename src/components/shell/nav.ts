@@ -35,7 +35,7 @@ import type { Me } from '@/hooks/useMe'
  *   | Daily Activity | calendar-days       |
  *   | Weekly Plan    | clipboard-list      |
  *   | Orders         | shopping-cart       |
- *   | Leads          | user-round-search   |
+ *   | Parties        | user-round-search   |
  *   | Review         | user-round-check    |
  *   | Conversations  | message-square      |
  *   | Masters        | database            |
@@ -143,10 +143,22 @@ export const NAV_ITEMS: NavItem[] = [
     visible: me => canView(me, 'orders'),
   },
   {
-    label: 'Leads',
-    href: '/leads',
+    /*
+     * ONE destination for both halves of the Party surface (P1-T13,
+     * REBUILD-PLAN.md section 3.2): Companies and Contacts are tabs on
+     * `/parties`, not two sidebar entries. Section 12.1's seven-item
+     * ceiling is the reason the second one is not here, and section
+     * 33.1's test is the reason a tab is the right home for it — these
+     * are sibling views of ONE section.
+     *
+     * Visible on EITHER permission. The page hides the tab the user
+     * cannot view, so someone granted contacts and not companies still
+     * has a way in; testing only `companies` would strand them.
+     */
+    label: 'Parties',
+    href: '/parties',
     icon: UserRoundSearch,
-    visible: me => canView(me, 'leads'),
+    visible: me => canView(me, 'companies') || canView(me, 'contacts'),
   },
   {
     /*

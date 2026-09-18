@@ -42,8 +42,8 @@ const ORDERS_NAV = {
   ),
 }
 
-const LEADS_NAV = {
-  label: 'Lead', href: '/leads',
+const PARTIES_NAV = {
+  label: 'Parties', href: '/parties',
   icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
@@ -138,7 +138,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const showDailyActivity = isAdmin || (perms?.meetings?.view ?? false)
   const showWeeklyPlan = isAdmin || (perms?.weekly_plan?.view ?? false)
   const showOrders = isAdmin || (perms?.orders?.view ?? false)
-  const showLeads = isAdmin || (perms?.leads?.view ?? false)
+  // P1-T13: one entry for both halves of the Party surface. Either
+  // permission opens it — the page hides the tab the user cannot view.
+  const showParties =
+    isAdmin || (perms?.companies?.view ?? false) || (perms?.contacts?.view ?? false)
   const showUsers = isAdmin || (perms?.users?.view ?? false)
   const showAccessControl = isAdmin
   const showPointsConfig = isAdmin || (perms?.points_config?.view ?? false)
@@ -160,7 +163,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     ...(showDailyActivity ? [DAILY_ACTIVITY_NAV] : []),
     ...(showWeeklyPlan ? [WEEKLY_PLAN_NAV] : []),
     ...(showOrders ? [ORDERS_NAV] : []),
-    ...(showLeads ? [LEADS_NAV] : []),
+    ...(showParties ? [PARTIES_NAV] : []),
     ...(showMasters ? [MASTERS_NAV] : []),
     ...(showUsers ? [USERS_NAV] : []),
     ...(showAccessControl ? [ACCESS_CONTROL_NAV] : []),

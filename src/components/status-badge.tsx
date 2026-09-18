@@ -1,5 +1,6 @@
 import {
   CheckIcon,
+  CircleCheckIcon,
   CircleDashedIcon,
   CircleSlashIcon,
   CircleXIcon,
@@ -336,6 +337,77 @@ export const USER_STATUS: Record<string, StatusSpec> = {
     match: 'meaning',
     reason:
       'Absent from section 2.4’s fourth column. It was red before, but section 15.2 makes deactivation the safe, deliberate alternative to deletion rather than a failure, so danger would misstate it — and this file’s own rule is that a word with no honest role is a neutral, not a guess. The icon carries the distinction instead.',
+  },
+}
+
+/**
+ * COMPANIES and CONTACTS — `companies.is_active` / `contacts.is_active`,
+ * rendered as the word the forms use: Active or Inactive.
+ *
+ * The same two words and the same two ROLES as USER_STATUS, which is
+ * why this is not a rename of it but a sibling: the roles agree, the
+ * GLYPHS must not. USER_STATUS's icons are a person with a tick and a
+ * person with a minus, which is exactly right for an account and wrong
+ * for an organisation — a company is not a person, and the Parties
+ * screens were borrowing that vocabulary for want of their own. Two
+ * screens import USER_STATUS by name, so it stays as it is.
+ *
+ * The glyphs here are neutral: a circle with a tick and a circle with a
+ * slash. Section 7.2 rule 1 requires an icon as well as a colour, and
+ * `circle-slash` reads as "switched out of use" rather than as a
+ * failure, which is what section 15.2 says deactivation is.
+ */
+export const COMPANY_STATUS: Record<string, StatusSpec> = {
+  Active: {
+    label: 'Active',
+    role: 'success',
+    Icon: CircleCheckIcon,
+    match: 'column',
+    reason:
+      'The word appears verbatim in section 2.4’s fourth column, so the role is not a judgement at all: success.',
+  },
+  Inactive: {
+    label: 'Inactive',
+    role: 'neutral',
+    Icon: CircleSlashIcon,
+    match: 'meaning',
+    reason:
+      'Absent from section 2.4’s fourth column. Section 15.2 makes deactivation the safe, deliberate alternative to deletion rather than a failure, so danger would misstate it, and this file’s rule is that a word with no honest role is a neutral rather than a guess. The same reading as USER_STATUS.Inactive, deliberately identical so one word never has two colours.',
+  },
+}
+
+/**
+ * RECORD COMPLETENESS — `companies.is_complete` / `contacts.is_complete`,
+ * the derived flag `src/lib/completeness.ts` writes. Two words, from a
+ * boolean: Complete or Incomplete.
+ *
+ * It is a status in the sense section 11.1 means — a state of the
+ * record that decides what can be done with it — because REBUILD-PLAN
+ * §3.5 hangs a consequence on it: an order booked against an incomplete
+ * party stays in Draft and cannot be placed. So it is a badge, not
+ * coloured text, and not a badge invented at the call site.
+ *
+ * Incomplete is WARNING rather than danger. Nothing has failed and
+ * nothing is overdue; something is owed before the record can be used
+ * to its full extent, which is section 2.4 warning’s "Pending" /
+ * "Needs review" reading.
+ */
+export const RECORD_COMPLETENESS: Record<string, StatusSpec> = {
+  Complete: {
+    label: 'Complete',
+    role: 'success',
+    Icon: CircleCheckIcon,
+    match: 'meaning',
+    reason:
+      'Absent from section 2.4’s fourth column, but it is the same reading as "Completed", which is in it: every field a usable record needs is filled and nothing is owed.',
+  },
+  Incomplete: {
+    label: 'Incomplete',
+    role: 'warning',
+    Icon: CircleDashedIcon,
+    match: 'meaning',
+    reason:
+      'Absent from section 2.4’s fourth column. Nothing has failed, so danger would overstate it; something is owed before an order against this party can leave Draft (REBUILD-PLAN §3.5), which is warning’s "Pending" and "Needs review". `circle-dashed` says the outline is there and the filling is not.',
   },
 }
 
