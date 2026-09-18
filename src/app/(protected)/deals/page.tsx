@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { TriangleAlertIcon } from 'lucide-react'
+import { Suspense, useEffect, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { ColumnsIcon, ListIcon, TriangleAlertIcon } from 'lucide-react'
 
 import {
   ListPage,
@@ -11,6 +11,13 @@ import {
   type ListPageProps,
 } from '@/components/templates/list-page'
 import { Badge } from '@/components/ui/badge'
+import {
+  Board,
+  useBoardAvailable,
+  BOARD_MAX_COLUMNS,
+  type BoardCard,
+  type BoardColumn,
+} from '@/components/ui/board'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EMPTY, fmtAmount, fmtDate, fmtNumber, parseApiDate } from '@/lib/format'
@@ -58,6 +65,13 @@ type NamedRow = { id: string; name: string }
  * for a tenant that has not overridden it.
  */
 const DEFAULT_STAGE_AGEING_DAYS = 15
+
+/**
+ * §14 rule 4 and §35.6 item 4: every move carries a deadline. A save that
+ * cannot fail cannot be reverted, and the optimistic card would stay in the
+ * wrong column for ever. Matches `list-page`'s own request deadline.
+ */
+const MOVE_TIMEOUT_MS = 15000
 
 /**
  * Section 27.1: the hint says what the box ACTUALLY looks at. `GET /api/deals`
@@ -248,6 +262,127 @@ function dealColumns(onView: (id: string) => void, ageingLimit: number): ListCol
   ]
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * The board view — P2-T8, AGENTS.md §35, REBUILD-PLAN.md §4.2/§4.3
+ * ───────────────────────────────────────────────────────────── */
+
+/**
+ * §4.3 item 4 — probability as a thin bar with the figure alongside.
+ *
+ * ⚠️ READ-ONLY, and it is a `span` rather than an `input` for that reason.
+ * §4.3 and §12 both close this: probability is edited inside the Deal and
+ * nowhere else. A slider on a card that is about to become draggable fights
+ * the drag, especially on a phone.
+ *
+ * `role="img"` with a label rather than a progressbar role: a progressbar
+ * announces a task in progress, and this is a stored value.
+ */
+function ProbabilityBar({ value }: { value: number }) {
+  const clamped = Math.max(0, Math.min(100, value))
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-2">
+      <span
+        role="img"
+        aria-label={`Probability ${clamped}%`}
+        className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-control"
+      >
+        <span
+          className="block h-full rounded-full bg-primary"
+          style={{ width: `${clamped}%` }}
+        />
+      </span>
+      <span className="shrink-0 tabular-nums">{clamped}%</span>
+    </span>
+  )
+}
+
+/**
+ * §4.3's six items, in its order, mapped onto what `board.tsx` renders.
+ *
+ *   1 Company name      -> `title`   (the largest text on the card)
+ *   2 Deal name         -> `facts[0]`
+ *   3 Expected value    -+
+ *   4 Probability       -+ `facts[1]` — one row, so both fit the two-fact cap
+ *   5 Days in stage     -+
+ *   6 Next follow-up    -+ `badge` — both must be able to turn a warning colour
+ *     Owner             -> `meta`
+ *
+ * ⚠️ TWO DEVIATIONS FROM §4.3, both forced by the component's card API, which
+ * is byte-identical kit code and not mine to edit:
+ *
+ *   - The OWNER is a name on the bottom line, not a circle of initials in the
+ *     top corner. That corner is the title and the three-dot menu, and the card
+ *     exposes no slot there. What §4.3 wants it FOR — telling whose card is
+ *     whose where many people share a column — survives, less compactly.
+ *   - Items 5 and 6 share the one `badge` slot, as two badges side by side.
+ *     Both have to be able to turn a warning colour, and `meta` renders one
+ *     muted string (the component runs it through `String()`), so neither can
+ *     live there.
+ *
+ * ⚠️ The STAGE is deliberately absent from the card. §35.5: the column IS the
+ * status, and a badge repeating it disagrees with the column for as long as a
+ * move is in flight.
+ */
+function dealBoardCard(deal: DealRow, ageingLimit: number): BoardCard {
+  const due = deal.next_follow_up?.due_date ?? null
+  const aged = deal.days_in_stage !== null && deal.days_in_stage > ageingLimit
+
+  return {
+    id: deal.id,
+    // A stage-less Deal has no column to sit in; `stageless` below is what
+    // stops it from disappearing silently.
+    columnId: deal.stage?.id ?? '',
+    // A Deal with neither company nor contact is legal (§4.1), and the card
+    // still has to say something in its loudest line.
+    title: deal.company?.name ?? deal.contact?.name ?? 'No company',
+    facts: [
+      deal.name,
+      <span key="value" className="flex items-center gap-3">
+        <span className="shrink-0 font-medium text-text-primary">
+          {fmtAmount(deal.expected_value)}
+        </span>
+        <ProbabilityBar value={deal.probability} />
+      </span>,
+    ],
+    badge: (
+      <span className="flex flex-wrap items-center gap-1.5">
+        {deal.days_in_stage !== null && (
+          <Badge variant={aged ? 'warning' : 'neutral'}>
+            {aged && <TriangleAlertIcon />}
+            {deal.days_in_stage}d in stage
+          </Badge>
+        )}
+        {due && (
+          <Badge variant={isOverdue(due) ? 'warning' : 'neutral'}>
+            {isOverdue(due) && <TriangleAlertIcon />}
+            {fmtDate(due)}
+          </Badge>
+        )}
+      </span>
+    ),
+    meta: deal.owner?.name ?? 'Unassigned',
+  }
+}
+
+/**
+ * §35.4: one column per value the status field declares, in the order the work
+ * moves in — `deal_stages.sort_order`, which is the order `/api/deals/stages`
+ * already returns. Never by record count, and never an order that changes as
+ * cards move.
+ *
+ * `total` is the TRUE number under the current filters, not the rendered count
+ * (§35.4, §35.7). Everything this screen filters is filtered server-side and
+ * returned in full — `/api/deals` has no `take` — so counting the rows in hand
+ * IS the true total, and stops being so the day that route gains one.
+ */
+function dealBoardColumns(stages: NamedRow[], rows: DealRow[]): BoardColumn[] {
+  return stages.map(stage => ({
+    id: stage.id,
+    label: stage.name,
+    total: rows.filter(row => row.stage?.id === stage.id).length,
+  }))
+}
+
 /**
  * What the strip adds up. `null` is "not known yet or not knowable" —
  * before the first response and after a failed one — and is NOT the same as
@@ -316,12 +451,151 @@ function PipelineStrip({ totals }: { totals: PipelineTotals | null }) {
   )
 }
 
+/**
+ * §11.6 / §35.1: the view switcher is a joined group at the FAR RIGHT of zone
+ * 2, and `ListPage` reserves `toolbarExtra` for exactly it. The active side is
+ * tinted; the other is the quiet one.
+ *
+ * Two ways, not three: this product has no card view, and §4 rule 2's "parallel
+ * items behave identically" is about the ones that exist.
+ */
+function ViewSwitcher({
+  view,
+  onChange,
+}: {
+  view: 'list' | 'board'
+  onChange: (view: 'list' | 'board') => void
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-pressed={view === 'list'}
+        className={cn(
+          'border-transparent bg-transparent',
+          view === 'list' && 'bg-primary-subtle text-text-primary'
+        )}
+        onClick={() => onChange('list')}
+      >
+        <ListIcon />
+        List
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-pressed={view === 'board'}
+        className={cn(
+          'border-transparent bg-transparent',
+          view === 'board' && 'bg-primary-subtle text-text-primary'
+        )}
+        onClick={() => onChange('board')}
+      >
+        <ColumnsIcon />
+        Board
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * `useSearchParams` suspends, and a page that reads it without a boundary
+ * around the reader takes the whole route down to the nearest one. The screen
+ * itself is one component below this so the boundary is local.
+ */
 export default function DealsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full min-h-0 flex-col">
+          <PipelineStrip totals={null} />
+          <Skeleton className="min-h-0 flex-1 rounded-xl" />
+        </div>
+      }
+    >
+      <DealsScreen />
+    </Suspense>
+  )
+}
+
+function DealsScreen() {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [totals, setTotals] = useState<PipelineTotals | null>(null)
   const [stages, setStages] = useState<NamedRow[]>([])
   const [companies, setCompanies] = useState<NamedRow[]>([])
   const [team, setTeam] = useState<NamedRow[]>([])
+  /* The template's only refetch lever. Bumped after a move lands. */
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  /*
+   * §35.3: the board is offered at 768px and above. Below that the switcher
+   * shows the list alone and a remembered `?view=board` silently renders the
+   * list — nothing has failed, a view is simply not offered at this width.
+   */
+  const boardAvailable = useBoardAvailable()
+
+  /*
+   * §35.4 caps a board at seven columns and `board.tsx` THROWS past that
+   * rather than rendering an eighth. `deal_stages` is user-editable master
+   * data, so an administrator adding a couple of stages is enough to cross it
+   * — which would take the whole screen down, not just the board.
+   *
+   * So the board is not offered at all past seven, and the switcher says why
+   * in one line instead of vanishing without explanation. §26 hides a control
+   * the user cannot use; it does not ask them to guess where it went.
+   */
+  const tooManyStages = stages.length > BOARD_MAX_COLUMNS
+  const boardOffered = boardAvailable && stages.length > 0 && !tooManyStages
+
+  const view: 'list' | 'board' =
+    searchParams.get('view') === 'board' && boardOffered ? 'board' : 'list'
+
+  /*
+   * The choice lives in the URL so that Back from a Deal returns to the view
+   * it was opened from — §11.6 asks for the choice to be remembered, and the
+   * URL remembers it without a second store to fall out of step.
+   */
+  function setView(next: 'list' | 'board') {
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'board') params.set('view', 'board')
+    else params.delete('view')
+    const query = params.toString()
+    router.replace(`${pathname}${query ? `?${query}` : ''}`, { scroll: false })
+  }
+
+  /**
+   * §35.6 — THE move. Every path (the menu today, the drag when the kit ships
+   * it) is this one call, and `board.tsx` owns the optimistic half: the card is
+   * already in the destination column when this runs, and a THROW is what sends
+   * it back with an error toast.
+   *
+   * So this must not catch. It must also not hang: §14 rule 4 and §35.6 item 4
+   * — a save that cannot fail cannot be reverted, and the card would sit in the
+   * wrong column for ever. Hence the deadline.
+   *
+   * `PATCH /api/deals/[id]/stage` writes the `deal_stage_logs` row and resets
+   * `stage_entered_at` in one transaction, so the ageing clock and the history
+   * are the server's business, not this screen's. The refresh afterwards is
+   * what brings the reset `days_in_stage` back to the card.
+   */
+  async function handleMove(cardId: string, toColumnId: string) {
+    const abort = new AbortController()
+    const timer = setTimeout(() => abort.abort(), MOVE_TIMEOUT_MS)
+    try {
+      const r = await fetch(`/api/deals/${cardId}/stage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deal_stage_id: toColumnId }),
+        signal: abort.signal,
+      })
+      if (!r.ok) throw new Error(String(r.status))
+    } finally {
+      clearTimeout(timer)
+    }
+    setRefreshKey(k => k + 1)
+  }
 
   /*
    * The three pickers' options. Each one is independent of the others and of
@@ -388,9 +662,9 @@ export default function DealsPage() {
       throw new Error(String(r.status))
     }
     const body = await r.json()
-    const rows: DealRow[] = Array.isArray(body) ? body : []
-    setTotals(totalsOf(rows))
-    return rows
+    const loaded: DealRow[] = Array.isArray(body) ? body : []
+    setTotals(totalsOf(loaded))
+    return loaded
   }
 
   /* §4.8's four filters. Each one is declared, never rendered here — that is
@@ -467,12 +741,54 @@ export default function DealsPage() {
 
       <ListPage<DealRow>
         className="h-auto min-h-0 flex-1"
+        toolbarExtra={
+          boardOffered ? (
+            <ViewSwitcher view={view} onChange={setView} />
+          ) : tooManyStages ? (
+            <p className="text-meta text-text-muted">
+              Board view needs {BOARD_MAX_COLUMNS} stages or fewer; this tenant
+              has {stages.length}.
+            </p>
+          ) : undefined
+        }
         title="Deals"
         noun={{ one: 'deal', many: 'deals' }}
         columns={dealColumns(id => router.push(`/deals/${id}`), DEFAULT_STAGE_AGEING_DAYS)}
         rowKey={deal => deal.id}
         filters={filters}
         load={load}
+        /*
+         * The template owns the fetch, so a move that lands has to come back
+         * through it or the board keeps rendering pre-move data: the column
+         * totals would stay on the old numbers and the moved card would keep
+         * the days-in-stage the server has just reset. Measured — without this
+         * the log row was written and the board did not notice.
+         */
+        refreshKey={refreshKey}
+        /*
+         * §35.1: the board IS zone 3 — same header, same toolbar, same
+         * filters, same pagination bar. The template hands over the rows it
+         * has already fetched and filtered, so the two views cannot disagree
+         * about what is on screen, and it keeps every other zone-3 state for
+         * itself: skeleton, failed, nothing-found and nothing-yet are read
+         * before this, so an all-empty board is §35.9's empty SCREEN rather
+         * than seven columns each saying they are empty.
+         */
+        renderData={
+          view === 'board'
+            ? boardRows => (
+                <Board
+                  columns={dealBoardColumns(stages, boardRows)}
+                  cards={boardRows.map(row =>
+                    dealBoardCard(row, DEFAULT_STAGE_AGEING_DAYS)
+                  )}
+                  onMove={handleMove}
+                  onOpenCard={id => router.push(`/deals/${id}`)}
+                  emptyColumnLabel="No deals in this stage"
+                />
+              )
+            : undefined
+        }
         searchPlaceholder="Search deals"
         searchHint={SEARCH_HINT}
         emptyYet={{

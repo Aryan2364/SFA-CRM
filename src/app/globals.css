@@ -296,6 +296,14 @@
   /* Menu height cap - 16.2: about seven rows, then it scrolls. */
   --spacing-menu-max: 280px;
 
+  /* 35.4: a board column. Fixed, never grown to fill spare width - a
+     board whose columns resize as stages are added gives the user a
+     different layout every time the data changes. Sized to the card
+     it holds: a title truncating at a usable length beside a 36px
+     icon button (6.3), over an amount at the same 120px the data
+     entry grid measured in 31.1, inside 12px of column padding. */
+  --spacing-board-column: 280px;
+
   /* Toast width - 25. Fixed, never full width. */
   --spacing-toast: 360px;
 

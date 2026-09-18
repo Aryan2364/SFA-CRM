@@ -234,6 +234,29 @@ export type ListPageProps<Row> = {
   filters?: ListFilter[]
 
   /**
+   * Zone 3, in place of the table — section 35.1's board view.
+   *
+   * This is NOT an escape hatch for a screen that does not fit. Section
+   * 35 REQUIRES the board to occupy zone 3 of this same list page,
+   * sharing this header, this toolbar, these filters and this
+   * pagination bar: "it is deliberately not a sixth page template".
+   * This template predates section 35 and was missing the capability
+   * the specification asks for. A screen that wants a different toolbar
+   * still does not get one.
+   *
+   * It replaces the TABLE BRANCH ONLY. The four other zone-3 states —
+   * skeleton, failed, nothing-found and nothing-yet — are read first
+   * and are unchanged, which is what gives the board section 13's
+   * states without restating them, and is what makes section 35.9's
+   * "a board where every column is empty is an empty screen" true here
+   * rather than in each screen.
+   *
+   * Optional: a screen that passes nothing renders exactly what it
+   * always did.
+   */
+  renderData?: (rows: Row[]) => ReactNode
+
+  /**
    * The only thing a screen does about loading. No timer, no catch, no
    * debounce — this is called with the debounced search and the active
    * filters, and its rejection already IS the failed state.
@@ -313,6 +336,7 @@ export function ListPage<Row>({
   columns,
   rowKey,
   filters,
+  renderData,
   load,
   refreshKey,
   searchPlaceholder,
@@ -569,6 +593,12 @@ export function ListPage<Row>({
         {emptyYet.body}
       </EmptyState>
     )
+  } else if (renderData) {
+    // Section 35.1: the board occupies zone 3, and everything above and
+    // below it is this template's. Handed EVERY row rather than the
+    // page's slice — zone 4 reports the count for the current filters
+    // and does not page the board (section 35.7).
+    zone3 = renderData(rows)
   } else {
     zone3 = (
       <Table>
