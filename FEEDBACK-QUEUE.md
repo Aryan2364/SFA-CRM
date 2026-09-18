@@ -239,6 +239,117 @@ Before building: check what the approval screen consumes from the plan screen, s
 does not quietly break the manager's view of it. The two were written to share the plan's shape.
 
 
+## Round 3 — Orders, Parties, Deals, Masters, 19 Sep
+
+### F16 · Create Order uses a raw OS dropdown · OPEN · **same fault as F8**
+
+> "Order page crate order page is again having raw os for drop-down which is not acceptable. based
+> on the rgb-kit fix it. previous screens are not having this issue in with drop-down list."
+
+He is right that this is isolated — the other screens use the kit's `Select` / `SearchableSelect`.
+Third time in three rounds that a raw control has been used where a kit component exists. Per
+**F10**, if something is genuinely missing, ask him.
+
+### F17 · Drop "record type" on the order form · OPEN · **same shape as F6**
+
+> "record type is not need rather than that simple heading with drop down and create new lead
+> button"
+
+Identical treatment to F6, and the same warning applies: **check what that selector writes before
+removing it.** `orders.entity_type` is a join key with no foreign key behind it.
+
+### F18 · The order line-item row is badly built · OPEN
+
+> "Product / Qty / Rate / Discount / Total / Select product... / Or type name... / 1 / 0 / None /
+> rupee / rupee 0.00 -- this section is poorly made its design has be working again"
+
+"Select product…" and "Or type name…" sitting side by side is two competing inputs for one field.
+A bare currency symbol next to a formatted amount says the same thing twice. Needs redesign, not
+patching.
+
+⚠️ **Behaviour must not change while restyling it.** Pricing is server-authoritative: the browser
+sends a quantity, the server reads the rate from `products.price`. That was proven by posting a
+forged rate and having it ignored. Any redesign keeps that property.
+
+### F19 · Headings sit below content on Parties and Deals · OPEN
+
+> "parties and deals page have heading below something which is not acceptable heading are always
+> meant to on top of the page no matter what"
+
+A page title belongs at the top, above alerts and toolbars. Likely caused by **F20** — the
+data-health banners were inserted above the heading rather than below it.
+
+### F20 · The data-health banners are far too tall · OPEN · **first real look at these**
+
+> "7 parties are incomplete / Missing a primary address, city, state, pincode or GST number — an
+> order against one stays in Draft. / 15 parties have no deal / Nothing in the pipeline is tied to
+> these parties yet. — are so big in terms of vertical width that it doesn't looks good"
+
+This is the visual pass nobody had done — these banners were verified server-side only and had
+never been looked at. His reaction is the answer.
+
+Two stacked two-line banners above the list is too much. The counts and the explanations are both
+right; the format is wrong. Consider one compact line with the detail on demand.
+
+⚠️ Keep **what** is missing. §7.7 explicitly requires that an incomplete party says which fields
+are absent — a bare count was the thing that requirement existed to prevent. Shrink the
+presentation, not the information.
+
+### F21 · "Parties" becomes "Leads" · OPEN · **third signal — Aryan should now settle P1-T19**
+
+> "change parties to leads"
+
+With **F6** and **F7**, that is three separate requests pointing the same way, plus his partner's
+original instruction. The direction is not in doubt any more; only the scope is.
+
+**Ask him directly: rename everywhere now, or screen by screen as he meets it?** Renaming one page
+is safe. The repo holds ~285 "Lead" and ~205 "Party", and P1-T19 is a sweep over all of it.
+⚠️ Whichever he picks: **do not rename master VALUES** (`Prospect`, `Existing`, `Dealer`) — they
+are join keys in `orders.entity_type` and `daily_visits.visit_type` with no foreign key behind
+them.
+
+### F22 · The Contacts tab has no create button · OPEN · **missing function, not styling**
+
+> "contact tab doesn't even have create contact button"
+
+### F23 · Remove location masters and territory mapping · OPEN · ⚠️ **TWO READINGS, ONE IS DESTRUCTIVE — ASK BEFORE TOUCHING**
+
+> "In masters we don't need this section of location and that territory mapping so we can delete
+> its entire logic as we were using it for weekly planning where we used to say in x location i
+> will do y meetings but now we are directly saying to whom we are going to meet so remove it."
+
+His reasoning is sound and the intent is clear. But "location" covers two different things here,
+and I checked the database:
+
+**Safe to remove — this is what he is describing:**
+- `user_territory_mappings` table and the `masters/territory-mapping` page
+- `weekly_plan_items.from_place`, `.to_place`, `.mode_of_travel` — the "from X to Y" planning model
+- `.new_dealers_goal`, `.existing_dealers_goal`, `.others_goal` — the counts **F12** retires
+
+**NOT safe to remove — deleting these breaks live data:**
+- `states`, `districts`, `talukas`, `villages`. **Eleven foreign keys point at them**, from
+  `companies` and `company_addresses` (`state_id`, `district_id`, `taluka_id`, `village_id`), plus
+  the hierarchy's own internal links.
+- **City, state and pincode drive the completeness rule** — the very gate quoted in F20's banner,
+  and the reason an order against an incomplete party stays in Draft. Removing the address
+  hierarchy would break party completeness and the order gate with it.
+
+So: retire location as a **planning** concept, keep it as an **address** concept. Confirm that
+reading with him before deleting anything. The masters pages for states/districts/talukas/villages
+are a separate question from the territory mapping — he may want those hidden rather than deleted.
+
+### F24 · Review shows the lead, not the location · OPEN · **follows from F23**
+
+> "based on this location thing review will also change as now since the person is filling lead
+> name in plan that only will be visible in review."
+
+Correct and consequential. Anything rendering `from_place` / `to_place` moves to showing the
+party. This touches Weekly Review and the Team Summary, both committed today.
+
+Related to **F13**: plan rows gain a party, which is what makes "Not Met" and planned-versus-met
+real. Note `weekly_plan_items` has `party_id`, `party_type` and `expected_order_value` already,
+**but no agenda column** — F13's optional agenda needs one, or a decision to reuse `notes`.
+
 ---
 
 ## Triaged
