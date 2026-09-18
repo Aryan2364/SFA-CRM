@@ -4,7 +4,13 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { invalidateMeCache } from '@/hooks/useMe'
 import { useToast } from '@/contexts/ToastContext'
-import { mastersInGroup, type MasterGroup } from '@/lib/masters-registry'
+import {
+  OPERATION_SECTIONS,
+  POINTS_SECTIONS,
+  mastersInGroup,
+  type MasterGroup,
+} from '@/lib/masters-registry'
+import type { OperationSection } from '@/lib/permissions'
 
 type UserEntry = { id: string; name: string }
 type VisibilityEntry = { id: string; target_user_id: string; name: string }
@@ -107,58 +113,143 @@ const MASTER_GROUP_LABELS: { group: MasterGroup; label: string }[] = [
   { group: 'lead_config',       label: 'Lead Configuration' },
 ]
 
+/**
+ * The Operations Module half is DERIVED from OPERATION_SECTIONS, the same way
+ * the Masters half is derived from MASTERS.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT IS A `Record<OperationSection, …>` AND NOT A LIST
+ *
+ * It used to be a hand-written list of six, and three sections that every
+ * route enforces — `companies`, `contacts` and `deals` — were never added to
+ * it. The effect is not a missing row on a screen: **this table is the only
+ * place the toggle exists**, so those three permissions could be held in
+ * `role_permissions` and checked on every request, and no administrator could
+ * grant or revoke any of them. It was invisible because the three were
+ * backfilled from each role's `leads` grant when they were introduced, so
+ * every EXISTING role happened to have sensible values. A NEW role got
+ * nothing for all three, with no way to give it anything.
+ *
+ * A `Record` keyed by the `OperationSection` union is what stops that
+ * recurring. TypeScript requires an entry for every member of the union and
+ * rejects a key that is not in it, so:
+ *
+ *   - adding a section to OPERATION_SECTIONS without labelling it here is a
+ *     COMPILE ERROR, not a silently missing toggle;
+ *   - a stale key left here after a section is removed is also a compile
+ *     error, rather than a toggle that writes a section no route reads.
+ *
+ * Both directions are checked by `tsc`, which is the only check that runs
+ * without anybody remembering to look.
+ *
+ * ---------------------------------------------------------------------------
+ * `isOperation` IS NOT DECORATION
+ *
+ * It renders the Data Scope column: `true` gives the own/team/all select,
+ * `false` renders "—". It must be `true` exactly when the section's routes
+ * actually read `data_scope`. All three new sections do — `companies`,
+ * `contacts` and `deals` each go through `scopedUserIds()` in
+ * `src/lib/scope.ts` — so all three get a real select. `system_settings` does
+ * not and keeps its dash: `tenant_settings` holds one row per tenant, so there
+ * is no own/team/all to choose between.
+ */
+const OPERATION_GROUPS = [
+  { id: 'daily_operations', module: 'Operations Module', label: 'Daily Operations' },
+  { id: 'parties_pipeline', module: 'Operations Module', label: 'Parties & Pipeline' },
+  { id: 'configuration',    module: 'Settings Module',   label: 'Configuration' },
+] as const
+
+type OperationGroupId = typeof OPERATION_GROUPS[number]['id']
+
+type OperationRow = {
+  label: string
+  group: OperationGroupId
+  /** Does this section's data_scope actually do anything? See above. */
+  isOperation: boolean
+}
+
+const OPERATION_ROWS: Record<OperationSection, OperationRow> = {
+  meetings:    { label: 'Meetings',       group: 'daily_operations', isOperation: true },
+  expenses:    { label: 'Expenses',       group: 'daily_operations', isOperation: true },
+  weekly_plan: { label: 'Weekly Plan',    group: 'daily_operations', isOperation: true },
+  orders:      { label: 'Orders',         group: 'daily_operations', isOperation: true },
+  /*
+   * `leads` is the LEGACY key. `companies` replaced it as the Party section and
+   * the three new rows below were backfilled from this one's grants, so a
+   * tenant that has never been touched since shows the same values in both
+   * places. It is left in Daily Operations, where administrators are used to
+   * finding it, rather than moved down to Parties & Pipeline where it now
+   * arguably belongs — moving a row is a change to muscle memory for no
+   * functional gain. Retiring the key is its own task; until then it is still
+   * read by `/api/business-partners` and must stay grantable.
+   */
+  leads:       { label: 'Leads',          group: 'daily_operations', isOperation: true },
+  users:       { label: 'Users (Master)', group: 'daily_operations', isOperation: true },
+
+  /* Added here at the same time as this Record. Each is enforced by its routes
+     and scoped by `src/lib/scope.ts`; none was grantable before. */
+  companies:   { label: 'Companies',      group: 'parties_pipeline', isOperation: true },
+  contacts:    { label: 'Contacts',       group: 'parties_pipeline', isOperation: true },
+  deals:       { label: 'Deals',          group: 'parties_pipeline', isOperation: true },
+
+  system_settings: { label: 'System Settings', group: 'configuration', isOperation: false },
+}
+
 const PERM_GROUPS: PermGroup[] = [
   ...MASTER_GROUP_LABELS.map(({ group, label }) => ({
     module: 'Masters Module',
     group: label,
     sections: mastersInGroup(group).map(m => ({ key: m.key, label: m.label })),
   })),
-  {
-    module: 'Operations Module',
-    group: 'Daily Operations',
-    sections: [
-      { key: 'meetings', label: 'Meetings', isOperation: true },
-      { key: 'expenses', label: 'Expenses', isOperation: true },
-      { key: 'weekly_plan', label: 'Weekly Plan', isOperation: true },
-      { key: 'orders', label: 'Orders', isOperation: true },
-      { key: 'leads', label: 'Leads', isOperation: true },
-      { key: 'users', label: 'Users (Master)', isOperation: true },
-    ],
-  },
+  /* Driven off OPERATION_SECTIONS itself, so the ORDER of the rows within a
+     group follows the registry and a section cannot be dropped by being
+     forgotten in a second list. */
+  ...OPERATION_GROUPS.map(({ id, module, label }) => ({
+    module,
+    group: label,
+    sections: OPERATION_SECTIONS
+      .filter(key => OPERATION_ROWS[key].group === id)
+      .map(key => ({
+        key,
+        label: OPERATION_ROWS[key].label,
+        isOperation: OPERATION_ROWS[key].isOperation,
+      })),
+  })),
   {
     /*
-     * P3-T1. `system_settings` is storable — it is in OPERATION_SECTIONS, so
-     * ALL_SECTIONS carries it and the GET/PUT above round-trip it — unlike the
-     * two Points keys below.
+     * ⚠️ THESE TWO BEHAVE DIFFERENTLY IN DEV AND IN PRODUCTION. Do not "fix"
+     * either one against what you observe locally.
      *
-     * It needs a row HERE as well as in the registry because this literal is
-     * the only place the toggle exists: a section absent from PERM_GROUPS can
-     * be held in the database but can never be granted or revoked by an
-     * administrator through the UI. (`companies`, `contacts` and `deals` are
-     * in OPERATION_SECTIONS and missing from this list for exactly that
-     * reason — a pre-existing gap, not one this task introduced, and not one
-     * it fixes either.)
+     * `leaderboard` and `points_config` are deliberately kept OUT of
+     * ALL_SECTIONS (see POINTS_SECTIONS in src/lib/masters-registry.ts) on the
+     * grounds that production's `role_permissions_section_check` constraint
+     * does not list them, so an INSERT for either fails there.
      *
-     * `isOperation: false` renders "—" in the Data Scope column, which is
-     * correct: `tenant_settings` holds one row per tenant, so there is no
-     * own/team/all to choose between.
+     * **The local database has no CHECK constraint on `role_permissions`
+     * at all** — Prisma does not model CHECKs, so `db push` never created one,
+     * exactly as with `orders.status`. Toggling either of these locally
+     * therefore returns 200 and writes a row, which is the OPPOSITE of what it
+     * does in production. Verified: a PUT for `leaderboard` inserted a row on
+     * localhost. So local success here is not evidence the toggle works, and
+     * local behaviour must not be used to justify promoting these two into
+     * ALL_SECTIONS.
+     *
+     * They are the mirror-image of the bug the Record above fixes: a toggle
+     * that renders for a section the store may reject, rather than a section
+     * with no toggle at all. They are rendered because they were rendered
+     * before and `/api/auth/me` still reports them; removing them would drop
+     * two capabilities from the screen without delivering the constraint
+     * change that is the actual fix. Derived from POINTS_SECTIONS rather than
+     * retyped so the two lists cannot disagree about which keys are in this
+     * state.
      */
-    module: 'Settings Module',
-    group: 'Configuration',
-    sections: [
-      { key: 'system_settings', label: 'System Settings', isOperation: false },
-    ],
-  },
-  {
-    // ⚠️ Neither key is in the role_permissions_section_check constraint, so
-    // these two toggles do not persist. That was true before the registry and
-    // is unchanged by it; see POINTS_SECTIONS in src/lib/masters-registry.ts.
     module: 'Points Module',
     group: 'Gamification',
-    sections: [
-      { key: 'leaderboard', label: 'Leaderboard (View Team/All)', isOperation: false },
-      { key: 'points_config', label: 'Points Configuration', isOperation: false },
-    ],
+    sections: POINTS_SECTIONS.map(key => ({
+      key,
+      label: key === 'leaderboard' ? 'Leaderboard (View Team/All)' : 'Points Configuration',
+      isOperation: false,
+    })),
   },
 ]
 
