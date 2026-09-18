@@ -305,9 +305,31 @@ export const SEEDED_MASTERS: readonly MasterDef[] =
 /**
  * Sections that are NOT masters. `data_scope` applies to these — see
  * getDataScope() — which is exactly what makes them not masters.
+ *
+ * ---------------------------------------------------------------------------
+ * `companies` and `contacts` (P1-T9)
+ *
+ * They are ENTITY sections, like `leads` — records a user owns, with a scope —
+ * not masters, so they belong here and not in MASTERS. (`company_types`,
+ * `contact_types` and `industries` are the masters that configure them, and
+ * `contact_types`/`industries` are already up in MASTERS.)
+ *
+ * **`leads` is deliberately still here.** P1-T9 says to keep it for one release:
+ * `src/app/(protected)/leads/page.tsx` is live until P1-T13, and `/api/leads`
+ * is a thin alias of `/api/companies`. Removing the key would delete the
+ * Access Control toggle that administrators use to grant it. Retire it with the
+ * page.
+ *
+ * ⚠️ Adding a key here is HALF the change. `GET /api/settings/role-permissions`
+ * reports `false` for any section with no row, so a new key with no backfilled
+ * rows silently revokes the section for every non-Administrator. Each of these
+ * two was backfilled from the tenant's existing `leads` grants by
+ * `scripts/backfill-permission-sections.mjs`; a database that has not run it
+ * shows Companies and Contacts as denied to every role but Administrator.
  */
 export const OPERATION_SECTIONS = [
   'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
+  'companies', 'contacts',
 ] as const
 
 /**
@@ -325,13 +347,13 @@ export const OPERATION_SECTIONS = [
  */
 export const POINTS_SECTIONS = ['leaderboard', 'points_config'] as const
 
-/** The 25 sections that can be written to role_permissions. */
+/** The 27 sections that can be written to role_permissions. */
 export const ALL_SECTIONS = [
   ...MASTER_SECTION_KEYS,
   ...OPERATION_SECTIONS,
 ]
 
-/** The 27 keys the client's permission map carries. Read-only — see POINTS_SECTIONS. */
+/** The 29 keys the client's permission map carries. Read-only — see POINTS_SECTIONS. */
 export const ALL_PERMISSION_KEYS = [
   ...ALL_SECTIONS,
   ...POINTS_SECTIONS,
