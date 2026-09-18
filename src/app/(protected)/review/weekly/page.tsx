@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CategoryBarChart } from '@/components/ui/bar-chart'
+import { JournalBox } from '@/components/journal/JournalBox'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -338,6 +339,15 @@ export default function WeeklyReviewPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Journaling — §6.3. Personal to the viewer, so only shown when
+                looking at your own week, never a team member's. */}
+            {userId === null && (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <JournalBox kind="went_well" weekStart={data.weekStart} />
+                <JournalBox kind="improve" weekStart={data.weekStart} />
+              </div>
+            )}
 
             {/* Expense vs Order value */}
             <Card>
