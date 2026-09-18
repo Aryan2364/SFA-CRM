@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from './_shape'
 import { checkEmail, checkMobile, firstError, trimmed } from '@/lib/validation'
+import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 
 
 /**
@@ -31,11 +32,17 @@ export async function GET(req: NextRequest) {
   // escape hatch for a Status filter that wants to show both.
   const active = req.nextUrl.searchParams.get('active') ?? ''
   const tid = getTenantId()
+  // §6.6, same as companies — a Contact scopes on `owner_user_id` too.
+  const ids = intersectScope(
+    await scopedUserIds(user, 'contacts'),
+    req.nextUrl.searchParams.get('userId')
+  )
 
   try {
     const rows = await prisma.contacts.findMany({
       where: {
         tenant_id: tid,
+        ...scopeWhere(ids, 'owner_user_id'),
         ...(active === 'all' ? {} : { is_active: active !== 'false' }),
         ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
         // `some` on the join, with its own tenant_id: the filter has to be a

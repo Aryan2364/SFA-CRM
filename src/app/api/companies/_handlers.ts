@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { recomputeCompanyCompleteness } from '@/lib/completeness'
+import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { COMPANY_INCLUDE, shapeCompany } from './_shape'
 import {
   checkEmail,
@@ -32,11 +33,21 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q') ?? ''
   const type = req.nextUrl.searchParams.get('type') ?? ''
   const tid = getTenantId()
+  // §6.6 Self/Team/Company. This list was tenant-wide for anyone with view
+  // rights. ⚠️ A Party scopes on `owner_user_id`, not `user_id`, so the column
+  // is passed explicitly — and an unowned company (owner_user_id NULL) is
+  // therefore invisible below Company scope, which is the filter working: no
+  // one owns it, so it is nobody's row.
+  const ids = intersectScope(
+    await scopedUserIds(user, 'companies'),
+    req.nextUrl.searchParams.get('userId')
+  )
 
   try {
     const rows = await prisma.companies.findMany({
       where: {
         tenant_id: tid,
+        ...scopeWhere(ids, 'owner_user_id'),
         ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
         ...(type ? { type } : {}),
       },

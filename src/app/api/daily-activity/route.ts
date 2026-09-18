@@ -3,17 +3,29 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { awardPoint } from '@/lib/points'
+import { checkPermission, forbidden } from '@/lib/permissions'
+import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
+  // `meetings` exists in role_permissions and drives nav visibility, but no
+  // route enforced it before P4-T1. A scope filter without a permission check
+  // is half a fix.
+  if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
   const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
+  // Was hard-wired `user_id: user.userId` — Self for everyone, so a Team-scoped
+  // manager could not see their team at all.
+  const ids = intersectScope(
+    await scopedUserIds(user, 'meetings'),
+    req.nextUrl.searchParams.get('userId')
+  )
   try {
     const data = await prisma.daily_visits.findMany({
       where: {
         tenant_id: getTenantId(),
-        user_id: user.userId ?? undefined,
+        ...scopeWhere(ids),
         // visit_date is @db.Date.
         visit_date: new Date(date),
       },

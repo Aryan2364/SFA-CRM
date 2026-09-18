@@ -3,17 +3,26 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { awardPoint } from '@/lib/points'
+import { checkPermission, forbidden } from '@/lib/permissions'
+import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
+  // `expenses` drove nav visibility only — no route enforced it before P4-T1.
+  if (!await checkPermission(user, 'expenses', 'view')) return forbidden()
   const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
+  // Was hard-wired Self for every role, ignoring role_permissions.data_scope.
+  const ids = intersectScope(
+    await scopedUserIds(user, 'expenses'),
+    req.nextUrl.searchParams.get('userId')
+  )
   try {
     const data = await prisma.expenses.findMany({
       where: {
         tenant_id: getTenantId(),
-        user_id: user.userId ?? undefined,
+        ...scopeWhere(ids),
         // expense_date is @db.Date.
         expense_date: new Date(date),
       },
