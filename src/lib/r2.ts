@@ -119,3 +119,19 @@ export async function getSignedInlineUrl(
 export function receiptKey(tenantId: string, photoFile: string): string {
   return `receipts/${tenantId}/${photoFile}`
 }
+
+/**
+ * The object key for a Deal attachment: `deals/{tenantId}/{file}`.
+ *
+ * The same shape as `receiptKey` and for the same reasons: the layout lives in
+ * one place so the upload route and the read route cannot drift, and the tenant
+ * half comes from the session rather than the request, so one tenant can never
+ * write into — or read out of — another's prefix.
+ *
+ * `file` is the stored object's own name (`<uuid>.<ext>`), generated server-side.
+ * It is NOT the name the user uploaded: that is kept in `deal_attachments.file_name`
+ * and only ever used as a display label, never as part of a key.
+ */
+export function dealKey(tenantId: string, file: string): string {
+  return `deals/${tenantId}/${file}`
+}
