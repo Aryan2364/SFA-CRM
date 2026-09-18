@@ -71,7 +71,7 @@ export type MasterDef = {
   group: MasterGroup
   /** Lucide icon name. Declared for the screens; not consumed yet. */
   icon: string
-  /** Defaults written for a new tenant. Only four masters have any. */
+  /** Defaults written for a new tenant. Only six masters have any. */
   seeded?: readonly MasterSeedRow[]
 }
 
@@ -83,7 +83,7 @@ export type MasterGroup =
   | 'lead_config'
 
 /**
- * All seventeen master sections, in the order the old ALL_SECTIONS literals
+ * All nineteen master sections, in the order the old ALL_SECTIONS literals
  * used. The order is load-bearing: it is the order the Access Control matrix
  * and the seeded permission rows come out in.
  *
@@ -220,6 +220,61 @@ export const MASTERS = [
       { name: 'Hot',  sort_order: 3 },
     ],
   },
+  /**
+   * The two masters P1-T18 adds. Both describe a party rather than a lead, but
+   * `group` is one of five ids and each of the two screens that consume it maps
+   * the id to its own heading — a sixth group would need those screens edited,
+   * which this task does not own. `lead_config` is where the party-facing
+   * configuration already lives (`lead_types` is the Company Type master), so
+   * they go there and the Masters card's subtitle is the only thing left stale.
+   *
+   * Appended rather than inserted: the array order is the order the Access
+   * Control matrix renders and the order seeded permission rows come out in.
+   */
+  {
+    key: 'contact_types', label: 'Contact Types',
+    href: '/masters/contact-types', api: '/api/masters/contact-types',
+    model: 'contact_types', group: 'lead_config', icon: 'contact-round',
+    /** REBUILD-PLAN.md §10: "keep the list short". */
+    seeded: [
+      { name: 'Decision Maker', sort_order: 1 },
+      { name: 'Influencer',     sort_order: 2 },
+      { name: 'Technical',      sort_order: 3 },
+      { name: 'Purchase',       sort_order: 4 },
+      { name: 'Gatekeeper',     sort_order: 5 },
+    ],
+  },
+  {
+    key: 'industries', label: 'Industry / Segment', shortLabel: 'Industries',
+    href: '/masters/industries', api: '/api/masters/industries',
+    model: 'industries', group: 'lead_config', icon: 'factory',
+    /**
+     * A general Indian B2B list, editable from the screen. REBUILD-PLAN.md §10
+     * asks for "a reasonable general list"; Aryan will refine it. Nothing reads
+     * these by name — unlike `lead_stages`, none is is_fixed — so the list can
+     * be changed freely before the first tenant is provisioned with it.
+     */
+    seeded: [
+      { name: 'Agriculture',                 sort_order: 1 },
+      { name: 'Automotive',                  sort_order: 2 },
+      { name: 'Chemicals',                   sort_order: 3 },
+      { name: 'Construction & Infrastructure', sort_order: 4 },
+      { name: 'Education',                   sort_order: 5 },
+      { name: 'Electrical & Electronics',    sort_order: 6 },
+      { name: 'Engineering & Capital Goods', sort_order: 7 },
+      { name: 'FMCG',                        sort_order: 8 },
+      { name: 'Food Processing',             sort_order: 9 },
+      { name: 'Government & PSU',            sort_order: 10 },
+      { name: 'Healthcare & Pharmaceuticals', sort_order: 11 },
+      { name: 'IT & Software',               sort_order: 12 },
+      { name: 'Logistics & Transport',       sort_order: 13 },
+      { name: 'Metals & Mining',             sort_order: 14 },
+      { name: 'Packaging',                   sort_order: 15 },
+      { name: 'Plastics & Polymers',         sort_order: 16 },
+      { name: 'Retail & Distribution',       sort_order: 17 },
+      { name: 'Textiles & Apparel',          sort_order: 18 },
+    ],
+  },
 ] as const satisfies readonly MasterDef[]
 
 /**
@@ -270,13 +325,13 @@ export const OPERATION_SECTIONS = [
  */
 export const POINTS_SECTIONS = ['leaderboard', 'points_config'] as const
 
-/** The 23 sections that can be written to role_permissions. */
+/** The 25 sections that can be written to role_permissions. */
 export const ALL_SECTIONS = [
   ...MASTER_SECTION_KEYS,
   ...OPERATION_SECTIONS,
 ]
 
-/** The 25 keys the client's permission map carries. Read-only — see POINTS_SECTIONS. */
+/** The 27 keys the client's permission map carries. Read-only — see POINTS_SECTIONS. */
 export const ALL_PERMISSION_KEYS = [
   ...ALL_SECTIONS,
   ...POINTS_SECTIONS,
