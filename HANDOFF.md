@@ -95,7 +95,7 @@ Auto check-out (lazy sweep — there is no scheduler in this codebase).
 
 ## 4. What is left — 31 of 58 tasks
 
-**Phase 1:** T19 only — eliminate the word "Lead" (deliberately last; it is a sweep over
+**Phase 1:** COMPLETE except T19 — eliminate the word "Lead" — eliminate the word "Lead" (deliberately last; it is a sweep over
 everything else). ~280 occurrences. ⚠️ **Do not rename master *values*** (`Prospect`, `Existing`,
 `Dealer`) — they are join keys in `orders.entity_type` and `daily_visits.visit_type` with no FK.
 ⚠️ A registry group key is still named `lead_config`.
@@ -114,19 +114,49 @@ the ten presets, header numbers, data-health alerts.
 
 ---
 
-## 5. Agents in flight at handoff (their work is UNCOMMITTED)
+## 5. Agents in flight — UPDATED 18 Sep, late session
 
-| Agent | Task | Owns |
+**28 commits. Everything below is COMMITTED except the two agents still running.**
+
+Landed since the first draft of this file: Daily Summary (`d6e2ba7`), the Kanban board
+(`d456eb5`), the two-step Company form + **addresses endpoint** (`4243776`).
+
+| Agent | Task | Status |
 |---|---|---|
-| B16-Scope | Two-step Company form + Quick Create + **addresses endpoint** | `(protected)/parties/**`, `api/companies/[id]/addresses/**` |
-| B22-DealsList | **Kanban board** | `deals/page.tsx`, `ui/board.tsx`, `templates/list-page.tsx`, `globals.css` |
-| S1-Schema | Daily Summary (§6.1) | `api/review/daily-summary/**`, `review/[userId]/page.tsx` |
-| B18-Orders | Deal notes + Manager comments | `api/remarks/**`, `review/page.tsx` |
+| B22-DealsList | **Taking the drag-and-drop the kit just shipped** | RUNNING — uncommitted |
+| B18-Orders | Manager comments (§6.5) | RUNNING — uncommitted |
+| all others | — | idle, work committed |
 
-**B22 was authorised to add ONE optional prop to `list-page.tsx`** — `renderData?: (rows) => ReactNode`,
-replacing the `<Table>` branch only, leaving the other four zone-3 states untouched. AGENTS.md §35
-requires the board to occupy zone 3 of the same list page and the template predates §35. **Ten
-screens consume `list-page`; the prop must be invisible to all of them.**
+**If you are a fresh session: those two agents belong to the previous session and you cannot
+reach them.** Check `git status` first. If `src/components/ui/board.tsx`, `package.json` or
+`src/app/api/remarks/**` are dirty, that is their work — verify it against §7's discipline and
+commit it, or discard and re-dispatch.
+
+**`list-page.tsx` has ONE authorised addition**: `renderData?: (rows) => ReactNode`, 30 insertions
+/ 0 deletions, replacing the `<Table>` branch only with the four empty states left ahead of it.
+AGENTS.md §35 requires the board to occupy zone 3 of the same list page and the template predates
+§35. **Ten screens consume `list-page` and none passes the prop.** Do not extend it further
+without the same test: does the spec require it, or is a screen being made special?
+
+### The drag upgrade, mid-flight
+The kit shipped drag-and-drop in `board.tsx` at 16:07 on 18 Sep, *after* it was first copied here
+at 15:51. It needs **`@dnd-kit/core ^6.3.1`** (AGENTS.md §35.6 pre-approves `@dnd-kit/core` and
+`@dnd-kit/sortable` "for it and for nothing else" — nothing else). §35.6 promises the drag lands
+on the same `onMove` so **call sites do not change**; if `deals/page.tsx` needed an edit, the
+kit's contract moved and that is a finding. **The three-dot menu is the permanent baseline and is
+never removed** — a drag that replaced it is a regression, not an upgrade. Keyboard operation is
+named in §35.6 too.
+
+### Outstanding question put to B18, unanswered
+`/api/review/daily-activity` gates on `canView()`, which **ignores `data_scope` entirely** and has
+no self rows — so it denies a user their own tab while letting a Self-scoped manager read
+downward. The Daily Summary route deliberately uses `scopedUserIds` + `intersectScope` instead.
+**Two routes on the same page now disagree about self-view.** Someone should reconcile it.
+
+### A known inconsistency in `/api/remarks`
+GET reads **camelCase from the query** (`?contextType=`), POST reads **snake_case from the body**
+(`{"context_type":…}`). Sending the wrong key returns `"contextType is required and must be a
+known remark context"`, which reads as a bad *value*. Cost three failed calls to diagnose.
 
 ---
 
