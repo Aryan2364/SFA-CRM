@@ -143,6 +143,102 @@ example of building on it. Check `D:\RGB_Software\rgb-kit-v2\AGENTS.md` §20.1 a
 whether a time control is specified; if it is not, that is a §30 question to raise with him rather
 than a component to invent — **which is exactly what he is telling us to do: ask.**
 
+## Round 2 — Weekly Plan, 19 Sep
+
+A structural rework, not corrections. Aryan is redesigning the screen.
+
+### F9 · The plan becomes a seven-column board, Mon to Sun · OPEN · **the core change**
+
+> "I need a 7 column table with heading mon, tue, till sun and in that there will cards where I
+> can plan"
+
+With: a week changer above; **each column scrolling on its own** when its list grows; **horizontal
+scroll** when the seven do not fit the screen; a **plus button on each column heading**; and a
+**count of line items** on each heading. Desktop view as described.
+
+**This very likely needs no new component.** `src/components/ui/board.tsx` already exists, built
+for the Deals Kanban and proven against the database. What it owns is close to an exact match for
+what he is describing:
+
+| He asked for | `board.tsx` already does |
+|---|---|
+| 7 columns | `MAX_COLUMNS = 7`, and it throws past that |
+| per-column scroll | 25 cards a column, then Load more (§35.7) |
+| count on the heading | header states the TRUE total, never the rendered count |
+| horizontal scroll | board view handles the overflow |
+
+The seven-column cap has been an open worry (`HANDOFF.md` Decision B) precisely because
+`deal_stages` is user-editable and could exceed it. **Weekly Plan is the one case where seven is
+fixed forever**, so the constraint that was a problem for Deals is a perfect fit here.
+
+Verify that against the real component before promising it. But start from "reuse the board",
+not "build a grid".
+
+### F10 · Standing offer: he will add missing components to rgb-kit v2 · OPEN · **process, remember this**
+
+> "I don't want to deviate from rgb-kit as this theme is good so if you don't get component tell i
+> will get it done in rgb-kit v2"
+
+This is the answer to the §30 gate, from the person who owns the decision. **The rule is now: if
+the kit lacks a component, tell Aryan and he will have it built. Do not invent one locally, and do
+not silently use a raw HTML control.**
+
+Directly related to **F8**, where a native `<input type="time">` was used because no component was
+specified. He made the same point there: *"if you didn't got component you should have asked me."*
+Twice in two rounds. Treat it as standing.
+
+### F11 · Remove "Day Focus / Remarks" from each day · OPEN
+
+> "we don't want this Day Focus / Remarks on each day"
+
+### F12 · Remove the Dist / Dealer / Others counts from each line · OPEN · **closes an open decision**
+
+> "we don't need this \"Dist. Dealer Others\" in each line item"
+
+**This answers `HANDOFF.md` Decision C**, which read: *"Do the Dist/Dealer/Others counts survive
+§5.1? A plan row is now one party, not a place, which arguably retires them. Preserved to keep the
+choice open."* They are retired. Record the decision as closed by Aryan on 19 Sep, and check
+whether anything downstream reads those counts before deleting them.
+
+### F13 · Card contents, and the add-party form · OPEN
+
+> "card can have firm name and in next line type and next to it might be expected or agenda of the
+> meet (for this we can make add party thing as form only with selection of party name and agenda
+> of the meet( optional))"
+
+Card: **firm name**, then **type**, with the **agenda** beside it. Add-party becomes a form with a
+party selector and an **optional** agenda.
+
+⚠️ This is significant beyond the visual. **All 54 seeded `weekly_plan_items` currently have
+`party_id = NULL`**, which is why "Not Met", the ticked/open split and the planned-versus-met
+headline read zero everywhere in Weekly Review and the Team Summary. A plan row that is built
+around choosing a party is exactly what makes those figures real. Flag to Aryan that this fix
+lights up several numbers elsewhere.
+
+Agenda is a new field — check whether `weekly_plan_items` has a column for it before assuming one.
+
+### F14 · Where does "Upcoming week I want to Achieve" go · OPEN · **he is undecided, needs a proposal**
+
+> "Now I am confused where will we put this section Upcoming week I want to Achieve we might put
+> this in end small vertical space with full width and internal scrolling can be thought."
+
+His own suggestion, held loosely: at the end, full width, short, scrolling internally. He is
+thinking aloud rather than instructing — worth coming back with a recommendation rather than just
+implementing the first idea.
+
+⚠️ Do not lose it in the redesign. It is §5.1's weekly priority points, and **Weekly Review reads
+the same data** — its ticked-versus-open list is driven by these. Whatever happens to the UI, the
+data has to keep flowing to that screen.
+
+### F15 · This reworks work already shipped · OPEN · **scope note, not his words**
+
+P3-T3 (Weekly Plan screen rework) is already built and committed, and P3-T4 built the manager
+approval screen on top of it. A seven-column board is a second rework of the same screen.
+
+Before building: check what the approval screen consumes from the plan screen, so the redesign
+does not quietly break the manager's view of it. The two were written to share the plan's shape.
+
+
 ---
 
 ## Triaged
