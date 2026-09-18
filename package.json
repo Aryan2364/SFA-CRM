@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-guard.mjs",
     "dev:local": "node scripts/dev-local.mjs 3007",
     "dev:seed": "node scripts/seed-dev.mjs",
     "build": "next build",
