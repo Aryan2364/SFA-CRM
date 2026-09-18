@@ -214,3 +214,29 @@ Rejected alternative: a `userId === user.userId` special case. It clears the 403
 `canView()`'s blindness to `data_scope` in place, so the next caller repeats the bug.
 
 `user_visibility` was not touched, as warned.
+
+## R-16 — orders taken at a meeting are invisible to the Orders search
+
+Found 18 Sep during P3-T9, reported twice, pre-existing and outside that task.
+
+The Orders list search sends `q`, which `/api/orders` matches against `entity_name`. An order
+punched inline against a meeting carries **no `entity_name`** — the party is reached through the
+visit instead. So those orders cannot be found by typing the customer's name, even while the
+company filter has them on screen.
+
+The contradiction is visible to a user in one step: filter Orders to a company, see 4 rows, type
+that company's name into the search, and rows disappear.
+
+This is why P3-T9's View All keys on `entityId` rather than `q`. That decision is sound and
+should not be revisited — but it fixed the link, not the search.
+
+**Two candidate fixes, neither chosen:**
+1. Widen the `q` match to resolve through the visit's party as well as `entity_name`. Keeps one
+   search box; costs a join on a hot list query.
+2. Backfill `entity_name` on meeting-punched orders at write time. Cheaper to read, but it
+   duplicates a name that already lives on the party, and this codebase has been bitten before by
+   a denormalised copy drifting from its source.
+
+Whoever takes this should also check whether the same shape exists on any other list whose search
+matches a denormalised name column — the useful question is "is this one route, or the pattern?",
+which is how the weekly-plan authorisation holes were found.
