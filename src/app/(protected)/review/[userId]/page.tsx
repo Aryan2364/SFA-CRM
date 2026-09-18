@@ -510,6 +510,334 @@ function DailyActivityTab({ userId, onOpenRemarks }: { userId: string; onOpenRem
   )
 }
 
+// ---- Daily Summary Tab (§6.1, P4-T3) ----
+
+type DailySummary = {
+  date: string
+  user: { id: string; name: string }
+  plan: {
+    goals: { newParties: number; existingParties: number; others: number; total: number } | null
+    route: { from: string | null; to: string | null } | null
+    notes: string | null
+    actualMeetings: number
+    missedParties: { id: string; name: string }[] | null
+    extraParties: { id: string | null; name: string }[] | null
+    partyMatching: 'by_party' | 'counts_only'
+  }
+  meetings: {
+    total: number; manualEntryCount: number; systemCapturedCount: number
+    systemCapturedSeconds: number; manualEntrySeconds: number; totalSeconds: number
+    withoutDuration: number; locationFlaggedCount: number; locationsCovered: string[]
+  }
+  workingTime: {
+    checkIn: string | null; checkOut: string | null
+    workingSeconds: number | null; meetingSeconds: number
+    nonMeetingSeconds: number | null; note: string | null
+  }
+  expenses: { total: number; count: number; byCategory: { category: string; amount: number; count: number }[] }
+  orders: { count: number; totalValue: number; byStatus: { status: string; count: number; value: number }[] }
+  deals: {
+    stagesMoved: number; won: number; lost: number
+    movements: { dealId: string; dealName: string; fromStage: string | null; toStage: string }[]
+  }
+  followUps: { dueToday: number; notDone: { id: string; dealId: string; dealName: string; mode: string; notes: string | null }[] }
+  nextDay: {
+    date: string
+    goals: { newParties: number; existingParties: number; others: number; total: number } | null
+    route: { from: string | null; to: string | null } | null
+    notes: string | null
+  }
+}
+
+const money = (n: number) =>
+  `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+/** A figure that may legitimately be unknown. Never prints 0 for "we don't know". */
+function Figure({ label, value, hint }: { label: string; value: string; hint?: string | null }) {
+  return (
+    <div className="rounded-xl border border-border-light bg-surface px-4 py-3">
+      <p className="text-[11px] uppercase tracking-wide text-text-muted">{label}</p>
+      <p className="mt-0.5 text-lg font-medium text-text-primary">{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-text-secondary">{hint}</p>}
+    </div>
+  )
+}
+
+function SummarySection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-border-light bg-surface p-4">
+      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-text-muted">{title}</p>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * §6.1's sheet for one day.
+ *
+ * Three things are deliberately ABSENT and must stay absent:
+ *   - Travelling Time (dropped in §12);
+ *   - any expense-to-order-value ratio — §6.1 says it looks poor on a normal
+ *     prospecting day and demoralises the rep, and belongs in the Weekly
+ *     Review only. Both numbers are shown; the division is not;
+ *   - anything that assumes a meeting happened (§5.6).
+ *
+ * "Non-Meeting Time" is the required wording. Never "Idle Time".
+ */
+function SummaryTab({ userId }: { userId: string }) {
+  const [selectedDate, setSelectedDate] = useState(toDateStr(new Date()))
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [summary, setSummary] = useState<DailySummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  function getWeekStart(offset: number) {
+    const today = new Date()
+    const day = today.getDay()
+    const diff = day === 0 ? -6 : 1 - day
+    const monday = new Date(today)
+    monday.setDate(today.getDate() + diff + offset * 7)
+    monday.setHours(0, 0, 0, 0)
+    return monday
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch(`/api/review/daily-summary?userId=${userId}&date=${selectedDate}`)
+      .then(async r => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}))
+          throw new Error(body.error ?? 'Could not load the summary.')
+        }
+        return r.json() as Promise<DailySummary>
+      })
+      .then(d => { if (!cancelled) { setSummary(d); setLoading(false) } })
+      .catch((e: Error) => { if (!cancelled) { setError(e.message); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [userId, selectedDate])
+
+  return (
+    <div>
+      <WeekStrip
+        selectedDate={selectedDate}
+        onSelectDate={setSelectedDate}
+        onPrevWeek={() => { const o = weekOffset - 1; setWeekOffset(o); setSelectedDate(toDateStr(getWeekStart(o))) }}
+        onNextWeek={() => { const o = weekOffset + 1; setWeekOffset(o); setSelectedDate(toDateStr(getWeekStart(o))) }}
+        calendarApiBase={`/api/daily-activity/calendar?userId=${userId}`}
+      />
+
+      {loading ? (
+        <div className="py-12 text-center text-text-muted">Loading…</div>
+      ) : error ? (
+        /* No dead ends: say what happened and offer the way forward. */
+        <div className="rounded-2xl border border-border-light bg-surface p-6 text-center">
+          <p className="text-sm text-text-primary">{error}</p>
+          <button onClick={() => setSelectedDate(d => d)} className="mt-3 text-sm font-medium text-primary hover:text-primary-hover">
+            Try again
+          </button>
+        </div>
+      ) : !summary ? null : (
+        <div className="space-y-3">
+          {/* Plan vs Actual */}
+          <SummarySection title="Plan vs Actual">
+            {summary.plan.goals ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <Figure label="Planned" value={String(summary.plan.goals.total)}
+                    hint={`${summary.plan.goals.newParties} new · ${summary.plan.goals.existingParties} existing · ${summary.plan.goals.others} other`} />
+                  <Figure label="Meetings held" value={String(summary.plan.actualMeetings)} />
+                </div>
+                {summary.plan.route && (summary.plan.route.from || summary.plan.route.to) && (
+                  <p className="mt-2 text-xs text-text-secondary">
+                    Route: {summary.plan.route.from ?? '—'} → {summary.plan.route.to ?? '—'}
+                  </p>
+                )}
+                {summary.plan.notes && <p className="mt-1 text-xs text-text-secondary">{summary.plan.notes}</p>}
+              </>
+            ) : (
+              <p className="text-sm text-text-secondary">No plan was filed for this day.</p>
+            )}
+
+            {/* §6.1 asks what was missed and what extra was done. That is only
+                answerable per-party when the plan names a party; saying so is
+                the honest alternative to rendering an empty "nothing missed",
+                which would read as a clean day. */}
+            {summary.plan.partyMatching === 'counts_only' ? (
+              <p className="mt-3 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text-secondary">
+                This plan sets target counts but does not name the parties to visit, so missed and
+                extra visits can only be compared as numbers, not listed by party.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                <div>
+                  <p className="text-xs font-medium text-text-secondary">Missed</p>
+                  {summary.plan.missedParties?.length
+                    ? <ul className="mt-1 space-y-0.5">{summary.plan.missedParties.map(p => (
+                        <li key={p.id} className="text-xs text-text-primary">• {p.name}</li>))}</ul>
+                    : <p className="text-xs text-text-muted">Nothing planned was missed.</p>}
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-text-secondary">Extra</p>
+                  {summary.plan.extraParties?.length
+                    ? <ul className="mt-1 space-y-0.5">{summary.plan.extraParties.map((p, i) => (
+                        <li key={p.id ?? `x${i}`} className="text-xs text-text-primary">• {p.name}</li>))}</ul>
+                    : <p className="text-xs text-text-muted">Nothing outside the plan.</p>}
+                </div>
+              </div>
+            )}
+          </SummarySection>
+
+          {/* Time */}
+          <SummarySection title="Time">
+            <div className="grid grid-cols-2 gap-2">
+              <Figure label="Total meeting time" value={formatDuration(summary.meetings.totalSeconds)}
+                hint={`${summary.meetings.total} meeting${summary.meetings.total === 1 ? '' : 's'}`} />
+              <Figure
+                label="Non-Meeting Time"
+                value={summary.workingTime.nonMeetingSeconds === null ? 'Unknown' : formatDuration(summary.workingTime.nonMeetingSeconds)}
+                hint={summary.workingTime.workingSeconds === null ? null : `of ${formatDuration(summary.workingTime.workingSeconds)} worked`}
+              />
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Figure label="System-captured" value={formatDuration(summary.meetings.systemCapturedSeconds)}
+                hint={`${summary.meetings.systemCapturedCount} timed`} />
+              <Figure label="Entered manually" value={formatDuration(summary.meetings.manualEntrySeconds)}
+                hint={`${summary.meetings.manualEntryCount} past meeting${summary.meetings.manualEntryCount === 1 ? '' : 's'}`} />
+            </div>
+            {summary.workingTime.note && (
+              <p className="mt-2 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text-secondary">
+                {summary.workingTime.note}
+              </p>
+            )}
+            {summary.meetings.withoutDuration > 0 && (
+              <p className="mt-2 text-xs text-text-secondary">
+                {summary.meetings.withoutDuration} meeting{summary.meetings.withoutDuration === 1 ? '' : 's'} had no
+                recorded duration and {summary.meetings.withoutDuration === 1 ? 'is' : 'are'} not counted in the totals above.
+              </p>
+            )}
+          </SummarySection>
+
+          {/* Money — both figures, deliberately no ratio between them */}
+          <SummarySection title="Expense and Orders">
+            <div className="grid grid-cols-2 gap-2">
+              <Figure label="Total expense" value={money(summary.expenses.total)}
+                hint={`${summary.expenses.count} claim${summary.expenses.count === 1 ? '' : 's'}`} />
+              <Figure label="Order value brought" value={money(summary.orders.totalValue)}
+                hint={`${summary.orders.count} order${summary.orders.count === 1 ? '' : 's'}`} />
+            </div>
+            {summary.expenses.byCategory.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1 text-xs font-medium text-text-secondary">By category</p>
+                <ul className="space-y-1">
+                  {summary.expenses.byCategory.map(c => (
+                    <li key={c.category} className="flex items-center justify-between text-xs">
+                      <span className="text-text-primary">{c.category}</span>
+                      <span className="text-text-secondary">{money(c.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {summary.orders.byStatus.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1 text-xs font-medium text-text-secondary">Orders by status</p>
+                <ul className="space-y-1">
+                  {summary.orders.byStatus.map(s => (
+                    <li key={s.status} className="flex items-center justify-between text-xs">
+                      <span className="text-text-primary">{s.status} ({s.count})</span>
+                      <span className="text-text-secondary">{money(s.value)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </SummarySection>
+
+          {/* Locations and flags */}
+          <SummarySection title="Locations covered">
+            {summary.meetings.locationsCovered.length === 0 ? (
+              <p className="text-sm text-text-secondary">No locations were captured on this day.</p>
+            ) : (
+              <ul className="space-y-1">
+                {summary.meetings.locationsCovered.map(l => (
+                  <li key={l} className="text-xs text-text-primary">• {l}</li>
+                ))}
+              </ul>
+            )}
+            {summary.meetings.locationFlaggedCount > 0 && (
+              <p className="mt-3 rounded-lg bg-danger-bg px-3 py-2 text-xs text-danger">
+                {summary.meetings.locationFlaggedCount} meeting{summary.meetings.locationFlaggedCount === 1 ? '' : 's'} flagged
+                for a location difference. This is for review only — nothing was blocked.
+              </p>
+            )}
+          </SummarySection>
+
+          {/* Deal movement */}
+          <SummarySection title="Deal movement">
+            <div className="grid grid-cols-3 gap-2">
+              <Figure label="Stages moved" value={String(summary.deals.stagesMoved)} />
+              <Figure label="Won" value={String(summary.deals.won)} />
+              <Figure label="Lost" value={String(summary.deals.lost)} />
+            </div>
+            {summary.deals.movements.length > 0 && (
+              <ul className="mt-3 space-y-1">
+                {summary.deals.movements.map((m, i) => (
+                  <li key={`${m.dealId}-${i}`} className="text-xs text-text-primary">
+                    • {m.dealName}: {m.fromStage ?? 'New'} → {m.toStage}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SummarySection>
+
+          {/* Follow-ups */}
+          <SummarySection title="Follow-ups due today, not done">
+            {summary.followUps.notDone.length === 0 ? (
+              <p className="text-sm text-text-secondary">
+                {summary.followUps.dueToday === 0
+                  ? 'No follow-ups were due on this day.'
+                  : 'All follow-ups due on this day were done.'}
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {summary.followUps.notDone.map(f => (
+                  <li key={f.id} className="text-xs text-text-primary">
+                    • {f.dealName} — {f.mode}{f.notes ? `: ${f.notes}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SummarySection>
+
+          {/* Next-day preview strip */}
+          <div className="rounded-2xl border border-border-light bg-surface-sunken p-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
+              Next day · {formatDayHeader(summary.nextDay.date)}
+            </p>
+            {summary.nextDay.goals ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-primary">
+                <span>{summary.nextDay.goals.total} planned</span>
+                <span className="text-text-secondary">
+                  {summary.nextDay.goals.newParties} new · {summary.nextDay.goals.existingParties} existing · {summary.nextDay.goals.others} other
+                </span>
+                {summary.nextDay.route && (summary.nextDay.route.from || summary.nextDay.route.to) && (
+                  <span className="text-text-secondary">
+                    {summary.nextDay.route.from ?? '—'} → {summary.nextDay.route.to ?? '—'}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-text-secondary">Nothing planned for the next day yet.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---- Expenses Tab ----
 function ExpensesTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks: (ctx: { contextType: 'expense'; contextId: string; title: string }) => void }) {
   const [selectedDate, setSelectedDate] = useState(toDateStr(new Date()))
@@ -591,8 +919,8 @@ function ReviewUserInner() {
 
   const [userName, setUserName] = useState('')
   const [userLevel, setUserLevel] = useState('')
-  const initialTab = (searchParams.get('tab') as 'plans' | 'activity' | 'expenses') ?? 'plans'
-  const [tab, setTab] = useState<'plans' | 'activity' | 'expenses'>(initialTab)
+  const initialTab = (searchParams.get('tab') as 'plans' | 'activity' | 'summary' | 'expenses') ?? 'plans'
+  const [tab, setTab] = useState<'plans' | 'activity' | 'summary' | 'expenses'>(initialTab)
   const [meLoaded, setMeLoaded] = useState(false)
 
   // Remarks panel state
@@ -618,6 +946,7 @@ function ReviewUserInner() {
   const TABS = [
     { id: 'plans', label: 'Weekly Plans' },
     { id: 'activity', label: 'Daily Activity' },
+    { id: 'summary', label: 'Summary' },
     { id: 'expenses', label: 'Expenses' },
   ] as const
 
@@ -650,6 +979,7 @@ function ReviewUserInner() {
         <>
           {tab === 'plans' && <WeeklyPlansTab userId={userId} onOpenRemarks={setRemarksPanel} />}
           {tab === 'activity' && <DailyActivityTab userId={userId} onOpenRemarks={setRemarksPanel} />}
+          {tab === 'summary' && <SummaryTab userId={userId} />}
           {tab === 'expenses' && <ExpensesTab userId={userId} onOpenRemarks={setRemarksPanel} />}
         </>
       )}
