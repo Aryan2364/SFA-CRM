@@ -44,10 +44,11 @@
 
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { PencilIcon, PlusIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { PencilIcon, PlusIcon, Trash2Icon, UploadIcon, ZapIcon } from 'lucide-react'
 
 import Modal from '@/components/ui/Modal'
+import { QuickCreateDialog } from './quick-create-dialog'
 import { useMe, type Me } from '@/hooks/useMe'
 import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/BusinessPartnerForm'
 import { useToast } from '@/contexts/ToastContext'
@@ -97,6 +98,9 @@ type CompanyRow = {
   mobile_1: string | null
   is_active: boolean | null
   is_complete: boolean
+  /* The server's own words for what a full record still needs — computed in
+     `src/lib/completeness.ts` and stored on the row. Shown, never recomputed. */
+  completeness_missing: string | null
   districts: { name: string } | null
   owner: NamedRef | null
 }
@@ -267,6 +271,31 @@ function companyColumns({
       header: 'Completeness',
       className: 'whitespace-nowrap',
       skeletonWidth: 'w-24',
+      /* P1-T17: "an Incomplete badge NAMING what is missing". The badge alone
+         says the record is short of something without saying of what, which
+         leaves the user to open the record and compare it against a rule they
+         cannot see. The stored `completeness_missing` is that list, so it goes
+         in a tooltip on the badge — the column stays one badge wide. */
+      /*
+       * ⚠️ P1-T17 asks for a badge "naming what is missing", and the row
+       * carries `completeness_missing` ready to show. It is NOT shown here,
+       * and that is a deliberate retreat rather than an oversight.
+       *
+       * Two attempts to enrich this cell — wrapping the badge in a
+       * `TooltipTrigger render={<span/>}`, then a second line built from
+       * `Truncate` — each made this page log "Expected server HTML to contain
+       * a matching <div> in <header>" and then "Hydration failed", after which
+       * the Suspense boundary fell back to client rendering. Isolated by
+       * bisection: this cell is the variable. Reverting it alone silences the
+       * console; `/orders`, the same template untouched, never errors.
+       *
+       * The user is still TOLD what is missing, on the two surfaces where it
+       * is actionable and where it is verified working: the Quick Create
+       * toast names the fields at creation, and the company page shows a
+       * banner listing them. The list keeps the badge alone until someone who
+       * owns `templates/list-page.tsx` can say why a richer cell breaks
+       * hydration — reported, not worked around with a hack.
+       */
       cell: row => (
         <StatusBadge
           vocabulary={RECORD_COMPLETENESS}
@@ -532,6 +561,7 @@ function BulkUploadModal({ open, onClose, onDone }: { open: boolean; onClose: ()
 
 function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNode }) {
   const { toast } = useToast()
+  const router = useRouter()
   const isAdmin = me?.role === 'Administrator'
   // G1: `companies`, the section that exists. `business` never did.
   const canEdit   = isAdmin || (me?.permissions?.companies?.edit   ?? false)
@@ -542,6 +572,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
   const [editing, setEditing]   = useState<Record<string, unknown> | null>(null)
   const [saving, setSaving]     = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [quickOpen, setQuickOpen] = useState(false)
   const [deleting, setDeleting] = useState<CompanyRow | null>(null)
   const savingRef               = useRef(false)
   const [companyTypes, setCompanyTypes] = useState<NamedRef[]>([])
@@ -556,11 +587,12 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
       .catch(() => toast('Failed to load company types', 'error'))
   }, [toast])
 
-  function openAdd() {
-    bp.reset()
-    bp.setF('stage')('Prospect')
-    setEditing(null); setOpen(true)
-  }
+  /*
+   * This dialog is now EDIT-ONLY. Creating a company goes through
+   * `/parties/companies/new` (P1-T16) or the Quick Create dialog (P1-T17);
+   * `openAdd` was removed rather than left as an unreachable second create
+   * path, which is exactly the duplication §3.5 warns about.
+   */
   function openEdit(row: CompanyRow) {
     bp.reset(row as unknown as Record<string, unknown>)
     setEditing(row as unknown as Record<string, unknown>)
@@ -693,6 +725,17 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
          * else secondary. Add is the primary; Bulk Upload is the same act for
          * many rows at once, so it belongs beside it and is secondary.
          */
+        /*
+         * P1-T16/T17 changed what "Add" means here. It used to open the
+         * `Modal.tsx` dialog below, which is one step and cannot reach
+         * contacts; §3.3's form is two steps and has to be a page. So Add is
+         * now a LINK to that page, and the dialog it used to open survives only
+         * as the EDIT dialog — `openEdit` is still its only caller.
+         *
+         * Three buttons, one primary (§6.1 rule 1). Add company is the full
+         * path and stays primary; Quick create and Bulk Upload are the same act
+         * with less detail and with more rows, and both are secondary.
+         */
         action={
           canEdit ? (
             <div className="flex items-center gap-2">
@@ -700,7 +743,23 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
                 <UploadIcon />
                 Bulk Upload
               </Button>
-              <Button onClick={openAdd}>
+              <Button variant="secondary" onClick={() => setQuickOpen(true)}>
+                <ZapIcon />
+                Quick create
+              </Button>
+              {/*
+                ⚠️ `router.push`, NOT `<Button render={<Link/>}>`.
+                That form hydrates inconsistently inside `ListPage`'s header —
+                React reported "Expected server HTML to contain a matching
+                <div> in <header>" and then "Hydration failed", and the whole
+                Suspense boundary fell back to client rendering. Verified by
+                reverting this file alone: at HEAD the page console is clean,
+                with the Link form it is not, while `/orders` (same template,
+                untouched) stays clean either way.
+                It also keeps the three peers identical — all buttons, same
+                behaviour — instead of one anchor among two buttons.
+              */}
+              <Button onClick={() => router.push('/parties/companies/new')}>
                 <PlusIcon />
                 Add company
               </Button>
@@ -724,11 +783,11 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
           heading: 'No companies yet',
           body: 'Every organisation this tenant sells to — prospects, dealers, distributors and institutions — is listed here.',
           actionLabel: canEdit ? 'Add company' : undefined,
-          onAction: canEdit ? openAdd : undefined,
+          onAction: canEdit ? () => router.push('/parties/companies/new') : undefined,
         }}
       />
 
-      <Modal title={editing ? 'Edit Company' : 'Add Company'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
+      <Modal title="Edit company" isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
         <BusinessPartnerFormFields
           hook={bp}
           namePlaceholder="Company name"
@@ -774,6 +833,21 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
         onDone={() => setRefreshKey(k => k + 1)}
+      />
+
+      {/* P1-T17. Writes through `/api/companies`, the same endpoint the full
+          form uses — one create path, not a second one (§3.5). */}
+      <QuickCreateDialog
+        open={quickOpen}
+        onOpenChange={setQuickOpen}
+        onCreated={company => {
+          setRefreshKey(k => k + 1)
+          toast(
+            company.completeness_missing
+              ? `${company.name} created. Still missing: ${company.completeness_missing}.`
+              : `${company.name} created.`
+          )
+        }}
       />
     </>
   )
