@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/contexts/ToastContext'
 import CalendarPicker from '@/components/ui/CalendarPicker'
 import RemarksPanel from '@/components/ui/RemarksPanel'
+import { RemarkThread } from '@/components/remark-thread'
 
 // ---- Helpers ----
 function getMondayOf(date: Date): Date {
@@ -832,6 +833,39 @@ function SummaryTab({ userId }: { userId: string }) {
               <p className="text-xs text-text-secondary">Nothing planned for the next day yet.</p>
             )}
           </div>
+        </div>
+      )}
+
+      {/*
+        REBUILD-PLAN §6.5 — the manager's comment on the Daily Summary.
+
+        It sits at the BOTTOM of the sheet and is keyed on the whole sheet
+        (`userId` + `selectedDate`), not on any section of it, because §6.5 puts
+        one comment against the summary rather than against a meeting or an
+        expense inside it. Changing the day in the WeekStrip above changes
+        `selectedDate`, which re-keys the thread — each day carries its own
+        comment, which is what `summaryContextId()` derives server-side.
+
+        Rendered only once the sheet has actually loaded. A comment box under a
+        summary that failed to load would invite a remark about figures nobody
+        can see, and under the loading state it would flash in and out.
+
+        The panel decides for itself whether to show a composer: the reviewer
+        gets one until they have left their comment, the owner gets one until
+        they have used their single reply, and everyone else gets none. Those
+        are the same rules `/api/remarks` enforces (see `_access.ts`), so a
+        control that would be refused is never drawn — rather than drawn and
+        then failing.
+      */}
+      {!loading && !error && summary && (
+        <div className="mt-6 max-w-3xl">
+          <RemarkThread
+            contextType="daily_summary"
+            userId={userId}
+            date={selectedDate}
+            title="Manager comment"
+            emptyHint="No comment on this day’s summary yet."
+          />
         </div>
       )}
     </div>
