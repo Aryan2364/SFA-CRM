@@ -62,6 +62,9 @@ type Visit = {
   notes: string | null
   latitude: number | null; longitude: number | null; address: string | null
   end_latitude: number | null; end_longitude: number | null; end_address: string | null
+  /* §5.4: computed server-side when the visit is stopped, against the tenant's
+     configured threshold in metres. Not recomputed here — see ReviewVisitCard. */
+  location_flagged: boolean
 }
 
 type Expense = {
@@ -347,8 +350,26 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
 
   const hasNotes = !!v.notes?.trim()
   const hasLocation = v.latitude != null
-  const endMismatch = v.latitude != null && v.end_latitude != null &&
-    (Math.abs(v.latitude - v.end_latitude) > 0.001 || Math.abs((v.longitude ?? 0) - (v.end_longitude ?? 0)) > 0.001)
+  /*
+   * §5.4, P3-T8. This was a hardcoded distance check computed here in the
+   * browser:
+   *
+   *   Math.abs(lat - end_lat) > 0.001 || Math.abs(lng - end_lng) > 0.001
+   *
+   * which was degrees rather than metres, a square rather than a circle, and a
+   * different real distance at every latitude — and it was not the tenant's
+   * configured threshold, because it could not be: the setting did not exist.
+   * It is now a real Haversine in metres, computed server-side against
+   * `getTenantSettings().location_flag_threshold_m` and stored on the row when
+   * the visit is stopped, so the rep's screen and the reviewer's screen cannot
+   * disagree and an older flag stays as it was judged at the time.
+   *
+   * A visit whose start or end location is missing is NOT flagged — unknown is
+   * not the same as clean, but it is not evidence of anything either.
+   *
+   * ⚠️ Display only. §5.4 triggers no action from this.
+   */
+  const endMismatch = v.location_flagged
 
   return (
     <div className={`bg-surface rounded-2xl border overflow-hidden ${v.status === 'Active' ? 'border-amber-300' : 'border-gray-200'}`}>
