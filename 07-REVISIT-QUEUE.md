@@ -240,3 +240,27 @@ should not be revisited — but it fixed the link, not the search.
 Whoever takes this should also check whether the same shape exists on any other list whose search
 matches a denormalised name column — the useful question is "is this one route, or the pattern?",
 which is how the weekly-plan authorisation holes were found.
+
+## R-17 — `src/components/ui/Sidebar.tsx` is dead, and the plan tells agents to edit it
+
+Found 18 Sep while confirming P5-T6 was genuinely closed.
+
+There are two sidebars. The live one is **`src/components/shell/sidebar.tsx`**, which
+`app-shell.tsx` renders and which reads `visibleNavItems` from the `./nav` registry. The other,
+**`src/components/ui/Sidebar.tsx`**, is imported by nothing — the only reference anywhere is a
+comment in `src/lib/masters-registry.ts`. It carries its own fourteen hardcoded `*_NAV` constants
+and knows nothing about Reports.
+
+**`06A-PHASE-5-PLAN.md` P5-T6 instructs: "Add it to `src/components/shell/nav.ts` (the registry)
+and `src/components/ui/Sidebar.tsx`."** An agent that follows that edits a dead file and believes
+it has shipped navigation. P5-T2's agent did exactly that — the edit is harmless and landed in
+`72bda2b`, and Reports is reachable only because the registry entry is the half that matters.
+
+The G10 note warning that "those two have already drifted apart once" is describing two files that
+cannot drift, because one of them is not running. The real risk is the opposite: an agent reads
+the warning, dutifully updates both, and the dead copy makes the change look bigger than it was.
+
+**Fix is a deletion, not an edit.** Delete `src/components/ui/Sidebar.tsx`, correct the P5-T6
+instruction in the phase plan, and update the stale comment in `masters-registry.ts`. Left undone
+here because deleting a file is not this session's call to make unasked, and nothing is broken by
+its presence.
