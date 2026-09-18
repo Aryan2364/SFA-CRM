@@ -1,6 +1,22 @@
 "use client"
 
 import * as React from "react"
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type DragEndEvent,
+  type DragStartEvent,
+  type KeyboardCoordinateGetter,
+  type ScreenReaderInstructions,
+} from "@dnd-kit/core"
 import { EllipsisIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -36,14 +52,14 @@ import { toast } from "@/components/ui/sonner"
  *     rendered count, so a column reading 48 with 25 cards under it is
  *     saying exactly what it is showing.
  *   - THE MOVE IS AN ACTION, NOT A GESTURE. `onMove` is the single
- *     call every path goes through. The card moves optimistically and
- *     returns to where it came from if the save fails, with an error
- *     toast. A card never sits in a column the server did not agree
- *     to.
+ *     call every path goes through - the menu, the keyboard and the
+ *     drag. The card moves optimistically and returns to where it came
+ *     from if the save fails, with an error toast. A card never sits in
+ *     a column the server did not agree to.
  *   - THE MENU IS THE BASELINE PATH AND IS NEVER REMOVED (section
- *     35.6). Dragging is agreed and lands on top of this same
- *     `onMove`; when it does, nothing at a call site changes. A board
- *     whose only route is a drag is unusable by keyboard.
+ *     35.6). Dragging is an enhancement over it, and both end in the
+ *     same `onMove`. A board whose only route is a drag is unusable by
+ *     keyboard and by most assistive technology.
  *   - A CARD NEVER SHOWS THE STATUS THE COLUMNS ARE MADE OF (section
  *     35.5). The column is that fact. `badge` is for a card's OTHER
  *     status fields.
@@ -78,6 +94,16 @@ const MAX_COLUMNS = 7
 
 /** Section 35.7. Matches section 11.1's default page size of 25. */
 const CARDS_PER_COLUMN = 25
+
+/*
+ * dnd-kit addresses everything by one flat id space, so a column and a
+ * record sharing a string would silently become the same drop target.
+ * The prefixes keep them apart whatever the product's ids look like.
+ */
+const COLUMN_ID = (id: string) => `column:${id}`
+const CARD_ID = (id: string) => `card:${id}`
+const isColumnId = (id: string) => id.startsWith("column:")
+const bareId = (id: string) => id.slice(id.indexOf(":") + 1)
 
 type BoardColumn = {
   /** Matches `BoardCard.columnId`. The status field's stored value. */
@@ -116,13 +142,79 @@ type BoardCard = {
    */
   badge?: React.ReactNode
   /**
-   * Section 26. When set, this card cannot be moved and the menu says
-   * why, through `PermissionTooltip` - a disabled control carries
+   * Section 26. When set, this card cannot be moved: the menu is
+   * disabled, the card is not draggable, and the reason is given
+   * through `PermissionTooltip`, because a disabled control carries
    * `pointer-events-none` and can never show a tooltip of its own.
    * States who may do it: "Only an administrator can move a closed
    * deal", never "You do not have permission".
    */
   moveDisabledReason?: string
+}
+
+/**
+ * Section 35.6. Arrow Left and Right step between columns.
+ *
+ * dnd-kit's built-in keyboard getter nudges by a fixed pixel step,
+ * which is the right default for a free canvas and the wrong one here:
+ * a board has a small number of large targets, and a keyboard user
+ * wants the NEXT COLUMN, not a position 25px to the right of where
+ * they were. Two presses to cross a 280px column is two chances to
+ * land between two of them.
+ *
+ * Up and Down are deliberately unhandled. A drop is addressed to a
+ * column, not to a position within one - the card's place inside a
+ * column comes from the list's own sort (section 27.2), and offering a
+ * gesture that appears to reorder while nothing saves the order would
+ * be the lie section 35.10 rules out.
+ */
+const boardKeyboardCoordinates: KeyboardCoordinateGetter = (
+  event,
+  { currentCoordinates, context },
+) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return undefined
+
+  const columns = context.droppableContainers
+    .getEnabled()
+    .filter((container) => isColumnId(String(container.id)))
+    .map((container) => ({ id: container.id, rect: container.rect.current }))
+    .filter((c): c is { id: typeof c.id; rect: NonNullable<typeof c.rect> } =>
+      c.rect !== null,
+    )
+    .sort((a, b) => a.rect.left - b.rect.left)
+
+  if (columns.length === 0) return undefined
+
+  // Where the drag currently sits, by nearest column centre rather than
+  // by containment: mid-gesture the pointer can be between two columns,
+  // and "nearest" always has an answer where "inside" does not.
+  let index = 0
+  let best = Number.POSITIVE_INFINITY
+  columns.forEach((column, i) => {
+    const centre = column.rect.left + column.rect.width / 2
+    const distance = Math.abs(centre - currentCoordinates.x)
+    if (distance < best) {
+      best = distance
+      index = i
+    }
+  })
+
+  const next = event.key === "ArrowRight" ? index + 1 : index - 1
+  // Deliberately does not wrap. Wrapping past the last column lands the
+  // card at the far end of the board, which reads as the drag having
+  // gone wrong rather than as having reached the end.
+  if (next < 0 || next >= columns.length) return undefined
+
+  const target = columns[next].rect
+  return {
+    x: target.left + target.width / 2,
+    y: currentCoordinates.y,
+  }
+}
+
+const SCREEN_READER_INSTRUCTIONS: ScreenReaderInstructions = {
+  draggable:
+    "Press space to pick this card up. Use the left and right arrow keys to choose a column, then press space to move it there. Press escape to cancel. Press enter to open the record instead.",
 }
 
 function Board({
@@ -141,9 +233,9 @@ function Board({
   columns: BoardColumn[]
   cards: BoardCard[]
   /**
-   * THE action. Every move - menu, keyboard, and the drag that lands
-   * on top of this later - is this one call. Reject, or throw, and the
-   * card goes back to the column it came from.
+   * THE action. Every move - menu, keyboard and drag - is this one
+   * call. Reject, or throw, and the card goes back to the column it
+   * came from.
    *
    * Section 14 rule 4: give it a deadline at the point the request is
    * made. A promise that cannot reject cannot be reverted, and the
@@ -192,43 +284,48 @@ function Board({
   const [moved, setMoved] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState<Record<string, true>>({})
   const [visible, setVisible] = React.useState<Record<string, number>>({})
+  const [draggingCardId, setDraggingCardId] = React.useState<string | null>(null)
+  const dndId = React.useId()
 
   const columnOf = React.useCallback(
     (card: BoardCard) => moved[card.id] ?? card.columnId,
     [moved],
   )
 
-  async function move(card: BoardCard, toColumnId: string) {
-    const from = columnOf(card)
-    if (from === toColumnId) return
+  const move = React.useCallback(
+    async (card: BoardCard, toColumnId: string) => {
+      const from = moved[card.id] ?? card.columnId
+      if (from === toColumnId) return
 
-    // Shown first. Waiting for a round trip before the card moves makes
-    // the board feel broken on every slow connection.
-    setMoved((m) => ({ ...m, [card.id]: toColumnId }))
-    setPending((p) => ({ ...p, [card.id]: true }))
+      // Shown first. Waiting for a round trip before the card moves
+      // makes the board feel broken on every slow connection.
+      setMoved((m) => ({ ...m, [card.id]: toColumnId }))
+      setPending((p) => ({ ...p, [card.id]: true }))
 
-    try {
-      await onMove(card.id, toColumnId)
-      // Left in place: the data prop catches up on the next render and
-      // `moved` agreeing with it is a no-op, so clearing it here would
-      // flash the card back for one frame.
-    } catch {
-      setMoved((m) => {
-        const next = { ...m }
-        // Back to what the data says, not to a remembered value - the
-        // two cannot disagree if only one of them exists.
-        delete next[card.id]
-        return next
-      })
-      toast.error(moveErrorMessage)
-    } finally {
-      setPending((p) => {
-        const next = { ...p }
-        delete next[card.id]
-        return next
-      })
-    }
-  }
+      try {
+        await onMove(card.id, toColumnId)
+        // Left in place: the data prop catches up on the next render
+        // and `moved` agreeing with it is a no-op, so clearing it here
+        // would flash the card back for one frame.
+      } catch {
+        setMoved((m) => {
+          const next = { ...m }
+          // Back to what the data says, not to a remembered value -
+          // the two cannot disagree if only one of them exists.
+          delete next[card.id]
+          return next
+        })
+        toast.error(moveErrorMessage)
+      } finally {
+        setPending((p) => {
+          const next = { ...p }
+          delete next[card.id]
+          return next
+        })
+      }
+    },
+    [moved, onMove, moveErrorMessage],
+  )
 
   const grouped = React.useMemo(() => {
     const byColumn: Record<string, BoardCard[]> = {}
@@ -247,100 +344,270 @@ function Board({
     return byColumn
   }, [cards, columns, moved])
 
+  const byId = React.useMemo(() => {
+    const map: Record<string, BoardCard> = {}
+    for (const card of cards) map[card.id] = card
+    return map
+  }, [cards])
+
+  /*
+   * A small distance before a drag begins, so a press on the handle
+   * that turns out to be a click is still a click. Without it, the
+   * keyboard sensor and the pointer sensor fight over the same press.
+   */
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: boardKeyboardCoordinates,
+      /*
+       * Space picks a card up; Enter is left alone so it still opens
+       * the record (section 11.6). dnd-kit binds both by default, which
+       * would give one key two meanings on the same control - and the
+       * one a person reaches for first.
+       */
+      keyboardCodes: {
+        start: ["Space"],
+        cancel: ["Escape"],
+        end: ["Space", "Enter"],
+      },
+    }),
+  )
+
+  const labelOf = React.useCallback(
+    (columnId: string) =>
+      columns.find((c) => c.id === columnId)?.label ?? columnId,
+    [columns],
+  )
+
+  /*
+   * Section 19's argument, applied to a gesture: a fact available only
+   * by watching the screen is no fact at all for somebody who is not
+   * watching it. The drop indicator says where the card will land to
+   * anyone looking; these say the same thing to anyone not.
+   */
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => {
+      const card = byId[bareId(String(active.id))]
+      return card
+        ? `Picked up ${card.title} from ${labelOf(columnOf(card))}.`
+        : undefined
+    },
+    onDragOver: ({ over }) =>
+      over && isColumnId(String(over.id))
+        ? `Over ${labelOf(bareId(String(over.id)))}.`
+        : undefined,
+    onDragEnd: ({ active, over }) => {
+      const card = byId[bareId(String(active.id))]
+      if (!card) return undefined
+      if (!over || !isColumnId(String(over.id))) {
+        return `${card.title} was left in ${labelOf(columnOf(card))}.`
+      }
+      return `${card.title} moved to ${labelOf(bareId(String(over.id)))}.`
+    },
+    onDragCancel: ({ active }) => {
+      const card = byId[bareId(String(active.id))]
+      return card
+        ? `Cancelled. ${card.title} stayed in ${labelOf(columnOf(card))}.`
+        : undefined
+    },
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setDraggingCardId(bareId(String(event.active.id)))
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggingCardId(null)
+    const { active, over } = event
+    if (!over || !isColumnId(String(over.id))) return
+    const card = byId[bareId(String(active.id))]
+    if (!card) return
+    // The same call the menu makes. The drag decides the destination
+    // and nothing else; everything after this point is identical.
+    void move(card, bareId(String(over.id)))
+  }
+
   if (cards.length === 0 && empty) {
     return <>{empty}</>
   }
 
+  const draggingCard = draggingCardId ? byId[draggingCardId] : null
+
   return (
-    <div
-      data-slot="board"
-      className={cn(
-        // Horizontal here, vertical inside each column. Different axes,
-        // so section 1 rule 8 is not engaged. `min-h-0` is what lets
-        // the columns be shorter than their content instead of pushing
-        // the board taller than its host.
-        "flex h-full min-h-0 items-stretch gap-4 overflow-x-auto overflow-y-hidden",
-        className,
-      )}
-      {...props}
+    <DndContext
+      /*
+       * Without a stable id, dnd-kit numbers its own accessibility
+       * nodes from a module counter that starts over on the client, so
+       * the `aria-describedby` it hands each draggable is one value on
+       * the server and another after hydration - a mismatch React
+       * reports and does not patch up, leaving the description pointing
+       * at nothing. It only shows once a page carries more than one
+       * board, which the reference page does and a product might not.
+       * `useId` is stable across both renders, which is the whole
+       * reason it exists.
+       */
+      id={dndId}
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setDraggingCardId(null)}
     >
-      {columns.map((column) => {
-        const columnCards = grouped[column.id] ?? []
-        const shown = visible[column.id] ?? CARDS_PER_COLUMN
-        const rendered = columnCards.slice(0, shown)
-        const hasMore = columnCards.length > rendered.length
+      <div
+        data-slot="board"
+        className={cn(
+          // Horizontal here, vertical inside each column. Different
+          // axes, so section 1 rule 8 is not engaged. `min-h-0` is what
+          // lets the columns be shorter than their content instead of
+          // pushing the board taller than its host.
+          "flex h-full min-h-0 items-stretch gap-4 overflow-x-auto overflow-y-hidden",
+          className,
+        )}
+        {...props}
+      >
+        {columns.map((column) => {
+          const columnCards = grouped[column.id] ?? []
+          const shown = visible[column.id] ?? CARDS_PER_COLUMN
+          const rendered = columnCards.slice(0, shown)
+          const hasMore = columnCards.length > rendered.length
 
-        return (
-          <section
-            key={column.id}
-            data-slot="board-column"
-            aria-label={`${column.label}, ${column.total} records`}
-            className="flex h-full min-h-0 w-board-column shrink-0 flex-col rounded-xl border border-border-light bg-surface-sunken"
-          >
-            {/*
-              Outside the scroller rather than sticky inside it: the
-              guarantee section 35.4 asks for is that scrolling a long
-              column never leaves its cards unlabelled, and a header
-              that is not in the scrolling box cannot scroll away at
-              all.
-            */}
-            <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-light px-3 py-3">
-              <p className="min-w-0 text-body font-medium text-text-primary">
-                <Truncate>{column.label}</Truncate>
-              </p>
-              {/* The true total, never the rendered count (35.4). */}
-              <p className="shrink-0 text-meta text-text-muted tabular-nums">
-                {column.total}
-              </p>
-            </header>
-
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-              {rendered.length === 0 ? (
-                /*
-                 * Section 35.9. An empty COLUMN is not an empty SCREEN:
-                 * section 13's heading, line and action repeated across
-                 * seven columns is six invitations to create a record
-                 * in a stage nobody asked about. One muted line - and
-                 * still never a blank area.
-                 */
-                <p className="px-1 py-2 text-label text-text-muted">
-                  {emptyColumnLabel}
-                </p>
-              ) : (
-                rendered.map((card) => (
-                  <BoardCardView
-                    key={card.id}
-                    card={card}
-                    columns={columns}
-                    currentColumnId={columnOf(card)}
-                    pending={pending[card.id] === true}
-                    onMove={move}
-                    onOpenCard={onOpenCard}
-                  />
-                ))
+          return (
+            <BoardColumnView
+              key={column.id}
+              column={column}
+              cards={rendered}
+              hasMore={hasMore}
+              emptyColumnLabel={emptyColumnLabel}
+              onLoadMore={() => {
+                setVisible((v) => ({
+                  ...v,
+                  [column.id]: shown + CARDS_PER_COLUMN,
+                }))
+                onLoadMore?.(column.id)
+              }}
+              renderCard={(card) => (
+                <BoardCardView
+                  key={card.id}
+                  card={card}
+                  columns={columns}
+                  currentColumnId={columnOf(card)}
+                  pending={pending[card.id] === true}
+                  onMove={move}
+                  onOpenCard={onOpenCard}
+                />
               )}
+            />
+          )
+        })}
+      </div>
 
-              {hasMore ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => {
-                    setVisible((v) => ({
-                      ...v,
-                      [column.id]: shown + CARDS_PER_COLUMN,
-                    }))
-                    onLoadMore?.(column.id)
-                  }}
-                >
-                  Load more
-                </Button>
-              ) : null}
-            </div>
-          </section>
-        )
-      })}
-    </div>
+      {/*
+        Outside the columns on purpose. A column clips its overflow, so
+        an overlay rendered inside one would be cut off at its edge the
+        moment the card left it - which is every drag that matters.
+      */}
+      <DragOverlay>
+        {draggingCard ? (
+          <BoardCardView
+            card={draggingCard}
+            columns={columns}
+            currentColumnId={columnOf(draggingCard)}
+            pending={false}
+            onMove={() => {}}
+            overlay
+          />
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  )
+}
+
+function BoardColumnView({
+  column,
+  cards,
+  hasMore,
+  emptyColumnLabel,
+  onLoadMore,
+  renderCard,
+}: {
+  column: BoardColumn
+  cards: BoardCard[]
+  hasMore: boolean
+  emptyColumnLabel: string
+  onLoadMore: () => void
+  renderCard: (card: BoardCard) => React.ReactNode
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: COLUMN_ID(column.id) })
+
+  return (
+    <section
+      ref={setNodeRef}
+      data-slot="board-column"
+      /*
+       * Section 35.6: the column a card would land in is tinted
+       * `primary-subtle`. It is the same token, meaning the same
+       * thing, as a selected row in section 2.2 - this is the one that
+       * is chosen. The whole column is tinted rather than a thin line
+       * drawn somewhere in it, because the drop is addressed to the
+       * column and an indicator narrower than the target promises a
+       * precision the action does not have.
+       */
+      data-drop-target={isOver || undefined}
+      aria-label={`${column.label}, ${column.total} records`}
+      className={cn(
+        "flex h-full min-h-0 w-board-column shrink-0 flex-col rounded-xl border bg-surface-sunken",
+        // Not `transition-colors`: that utility includes outline-color,
+        // which breaks the card's `:has()` focus ring below. Named
+        // properties only, here and on the card.
+        "border-border-light transition-[background-color,border-color]",
+        "data-[drop-target]:border-primary-border data-[drop-target]:bg-primary-subtle",
+      )}
+    >
+      {/*
+        Outside the scroller rather than sticky inside it: the
+        guarantee section 35.4 asks for is that scrolling a long column
+        never leaves its cards unlabelled, and a header that is not in
+        the scrolling box cannot scroll away at all.
+      */}
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-light px-3 py-3">
+        <p className="min-w-0 text-body font-medium text-text-primary">
+          <Truncate>{column.label}</Truncate>
+        </p>
+        {/* The true total, never the rendered count (35.4). */}
+        <p className="shrink-0 text-meta text-text-muted tabular-nums">
+          {column.total}
+        </p>
+      </header>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        {cards.length === 0 ? (
+          /*
+           * Section 35.9. An empty COLUMN is not an empty SCREEN:
+           * section 13's heading, line and action repeated across seven
+           * columns is six invitations to create a record in a stage
+           * nobody asked about. One muted line - and still never a
+           * blank area.
+           */
+          <p className="px-1 py-2 text-label text-text-muted">
+            {emptyColumnLabel}
+          </p>
+        ) : (
+          cards.map(renderCard)
+        )}
+
+        {hasMore ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full"
+            onClick={onLoadMore}
+          >
+            Load more
+          </Button>
+        ) : null}
+      </div>
+    </section>
   )
 }
 
@@ -351,6 +618,7 @@ function BoardCardView({
   pending,
   onMove,
   onOpenCard,
+  overlay = false,
 }: {
   card: BoardCard
   columns: BoardColumn[]
@@ -358,17 +626,100 @@ function BoardCardView({
   pending: boolean
   onMove: (card: BoardCard, toColumnId: string) => void
   onOpenCard?: (cardId: string) => void
+  /** The copy that follows the pointer. Carries no controls of its own. */
+  overlay?: boolean
 }) {
   // Section 35.6: every column EXCEPT the one it is already in. A card
   // cannot move to where it is, so a disabled item would explain
   // nothing and an enabled one would do nothing.
   const destinations = columns.filter((c) => c.id !== currentColumnId)
-  const canMove = card.moveDisabledReason === undefined && !pending
+  const allowed = card.moveDisabledReason === undefined
+  const canMove = allowed && !pending
+
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } =
+    useDraggable({
+      id: CARD_ID(card.id),
+      disabled: !canMove || overlay,
+    })
+
+  /*
+   * A pointer drag ends in a click on whatever was under it, which here
+   * is the title's stretched hit area - so a card dropped in a new
+   * column would also open. Swallowed once, on the way up.
+   */
+  const justDragged = React.useRef(false)
+  React.useEffect(() => {
+    if (isDragging) justDragged.current = true
+  }, [isDragging])
+
+  const controls = (
+    <div className="relative z-10 flex shrink-0 items-center gap-1">
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!canMove}
+              aria-label={`Actions for ${card.title}`}
+            />
+          }
+        >
+          <EllipsisIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {/*
+            DropdownMenuLabel renders Base UI's GroupLabel, which reads
+            MenuGroupContext and THROWS without a Group above it - the
+            render unwinds and the page goes blank, so the symptom reads
+            as "the menu will not open". The group is what the label is
+            the accessible name OF.
+          */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Move to</DropdownMenuLabel>
+            {destinations.map((destination) => (
+              <DropdownMenuItem
+                key={destination.id}
+                onClick={() => onMove(card, destination.id)}
+              >
+                {destination.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
 
   return (
     <article
+      ref={overlay ? undefined : setNodeRef}
       data-slot="board-card"
       data-pending={pending || undefined}
+      data-dragging={isDragging || undefined}
+      /*
+       * The whole card is the drag source - press and move anywhere on
+       * it. There is no separate grip: a handle is a second control to
+       * find, and on a card this size it competes with the two that
+       * carry meaning. The 4px activation distance is what keeps a
+       * press that turns out to be a click a click.
+       *
+       * The listeners sit here rather than on the title button because
+       * a keydown inside the card bubbles to this element, so focus on
+       * the title still reaches the keyboard sensor - one drag source,
+       * two ways in, and no nested interactive role.
+       */
+      {...(overlay ? {} : listeners)}
+      onClickCapture={
+        overlay
+          ? undefined
+          : (event) => {
+              if (!justDragged.current) return
+              justDragged.current = false
+              event.stopPropagation()
+              event.preventDefault()
+            }
+      }
       className={cn(
         "relative flex flex-col gap-2 rounded-xl border border-border-light bg-surface p-3",
         /*
@@ -397,18 +748,30 @@ function BoardCardView({
         // it: a keyboard user needs to see which CARD is focused, and a
         // ring around three words of text does not say that.
         "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary-ring",
+        // The card left behind while its copy follows the pointer. It
+        // stays in place rather than being removed, so the column does
+        // not reflow under the drag.
+        "data-[dragging]:opacity-40",
+        canMove && !overlay && "cursor-grab active:cursor-grabbing",
+        overlay && "cursor-grabbing shadow-lg",
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          {onOpenCard ? (
+          {onOpenCard && !overlay ? (
             <button
               type="button"
+              // The activator node: what a keyboard drag measures from,
+              // and what carries dnd-kit's own instructions to a screen
+              // reader when the card is reached by Tab.
+              ref={setActivatorNodeRef}
+              aria-roledescription={attributes["aria-roledescription"]}
+              aria-describedby={attributes["aria-describedby"]}
               onClick={() => onOpenCard(card.id)}
               // The stretched pseudo-element is what makes the whole
-              // card clickable while leaving the menu button above it
-              // clickable in its own right. Its own outline is removed
-              // because the card carries the ring.
+              // card clickable while leaving the controls above it
+              // clickable in their own right. Its own outline is
+              // removed because the card carries the ring.
               className="block w-full cursor-pointer text-left outline-none after:absolute after:inset-0 after:content-['']"
             >
               <span className="block text-body font-medium text-text-primary">
@@ -422,49 +785,13 @@ function BoardCardView({
           )}
         </div>
 
-        {/* z-10 so it sits above the stretched hit area of the title. */}
-        <div className="relative z-10 shrink-0">
-          <PermissionTooltip
-            allowed={card.moveDisabledReason === undefined}
-            reason={card.moveDisabledReason ?? ""}
-          >
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    disabled={!canMove}
-                    aria-label={`Actions for ${card.title}`}
-                  />
-                }
-              >
-                <EllipsisIcon />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {/*
-                  DropdownMenuLabel renders Base UI's GroupLabel, which
-                  reads MenuGroupContext and THROWS without a Group
-                  above it - the render unwinds and the page goes
-                  blank, so the symptom reads as "the menu will not
-                  open". The group is what the label is the accessible
-                  name OF.
-                */}
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                  {destinations.map((destination) => (
-                    <DropdownMenuItem
-                      key={destination.id}
-                      onClick={() => onMove(card, destination.id)}
-                    >
-                      {destination.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+        {allowed ? (
+          controls
+        ) : (
+          <PermissionTooltip allowed={false} reason={card.moveDisabledReason!}>
+            {controls}
           </PermissionTooltip>
-        </div>
+        )}
       </div>
 
       {card.facts?.length ? (
