@@ -367,7 +367,24 @@ export default function ReportsPage() {
           )}
         >
           <div className="overflow-hidden">
-            <div className="flex flex-col gap-4 border-t border-border-light p-4">
+            {/*
+              THE CONTROLS SCROLL INSIDE THEMSELVES, and this cap is what makes
+              the §34.1 pinned total actually pinned.
+
+              Measured at 420×900 with the panel open: the panel is tall enough
+              (three stacked selects, nine date chips, ten preset chips) that
+              the page exceeded the shell's content box, the SHELL began to
+              scroll, and the total row landed at y=1061 in an 802px window —
+              off screen, which is the exact failure §34.1 describes. A sticky
+              footer is only sticky within a box that clips it, so a page that
+              overflows its own frame has no sticky footer at all.
+
+              Capping the panel and letting it scroll keeps the page exactly as
+              tall as the frame, so the result box owns the only vertical
+              scroll and the total stays on screen. On a desktop the panel
+              never reaches this height and nothing changes.
+            */}
+            <div className="flex max-h-[45vh] flex-col gap-4 overflow-y-auto border-t border-border-light p-4">
               {/* Measure and the one or two dimensions, side by side on a
                   desktop and stacked on a phone. */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
