@@ -1,20 +1,19 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import {
   ClipboardListIcon,
   MapIcon,
   MapPinIcon,
   MessageSquareIcon,
   PencilIcon,
-  PlayIcon,
-  SquareIcon,
   Trash2Icon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { MeetingToggle } from './meeting-toggle'
 import { formatDuration, formatTime, Visit } from './types'
 
 /**
@@ -22,8 +21,10 @@ import { formatDuration, formatTime, Visit } from './types'
  * intact, so that P3-T7 has a single file to put the start/stop toggle
  * in and P3-T9 a single file to hang the inside-a-meeting state on.
  *
- * ⚠️ Deliberately NOT built here: the toggle (P3-T7). Start and Stop are
- * still two buttons in two states, exactly as they were.
+ * P3-T7 landed the toggle: Start and Stop are now ONE button — see
+ * `meeting-toggle.tsx` for why that has to be a single node rather than
+ * two `&&` branches — and the location flag shown below is the one the
+ * SERVER decided on stop, not a box drawn in degrees in the browser.
  *
  * §5.3 rule 4: nothing on this card consults attendance. A completed
  * check-out does not disable the order button, the notes field or the
@@ -49,42 +50,41 @@ export function VisitCard({
   ownerName?: string | null
   canEdit: boolean
   canDelete: boolean
-  onStart: (id: string) => void
-  onStop: (id: string) => void
+  onStart: (id: string) => void | Promise<void>
+  onStop: (id: string) => void | Promise<void>
   onDelete: (visit: Visit) => void
   onOrderEntry: (visit: Visit) => void
   onRemarks: (visit: Visit) => void
   onNotesUpdate: (id: string, notes: string) => Promise<void>
 }) {
-  const [elapsed, setElapsed] = useState(0)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [notesOpen, setNotesOpen] = useState(false)
   const [notesText, setNotesText] = useState(visit.notes ?? '')
   const [notesSaving, setNotesSaving] = useState(false)
   const [locationOpen, setLocationOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
 
-  useEffect(() => {
-    if (visit.status === 'Active' && visit.start_time) {
-      const update = () => setElapsed(Math.floor((Date.now() - new Date(visit.start_time!).getTime()) / 1000))
-      update()
-      intervalRef.current = setInterval(update, 1000)
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-      setElapsed(visit.duration_secs ?? 0)
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [visit.status, visit.start_time, visit.duration_secs])
-
   const statusVariant = visit.status === 'Active' ? 'warning' : visit.status === 'Completed' ? 'success' : 'neutral'
 
-  // Both positions were captured, and they are far enough apart to be
-  // two different places. Nulls are normal here: on a geolocation timeout the
-  // meeting starts anyway with no coordinates (P3-T7's note).
-  const moved =
-    visit.latitude != null && visit.end_latitude != null &&
-    (Math.abs(visit.latitude - visit.end_latitude) > 0.001 ||
-      Math.abs((visit.longitude ?? 0) - (visit.end_longitude ?? 0)) > 0.001)
+  /*
+   * §5.4's flag, as the SERVER decided it on stop — a Haversine distance in
+   * metres against the tenant's configured threshold (default 500 m,
+   * changeable in Settings), stored on the row.
+   *
+   * This card used to recompute it here as
+   * `|dlat| > 0.001 || |dlng| > 0.001`: degrees rather than metres, a square
+   * rather than a circle, a different real distance at every latitude, and a
+   * threshold no setting could change. See `src/lib/geo.ts` for the full
+   * autopsy. Reading the stored boolean is also what keeps the rep's card and
+   * the reviewer's screen from disagreeing about the same meeting.
+   *
+   * ⚠️ Nulls are NORMAL — on a geolocation timeout a meeting is stopped with
+   * no end fix at all — and an unknown distance is NOT flagged. Unknown is not
+   * evidence, and flagging it would train people to ignore the flag.
+   *
+   * ⚠️ DISPLAY ONLY. §5.4 triggers no action: nothing below is disabled by it,
+   * no confirmation is asked, nobody is notified.
+   */
+  const locationFlagged = visit.location_flagged === true
 
   return (
     <div
@@ -106,20 +106,18 @@ export function VisitCard({
             <h3 className="mt-1.5 truncate text-card-heading font-medium text-text-primary">{visit.entity_name}</h3>
           </div>
 
-          {canEdit && visit.status === 'Pending' && (
-            <Button size="sm" onClick={() => onStart(visit.id)} className="shrink-0">
-              <PlayIcon />
-              Start
-            </Button>
-          )}
-          {canEdit && visit.status === 'Active' && (
-            <div className="flex shrink-0 flex-col items-end gap-1">
-              <Button size="sm" variant="danger" onClick={() => onStop(visit.id)}>
-                <SquareIcon />
-                Stop
-              </Button>
-              <span className="text-meta tabular-nums text-warning">{formatDuration(elapsed)}</span>
-            </div>
+          {/* ONE button. `canEdit` is the real permission plus ownership —
+              a manager reads the team's day and does not drive someone
+              else's stopwatch, so they are shown no toggle at all rather
+              than a disabled one. */}
+          {canEdit && (
+            <MeetingToggle
+              status={visit.status}
+              startTime={visit.start_time}
+              durationSecs={visit.duration_secs}
+              onStart={() => onStart(visit.id)}
+              onStop={() => onStop(visit.id)}
+            />
           )}
         </div>
 
@@ -195,15 +193,25 @@ export function VisitCard({
             <p className="text-body text-text-secondary">{visit.address ?? `${visit.latitude}, ${visit.longitude}`}</p>
           </div>
           {visit.end_latitude != null && (
-            <div className={`rounded-lg px-3 py-2 ${moved ? 'border border-danger-border bg-danger-bg' : 'bg-surface-sunken'}`}>
+            <div className={`rounded-lg px-3 py-2 ${locationFlagged ? 'border border-danger-border bg-danger-bg' : 'bg-surface-sunken'}`}>
               <div className="flex items-center gap-2">
                 <p className="text-meta uppercase text-text-muted">End location</p>
-                {moved && <Badge variant="danger">Moved</Badge>}
+                {locationFlagged && <Badge variant="danger">Far from start</Badge>}
               </div>
               <p className="text-body text-text-secondary">
                 {visit.end_address ?? `${visit.end_latitude}, ${visit.end_longitude}`}
               </p>
+              {locationFlagged && (
+                <p className="mt-1 text-meta text-text-muted">
+                  Further from the start than this tenant allows. Noted for review only.
+                </p>
+              )}
             </div>
+          )}
+          {visit.status === 'Completed' && visit.end_latitude == null && (
+            <p className="text-body text-text-muted">
+              No end location was captured. Nothing is flagged from a missing fix.
+            </p>
           )}
           {visit.status === 'Active' && visit.end_latitude == null && (
             <p className="text-body text-text-muted">End location is captured when the meeting is stopped.</p>

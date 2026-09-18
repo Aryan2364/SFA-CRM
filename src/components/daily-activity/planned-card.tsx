@@ -1,10 +1,11 @@
 'use client'
 
-import { MapPinIcon, PlayIcon, RouteIcon, TargetIcon } from 'lucide-react'
+import { MapPinIcon, RouteIcon, TargetIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { fmtAmount } from '@/lib/format'
+import { MeetingToggle } from './meeting-toggle'
 import { PlannedItem } from './types'
 
 /**
@@ -45,7 +46,7 @@ export function PlannedCard({
   showOwner: boolean
   canStart: boolean
   starting: boolean
-  onStart: (item: PlannedItem) => void
+  onStart: (item: PlannedItem) => void | Promise<void>
   onAddMeeting: (item: PlannedItem) => void
 }) {
   const route = [item.from_place, item.to_place].filter(Boolean).join(' → ')
@@ -99,10 +100,19 @@ export function PlannedCard({
       {canStart && (
         <div className="flex items-center gap-2 border-t border-border-light px-4 py-2.5">
           {item.party_id && item.party_name ? (
-            <Button size="sm" onClick={() => onStart(item)} disabled={starting}>
-              <PlayIcon />
-              {starting ? 'Starting…' : 'Start meeting'}
-            </Button>
+            /* §5.4's one toggle, the same component the meeting card uses,
+               so a planned line and the meeting it becomes offer the same
+               control rather than two buttons that merely look alike. The
+               line is always Pending here: the moment it starts, a meeting
+               carries its id and this card gives way to that meeting's own
+               card (see `openPlanned` on the page). */
+            <MeetingToggle
+              status="Pending"
+              busy={starting}
+              startLabel="Start meeting"
+              onStart={() => onStart(item)}
+              onStop={() => {}}
+            />
           ) : (
             <Button size="sm" variant="secondary" onClick={() => onAddMeeting(item)}>
               Log a meeting on this line

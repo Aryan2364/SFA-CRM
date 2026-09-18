@@ -37,6 +37,18 @@ export type Visit = {
   notes: string | null
   /** Set when the meeting came from an approved weekly-plan line. */
   weekly_plan_item_id?: string | null
+  /**
+   * §5.4's location flag, decided SERVER-SIDE on stop: a real Haversine
+   * distance in metres against the tenant's `location_flag_threshold_m`
+   * (default 500). See `src/lib/geo.ts`.
+   *
+   * It is `false` — not true — when either fix is missing, which is the
+   * common case on a geolocation timeout. Unknown is not evidence.
+   *
+   * ⚠️ DISPLAY ONLY. Nothing is blocked, nobody is notified. Do not make
+   * anything else depend on this boolean.
+   */
+  location_flagged?: boolean
 }
 
 export type Entity = { id: string; name: string }
@@ -160,10 +172,29 @@ export function getPosition(): Promise<{ latitude: number; longitude: number } |
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  /*
+   * P3-T7: this used to `fetch('https://nominatim.openstreetmap.org/…')`
+   * straight from the browser — an unkeyed third party, reached from the
+   * user's own IP, with no identifying User-Agent (a browser cannot send
+   * one), no rate-limit handling, and the 403/429 swallowed by the catch
+   * so it looked like an ordinary geocoding miss.
+   *
+   * It now goes through the app, which identifies itself, serialises
+   * calls to one per second and caches. See
+   * `src/app/api/daily-activity/reverse-geocode/route.ts`.
+   *
+   * The address is decoration; the flag is computed from the numbers. So
+   * a failure here still resolves to null and the start/stop proceeds.
+   */
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
-    const d = await r.json()
-    return d.display_name ?? null
+    const r = await fetch('/api/daily-activity/reverse-geocode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ latitude: lat, longitude: lng }),
+    })
+    if (!r.ok) return null
+    const d = (await r.json()) as { address?: string | null }
+    return d.address ?? null
   } catch {
     return null
   }
