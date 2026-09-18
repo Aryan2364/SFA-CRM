@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { PlusIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
-import { ORDER_STATUS, StatusBadge } from '@/components/status-badge'
+import { DISCOUNT_FLAG, ORDER_STATUS, SpecBadge, StatusBadge } from '@/components/status-badge'
 import {
   ListPage,
   type ListColumn,
@@ -13,7 +13,14 @@ import {
 } from '@/components/templates/list-page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { fmtAmount, fmtDate } from '@/lib/format'
+import { fmtAmount, fmtDate, fmtQty } from '@/lib/format'
+import {
+  DISCOUNT_TYPE_LABELS,
+  DISCOUNT_TYPES,
+  orderTotals,
+  type DiscountType,
+  type OrderStatus,
+} from '@/lib/order-math'
 
 type OrderRow = {
   id: string
@@ -24,17 +31,32 @@ type OrderRow = {
   entity_name: string | null
   visit_id: string | null
   user_id: string
-  status: 'Draft' | 'Submitted' | 'Confirmed'
+  status: OrderStatus
+  /* The NET payable. `gross_amount` is what it was before any discount. */
   total_amount: number
+  gross_amount: number
+  /* Stored rather than derived (§7.2) — the list reads it directly. */
+  has_discount: boolean
   users: { name: string } | null
 }
 
 type OrderDetail = OrderRow & {
+  item_discount_total: number
+  order_discount_type: DiscountType
+  order_discount_value: number
+  order_discount_amount: number
+  /* Why this order could not be Placed, written by the API (§3.5). */
+  blocked_reason: string | null
   order_items: {
     id: string
     product_name: string
     qty: number
     rate: number
+    gross_amount: number
+    discount_type: DiscountType
+    discount_value: number
+    discount_amount: number
+    /* The NET line total. */
     amount: number
   }[]
 }
@@ -49,6 +71,12 @@ type OrderItem = {
   product_name: string
   qty: number
   rate: number
+  discount_type: DiscountType
+  discount_value: number
+}
+
+const BLANK_ITEM: OrderItem = {
+  product_id: null, product_name: '', qty: 1, rate: 0, discount_type: 'none', discount_value: 0,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -88,11 +116,15 @@ function CreateOrderModal({
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
-  const [status, setStatus] = useState<'Draft' | 'Submitted' | 'Confirmed'>('Draft')
+  const [status, setStatus] = useState<OrderStatus>('Draft')
 
   // Products
   const [products, setProducts] = useState<Product[]>([])
-  const [items, setItems] = useState<OrderItem[]>([{ product_id: null, product_name: '', qty: 1, rate: 0 }])
+  const [items, setItems] = useState<OrderItem[]>([{ ...BLANK_ITEM }])
+
+  /* §4.10's second discount: one off the order, on top of any line ones. */
+  const [orderDiscountType, setOrderDiscountType] = useState<DiscountType>('none')
+  const [orderDiscountValue, setOrderDiscountValue] = useState(0)
 
   useEffect(() => {
     fetch('/api/masters/lead-types').then(r => r.json()).then((d: LeadType[]) => {
@@ -132,13 +164,22 @@ function CreateOrderModal({
   }
 
   function addRow() {
-    setItems(prev => [...prev, { product_id: null, product_name: '', qty: 1, rate: 0 }])
+    setItems(prev => [...prev, { ...BLANK_ITEM }])
   }
   function removeRow(idx: number) {
     setItems(prev => prev.filter((_, i) => i !== idx))
   }
   function updateRow(idx: number, field: keyof OrderItem, value: string | number | null) {
     setItems(prev => prev.map((row, i) => i !== idx ? row : { ...row, [field]: value }))
+  }
+  /* Switching a line to "No discount" has to clear the figure as well as the
+     type, or the old number sits in a disabled box and reappears if the
+     picker is moved back. `order-math` ignores it either way; the screen
+     must not show a number that is not being applied. */
+  function updateDiscountType(idx: number, type: DiscountType) {
+    setItems(prev => prev.map((row, i) => i !== idx ? row : {
+      ...row, discount_type: type, discount_value: type === 'none' ? 0 : row.discount_value,
+    }))
   }
   function onProductSelect(idx: number, productId: string) {
     const p = products.find(px => px.id === productId)
@@ -147,7 +188,7 @@ function CreateOrderModal({
       if (existingIdx !== -1) {
         setItems(prev => prev.map((row, i) => {
           if (i === existingIdx) return { ...row, qty: row.qty + 1 }
-          if (i === idx) return { product_id: null, product_name: '', qty: 1, rate: 0 }
+          if (i === idx) return { ...BLANK_ITEM }
           return row
         }))
         return
@@ -161,7 +202,9 @@ function CreateOrderModal({
   }
 
   const validItems = items.filter(i => i.product_name.trim() && i.qty > 0)
-  const total = validItems.reduce((s, i) => s + i.qty * i.rate, 0)
+  /* The SAME function the route runs. Not a second implementation of the
+     arithmetic that happens to agree — see `src/lib/order-math.ts`. */
+  const totals = orderTotals(validItems, orderDiscountType, orderDiscountValue)
   const totalQty = validItems.reduce((s, i) => s + i.qty, 0)
 
   const resolvedEntityName = mode === 'new' ? newName.trim() : entityName
@@ -172,7 +215,7 @@ function CreateOrderModal({
     if (mode !== 'new' && !entityId) { toast(`Please select a ${leadType}`, 'error'); return }
     if (mode === 'new' && !newName.trim()) { toast('Please enter a name', 'error'); return }
     if (validItems.length === 0) { toast('Add at least one product', 'error'); return }
-    if (total <= 0) { toast('Total order value must be greater than 0', 'error'); return }
+    if (totals.total_amount <= 0) { toast('Total order value must be greater than 0', 'error'); return }
     setSaving(true)
     try {
       const body: Record<string, unknown> = {
@@ -182,6 +225,8 @@ function CreateOrderModal({
         entity_name: resolvedEntityName,
         order_date: orderDate,
         status,
+        order_discount_type: orderDiscountType,
+        order_discount_value: orderDiscountValue,
         items: validItems,
       }
       if (hasSubordinates && salesUserId) body.sales_user_id = salesUserId
@@ -335,12 +380,19 @@ function CreateOrderModal({
               {/* Status */}
               <div>
                 <label htmlFor="order-status" className="block text-xs text-text-secondary mb-1">Order Status <span className="text-danger">*</span></label>
-                <select id="order-status" value={status} onChange={e => setStatus(e.target.value as typeof status)}
+                <select id="order-status" value={status} onChange={e => setStatus(e.target.value as OrderStatus)}
                   className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                   <option value="Draft">Draft</option>
-                  <option value="Submitted">Submitted</option>
-                  <option value="Confirmed">Confirmed</option>
+                  <option value="Placed">Placed</option>
                 </select>
+                {status === 'Placed' && (
+                  /* §3.5 — the API refuses this against an incomplete party
+                     and answers with what is missing. Said here first so the
+                     refusal is not the first the user hears of the rule. */
+                  <p className="text-xs text-text-muted mt-1">
+                    An order can only be placed against a party whose record is complete.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -349,57 +401,109 @@ function CreateOrderModal({
           <div>
             <p className="text-xs font-normal text-text-muted uppercase tracking-wider mb-3">Products</p>
 
-            <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-text-muted px-1">
-              <div className="col-span-5">Product</div>
-              <div className="col-span-2 text-center">Unit Price</div>
+            {/* Hidden below sm, where each row becomes a labelled stack
+                rather than a twelve-column grid nothing fits in. */}
+            <div className="hidden sm:grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-text-muted px-1">
+              <div className="col-span-4">Product</div>
               <div className="col-span-1 text-center">Qty</div>
-              <div className="col-span-2 text-center">Rate</div>
+              <div className="col-span-2 text-right">Rate</div>
+              <div className="col-span-3 text-center">Discount</div>
               <div className="col-span-1 text-right">Total</div>
               <div className="col-span-1" />
             </div>
 
             <div className="space-y-2">
-              {items.map((item, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-5">
-                    <select value={item.product_id ?? ''} onChange={e => {
+              {items.map((item, idx) => {
+                /* The line as the SERVER will compute it, not as this screen
+                   would like to. `totals.lines` is indexed off `validItems`,
+                   which skips half-filled rows, so a row still being typed
+                   would otherwise read its neighbour's answer. */
+                const line = orderTotals([item]).lines[0]
+                return (
+                <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:items-center rounded-xl sm:rounded-none border sm:border-0 border-border-light p-3 sm:p-0">
+                  <div className="sm:col-span-4">
+                    <select aria-label="Product" value={item.product_id ?? ''} onChange={e => {
                       if (e.target.value === '') { updateRow(idx, 'product_id', null) }
                       else { onProductSelect(idx, e.target.value) }
-                    }} className="w-full border border-border-light rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
+                    }} className="w-full border border-border-light rounded-lg px-2 py-2 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                       <option value="">Select product...</option>
                       {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                     {!item.product_id && (
                       <input type="text" value={item.product_name} onChange={e => updateRow(idx, 'product_name', e.target.value)}
                         placeholder="Or type name..."
-                        className="w-full mt-1 border border-border-light rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+                        className="w-full mt-1 border border-border-light rounded-lg px-2 py-1.5 text-base sm:text-xs focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                     )}
                   </div>
-                  <div className="col-span-2 text-center text-xs text-text-muted">
-                    {item.product_id ? `₹${Number(products.find(p => p.id === item.product_id)?.price ?? 0).toFixed(0)}` : '—'}
-                  </div>
-                  <div className="col-span-1">
-                    <input type="number" min="1" value={item.qty}
+
+                  <div className="sm:col-span-1">
+                    <span className="sm:hidden block text-xs text-text-secondary mb-1">Qty</span>
+                    <input type="number" min="1" aria-label="Quantity" value={item.qty}
                       onChange={e => updateRow(idx, 'qty', Math.max(1, Number(e.target.value)))}
-                      className="w-full border border-border-light rounded-lg px-1 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+                      className="w-full border border-border-light rounded-lg px-1 py-2 text-base sm:text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-ring" />
                   </div>
-                  <div className="col-span-2">
-                    <input type="number" min="0" step="0.01" value={item.rate}
-                      onChange={e => updateRow(idx, 'rate', Number(e.target.value))}
-                      className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+
+                  {/* A line from the Product Master is priced BY the master
+                      (§4.10). The route re-reads `products.price` and discards
+                      whatever is posted, so an editable box here would be a
+                      field that silently does nothing. It stays editable only
+                      for a typed-in product, which has no master row to read. */}
+                  <div className="sm:col-span-2">
+                    <span className="sm:hidden block text-xs text-text-secondary mb-1">Rate</span>
+                    {item.product_id ? (
+                      <p className="px-2 py-2 text-sm text-text-secondary text-left sm:text-right tabular-nums">
+                        {fmtAmount(item.rate)}
+                      </p>
+                    ) : (
+                      <input type="number" min="0" step="0.01" aria-label="Rate" value={item.rate}
+                        onChange={e => updateRow(idx, 'rate', Number(e.target.value))}
+                        className="w-full border border-border-light rounded-lg px-2 py-2 text-base sm:text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+                    )}
                   </div>
-                  <div className="col-span-1 text-right text-sm font-medium text-text-secondary">
-                    ₹{(item.qty * item.rate).toFixed(0)}
+
+                  {/* §4.10: item-wise discount, on the line it applies to. */}
+                  <div className="sm:col-span-3">
+                    <span className="sm:hidden block text-xs text-text-secondary mb-1">Discount</span>
+                    <div className="flex gap-1">
+                      <select aria-label="Discount type" value={item.discount_type}
+                        onChange={e => updateDiscountType(idx, e.target.value as DiscountType)}
+                        className="w-[5.5rem] shrink-0 border border-border-light rounded-lg px-1 py-2 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
+                        {DISCOUNT_TYPES.map(t => (
+                          <option key={t} value={t}>{t === 'none' ? 'None' : DISCOUNT_TYPE_LABELS[t]}</option>
+                        ))}
+                      </select>
+                      <input type="number" min="0" step="0.01" aria-label="Discount value"
+                        value={item.discount_type === 'none' ? '' : item.discount_value}
+                        disabled={item.discount_type === 'none'}
+                        onChange={e => updateRow(idx, 'discount_value', Number(e.target.value))}
+                        placeholder={item.discount_type === 'percent' ? '%' : '₹'}
+                        className="w-full min-w-0 border border-border-light rounded-lg px-2 py-2 text-base sm:text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:cursor-not-allowed" />
+                    </div>
                   </div>
-                  <div className="col-span-1 flex justify-center">
+
+                  <div className="sm:col-span-1 flex sm:block items-baseline justify-between">
+                    <span className="sm:hidden text-xs text-text-secondary">Line total</span>
+                    <div className="text-right text-sm font-medium text-text-secondary tabular-nums">
+                      {fmtAmount(line.amount)}
+                      {line.discount_amount > 0 && (
+                        <span className="block text-xs text-text-muted line-through">
+                          {fmtAmount(line.gross_amount)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-1 flex sm:justify-center">
                     {items.length > 1 && (
-                      <button onClick={() => removeRow(idx)} className="p-1 text-text-muted hover:text-danger transition">
+                      <button onClick={() => removeRow(idx)} aria-label="Remove line"
+                        className="p-2 sm:p-1 text-text-muted hover:text-danger transition">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             <button onClick={addRow}
@@ -408,9 +512,57 @@ function CreateOrderModal({
               Add Row
             </button>
 
-            <div className="mt-3 flex items-center justify-end gap-2 border-t border-border-light pt-3">
-              <span className="text-sm text-text-secondary">Total:</span>
-              <span className="text-lg font-medium text-text-primary">{fmtAmount(total)}</span>
+            {/* §4.10's overall discount, placed on the total it reduces
+                rather than up with the order's metadata — the rule is that a
+                control sits next to what it controls. Every figure below
+                comes from `orderTotals`, the function the route runs. */}
+            <div className="mt-3 border-t border-border-light pt-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-text-secondary">Subtotal</span>
+                <span className="text-text-primary tabular-nums">{fmtAmount(totals.gross_amount)}</span>
+              </div>
+
+              {totals.item_discount_total > 0 && (
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-text-secondary">Item discounts</span>
+                  <span className="text-warning tabular-nums">−{fmtAmount(totals.item_discount_total)}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="order-discount-type" className="text-sm text-text-secondary shrink-0">
+                  Overall discount
+                </label>
+                <div className="flex items-center gap-1">
+                  <select id="order-discount-type" value={orderDiscountType}
+                    onChange={e => {
+                      const next = e.target.value as DiscountType
+                      setOrderDiscountType(next)
+                      if (next === 'none') setOrderDiscountValue(0)
+                    }}
+                    className="w-[5.5rem] border border-border-light rounded-lg px-1 py-2 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
+                    {DISCOUNT_TYPES.map(t => (
+                      <option key={t} value={t}>{t === 'none' ? 'None' : DISCOUNT_TYPE_LABELS[t]}</option>
+                    ))}
+                  </select>
+                  <input type="number" min="0" step="0.01" aria-label="Overall discount value"
+                    value={orderDiscountType === 'none' ? '' : orderDiscountValue}
+                    disabled={orderDiscountType === 'none'}
+                    onChange={e => setOrderDiscountValue(Number(e.target.value))}
+                    placeholder={orderDiscountType === 'percent' ? '%' : '₹'}
+                    className="w-24 border border-border-light rounded-lg px-2 py-2 text-base sm:text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:cursor-not-allowed" />
+                  <span className="w-24 text-right text-sm text-warning tabular-nums">
+                    {totals.order_discount_amount > 0 ? `−${fmtAmount(totals.order_discount_amount)}` : ''}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 border-t border-border-light pt-2">
+                <span className="text-sm font-medium text-text-secondary">Total payable</span>
+                <span className="text-lg font-medium text-text-primary tabular-nums">
+                  {fmtAmount(totals.total_amount)}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -424,11 +576,19 @@ function CreateOrderModal({
                   {hasSubordinates ? salesExecs.find(m => m.id === salesUserId)?.name ?? '—' : 'You'}
                 </span></div>
                 <div><span className="text-text-muted">Items: </span><span className="font-medium text-text-primary">{validItems.length}</span></div>
-                <div><span className="text-text-secondary">Total Qty: </span><span className="font-medium text-text-primary">{totalQty}</span></div>
+                <div><span className="text-text-muted">Total Qty: </span><span className="font-medium text-text-primary">{fmtQty(totalQty)}</span></div>
               </div>
+              {totals.has_discount && (
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-text-secondary">Discount</span>
+                  <span className="text-sm text-warning tabular-nums">
+                    −{fmtAmount(totals.item_discount_total + totals.order_discount_amount)}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-text-secondary">Total Order Value</span>
-                <span className="text-xl font-medium text-text-primary">{fmtAmount(total)}</span>
+                <span className="text-xl font-medium text-text-primary tabular-nums">{fmtAmount(totals.total_amount)}</span>
               </div>
             </div>
           )}
@@ -459,10 +619,14 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
   onStatusChange: () => void
 }) {
   const { toast } = useToast()
-  const [status, setStatus] = useState<'Draft' | 'Submitted' | 'Confirmed'>(order.status)
+  const [status, setStatus] = useState<OrderStatus>(order.status)
   const [saving, setSaving] = useState(false)
+  /* §3.5's refusal, kept on screen after the toast has gone: the reason an
+     order cannot be placed is a property of the record, so it stays visible
+     until the party is fixed rather than vanishing in four seconds. */
+  const [blockedReason, setBlockedReason] = useState<string | null>(order.blocked_reason)
 
-  async function updateStatus(newStatus: 'Draft' | 'Submitted' | 'Confirmed') {
+  async function updateStatus(newStatus: OrderStatus) {
     setSaving(true)
     const r = await fetch(`/api/orders/${order.id}`, {
       method: 'PATCH',
@@ -470,9 +634,15 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
       body: JSON.stringify({ status: newStatus }),
     })
     if (!r.ok) {
-      toast('Failed to update status', 'error')
+      /* The API says WHY — an incomplete party, and which fields. Repeating
+         "Failed to update status" over the top of that would throw away the
+         only part of the answer the user can act on. */
+      const err = await r.json().catch(() => ({})) as { error?: string; blocked_reason?: string }
+      setBlockedReason(err.blocked_reason ?? null)
+      toast(err.error ?? 'Failed to update status', 'error')
     } else {
       setStatus(newStatus)
+      setBlockedReason(null)
       toast('Status updated')
       onStatusChange()
     }
@@ -521,31 +691,54 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
 
           {/* Status */}
           <div>
-            <span className="text-xs text-text-secondary block mb-1">Status</span>
-            <select value={status} onChange={e => updateStatus(e.target.value as typeof status)} disabled={saving}
-              className="border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface disabled:opacity-50">
-              <option value="Draft">Draft</option>
-              <option value="Submitted">Submitted</option>
-              <option value="Confirmed">Confirmed</option>
-            </select>
+            <label htmlFor="order-detail-status" className="text-xs text-text-secondary block mb-1">Status</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select id="order-detail-status" value={status}
+                onChange={e => updateStatus(e.target.value as OrderStatus)} disabled={saving}
+                className="border border-border-light rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface disabled:opacity-50">
+                <option value="Draft">Draft</option>
+                <option value="Placed">Placed</option>
+              </select>
+              {order.has_discount && <SpecBadge spec={DISCOUNT_FLAG} />}
+            </div>
+            {blockedReason && (
+              <p className="mt-2 rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-xs text-warning">
+                This order cannot be placed. {blockedReason}
+              </p>
+            )}
           </div>
 
           {/* Items table */}
           <div>
             <p className="text-xs font-normal text-text-muted uppercase tracking-wider mb-3">Products</p>
             <div className="rounded-xl border border-border-light overflow-hidden">
-              <div className="grid grid-cols-10 gap-2 px-3 py-2 bg-surface-sunken text-xs font-medium text-text-muted border-b border-border-light">
+              <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-surface-sunken text-xs font-medium text-text-muted border-b border-border-light">
                 <div className="col-span-4">Product</div>
-                <div className="col-span-2 text-center">Qty</div>
-                <div className="col-span-2 text-center">Rate</div>
+                <div className="col-span-1 text-center">Qty</div>
+                <div className="col-span-2 text-right">Rate</div>
+                <div className="col-span-3 text-right">Discount</div>
                 <div className="col-span-2 text-right">Amount</div>
               </div>
               {order.order_items.map(item => (
-                <div key={item.id} className="grid grid-cols-10 gap-2 px-3 py-2.5 border-b border-border-light last:border-0 text-sm">
-                  <div className="col-span-4 text-text-primary">{item.product_name}</div>
-                  <div className="col-span-2 text-center text-text-secondary">{item.qty}</div>
-                  <div className="col-span-2 text-center text-text-secondary">₹{Number(item.rate).toFixed(0)}</div>
-                  <div className="col-span-2 text-right font-medium text-text-primary">₹{Number(item.amount).toFixed(0)}</div>
+                <div key={item.id} className="grid grid-cols-12 gap-2 px-3 py-2.5 border-b border-border-light last:border-0 text-sm">
+                  <div className="col-span-4 text-text-primary break-words">{item.product_name}</div>
+                  <div className="col-span-1 text-center text-text-secondary tabular-nums">{fmtQty(item.qty)}</div>
+                  <div className="col-span-2 text-right text-text-secondary tabular-nums">{fmtAmount(item.rate)}</div>
+                  <div className="col-span-3 text-right tabular-nums whitespace-nowrap">
+                    {Number(item.discount_amount) > 0 ? (
+                      <span className="text-warning">
+                        −{fmtAmount(item.discount_amount)}
+                        {item.discount_type === 'percent' && (
+                          <span className="block text-xs text-text-muted">{Number(item.discount_value)}%</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )}
+                  </div>
+                  <div className="col-span-2 text-right font-medium text-text-primary tabular-nums">
+                    {fmtAmount(item.amount)}
+                  </div>
                 </div>
               ))}
               {order.order_items.length === 0 && (
@@ -554,10 +747,38 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
             </div>
           </div>
 
-          {/* Total */}
-          <div className="flex items-center justify-between bg-surface-sunken rounded-xl px-4 py-3">
-            <span className="text-sm font-medium text-text-secondary">Total Order Value</span>
-            <span className="text-xl font-medium text-text-primary">{fmtAmount(Number(order.total_amount))}</span>
+          {/* Total. Gross, each discount and the net, so the arithmetic on
+              the row can be followed rather than taken on trust. The middle
+              lines are omitted on a clean order — there is nothing to show
+              and an order with no discount should read as one line. */}
+          <div className="bg-surface-sunken rounded-xl px-4 py-3 space-y-2">
+            {order.has_discount && (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-text-secondary">Subtotal</span>
+                  <span className="text-text-primary tabular-nums">{fmtAmount(order.gross_amount)}</span>
+                </div>
+                {Number(order.item_discount_total) > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-text-secondary">Item discounts</span>
+                    <span className="text-warning tabular-nums">−{fmtAmount(order.item_discount_total)}</span>
+                  </div>
+                )}
+                {Number(order.order_discount_amount) > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-text-secondary">
+                      Overall discount
+                      {order.order_discount_type === 'percent' && ` (${Number(order.order_discount_value)}%)`}
+                    </span>
+                    <span className="text-warning tabular-nums">−{fmtAmount(order.order_discount_amount)}</span>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="flex items-center justify-between border-t border-border-light pt-2 first:border-0 first:pt-0">
+              <span className="text-sm font-medium text-text-secondary">Total Order Value</span>
+              <span className="text-xl font-medium text-text-primary tabular-nums">{fmtAmount(order.total_amount)}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -577,8 +798,14 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
 const STATUS_OPTIONS: Record<string, string> = {
   '': 'Any status',
   Draft: 'Draft',
-  Submitted: 'Submitted',
-  Confirmed: 'Confirmed',
+  Placed: 'Placed',
+}
+
+/** §7.2's "Discount Applied (Yes/No)", as a filter over the stored column. */
+const DISCOUNT_OPTIONS: Record<string, string> = {
+  '': 'Any order',
+  yes: 'Discounted',
+  no: 'No discount',
 }
 
 /**
@@ -661,16 +888,35 @@ function orderColumns(onOpen: (id: string) => void): ListColumn<OrderRow>[] {
       header: 'Amount',
       numeric: true,
       className: 'whitespace-nowrap',
-      cellClassName: 'font-medium text-text-primary',
+      cellClassName: 'font-medium text-text-primary tabular-nums',
       skeletonWidth: 'w-20',
-      cell: order => fmtAmount(Number(order.total_amount)),
+      cell: order => (
+        <>
+          {fmtAmount(order.total_amount)}
+          {order.has_discount && (
+            <span className="block text-xs font-normal text-text-muted line-through">
+              {fmtAmount(order.gross_amount)}
+            </span>
+          )}
+        </>
+      ),
     },
     {
+      /* §4.10: a discounted order must be visibly different from a clean
+         one. The flag rides in the Status cell rather than taking an
+         eighth column, because it is read in the same glance as the
+         status and the table is already measured to the pixel (see the
+         classification note above). A clean order shows nothing. */
       id: 'status',
       header: 'Status',
       className: 'whitespace-nowrap',
       skeletonWidth: 'w-20',
-      cell: order => <StatusBadge vocabulary={ORDER_STATUS} status={order.status} />,
+      cell: order => (
+        <div className="flex items-center gap-1.5">
+          <StatusBadge vocabulary={ORDER_STATUS} status={order.status} />
+          {order.has_discount && <SpecBadge spec={DISCOUNT_FLAG} />}
+        </div>
+      ),
     },
     {
       id: 'source',
@@ -752,6 +998,7 @@ export default function OrdersPage() {
     if (filters.dateTo) params.set('dateTo', filters.dateTo)
     if (search) params.set('q', search)
     if (filters.status) params.set('status', filters.status)
+    if (filters.discounted) params.set('discounted', filters.discounted)
     if (filters.user) params.set('userId', filters.user)
     const query = params.toString()
     const r = await fetch(`/api/orders${query ? `?${query}` : ''}`, { signal })
@@ -764,6 +1011,7 @@ export default function OrdersPage() {
     { id: 'dateFrom', label: 'From', kind: 'date' },
     { id: 'dateTo', label: 'To', kind: 'date' },
     { id: 'status', label: 'Status', kind: 'select', options: STATUS_OPTIONS },
+    { id: 'discounted', label: 'Discount', kind: 'select', options: DISCOUNT_OPTIONS },
     /* Section 26: the team picker only exists for somebody who has a
        team. Section 16.3: a team runs past six names sooner than it
        does not, so it is the searchable kind. */

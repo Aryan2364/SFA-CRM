@@ -13,6 +13,7 @@ import {
   SendHorizontalIcon,
   SendIcon,
   SnowflakeIcon,
+  TagIcon,
   TargetIcon,
   ThermometerIcon,
   ThumbsUpIcon,
@@ -40,8 +41,8 @@ import { Badge } from '@/components/ui/badge'
  * invisible to colour-blind users.
  *
  * What section 2.4 cannot do is enumerate every product's words. This
- * product says "Submitted", which is in none of its three lists, so the
- * colour is a JUDGEMENT — and a judgement made twice is made
+ * product says "Submitted" and "Placed", which are in none of its three
+ * lists, so the colour is a JUDGEMENT — and a judgement made twice is made
  * differently. Each entry below therefore records not just the role but
  * whether it is a direct match on section 2.4's fourth column or a
  * mapping by meaning, so the next screen can tell what it is inheriting.
@@ -86,11 +87,20 @@ export type StatusSpec = {
 }
 
 /**
- * ORDERS — `orders.status`, a CHECK-constrained set of three.
+ * ORDERS — `orders.status`, CHECK-constrained to TWO: `Draft` and
+ * `Placed` (`orders_status_check`).
  *
- * Draft and Submitted are both absent from section 2.4's fourth column;
- * Confirmed is a near-synonym of its "Completed" but is not the same
- * word, so it is recorded as a mapping too.
+ * It used to be a CHECK-constrained set of three — Draft, Submitted,
+ * Confirmed — and comments in this file said so. REBUILD-PLAN §4.10
+ * replaced that with two states, and the constraint was altered with
+ * it: `Confirmed` became `Placed`, and `Submitted` became `Draft`,
+ * because §7.7 wants Draft to be the "stuck, needs processing" bucket
+ * and awaiting-confirmation is what that meant. The legal vocabulary is
+ * `src/lib/order-math.ts`'s `ORDER_STATUSES`, which the routes validate
+ * against; this map only decides how the two words LOOK.
+ *
+ * Neither word appears in section 2.4's fourth column, so both roles
+ * are mappings by meaning.
  */
 export const ORDER_STATUS: Record<string, StatusSpec> = {
   Draft: {
@@ -101,22 +111,43 @@ export const ORDER_STATUS: Record<string, StatusSpec> = {
     reason:
       'Nothing has happened yet and nothing is owed. Section 7.3 keeps a row neutral until something is genuinely a success or a failure, and a draft is neither.',
   },
-  Submitted: {
-    label: 'Submitted',
-    role: 'warning',
-    Icon: SendIcon,
-    match: 'meaning',
-    reason:
-      'Sent and awaiting confirmation, which is section 2.4 warning’s "Pending" and "Needs review". It was primary-subtle before, and section 2.4 is explicit that status never carries the brand.',
-  },
-  Confirmed: {
-    label: 'Confirmed',
+  Placed: {
+    label: 'Placed',
     role: 'success',
     Icon: CheckIcon,
     match: 'meaning',
     reason:
-      'The end of the road for an order, which is section 2.4 success’s "Completed" under another name. Section 23.1 already maps Confirm to `check`.',
+      'The end of the road for an order under §4.10’s two-state model — the order is real and committed, which is section 2.4 success’s "Completed" under another name. It inherits Confirmed’s role and Confirmed’s glyph, because it is the same position renamed and one position must not change colour when it changes word. Section 23.1 already maps Confirm to `check`.',
   },
+}
+
+/**
+ * Carried by an order whose line or order-level discount is non-zero —
+ * `orders.has_discount`, REBUILD-PLAN §4.10's requirement that a
+ * discounted order be "visibly different from a clean order".
+ *
+ * NOT a status: it does not say where the order has got to and it is
+ * orthogonal to Draft/Placed — either state can carry it. It lives here
+ * anyway because it is a badge on the same row as the status badge, and
+ * a word rendered next to the vocabulary has to be decided by the
+ * vocabulary or the two will drift apart.
+ *
+ * Warning rather than success or danger. A discount is not a failure,
+ * and it is not an achievement either — it is money given away on
+ * somebody's authority, which is the thing §7.4 reports on per sales
+ * person. Section 2.4 warning's "Needs review" is exactly that reading.
+ *
+ * A clean order gets NO badge. `has_discount = false` is the ordinary
+ * case on every row, and a grey "No discount" chip on 34 rows out of 34
+ * is noise that would hide the one row that matters.
+ */
+export const DISCOUNT_FLAG: StatusSpec = {
+  label: 'Discount',
+  role: 'warning',
+  Icon: TagIcon,
+  match: 'meaning',
+  reason:
+    'Absent from section 2.4’s fourth column. Money has been given away and §7.4 makes that a thing a manager reviews per sales person, which is warning’s "Needs review". Not danger: a discount is authorised, not a failure.',
 }
 
 /**
@@ -161,8 +192,8 @@ export const ORDER_STATUS: Record<string, StatusSpec> = {
  * ---------------------------------------------------------------------
  * KNOWN LIMITATION — these nine keys are not a closed set
  *
- * Unlike `orders.status`, which is CHECK-constrained to three,
- * `lead_stages` and `lead_temperatures` are tenant-scoped MASTER TABLES
+ * Unlike `orders.status`, which is CHECK-constrained to the two words
+ * above, `lead_stages` and `lead_temperatures` are tenant-scoped MASTER TABLES
  * with a free-text `name` and their own CRUD screens under `/masters/`.
  * A tenant who renames "Qualified" matches none of the keys below and
  * falls through to `UNKNOWN_STATUS`. That is not hypothetical:
@@ -301,7 +332,16 @@ export function StatusBadge({
   vocabulary: Record<string, StatusSpec>
   status: string | null | undefined
 }) {
-  const spec = statusSpec(vocabulary, status)
+  return <SpecBadge spec={statusSpec(vocabulary, status)} />
+}
+
+/**
+ * The same rendering for a spec that is not keyed by a column value —
+ * `DISCOUNT_FLAG`, which is decided by a boolean rather than looked up
+ * by a word. Split out so the flag cannot end up styled by hand at the
+ * call site and drift from the status badge beside it.
+ */
+export function SpecBadge({ spec }: { spec: StatusSpec }) {
   return (
     <Badge variant={spec.role}>
       <spec.Icon />
@@ -442,7 +482,7 @@ export const WEEKLY_PLAN_STATUS: Record<string, StatusSpec> = {
     Icon: SendIcon,
     match: 'meaning',
     reason:
-      'Sent and awaiting a manager’s decision, which is section 2.4 warning’s "Pending" and "Needs review". Identical to ORDER_STATUS.Submitted rather than a second answer to the same question.',
+      'Sent and awaiting a manager’s decision, which is section 2.4 warning’s "Pending" and "Needs review". `orders.status` carried the same word with the same role until §4.10 reduced it to two states; this is the surviving Submitted, and its role is unchanged by that.',
   },
   Resubmitted: {
     label: 'Resubmitted',
