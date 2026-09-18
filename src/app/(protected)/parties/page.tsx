@@ -53,6 +53,7 @@ import { useMe, type Me } from '@/hooks/useMe'
 import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/BusinessPartnerForm'
 import { useToast } from '@/contexts/ToastContext'
 import { RECORD_COMPLETENESS, StatusBadge } from '@/components/status-badge'
+import { DataHealthAlert, QuickFilterChip } from '@/components/alerts/data-health-alert'
 import {
   ListPage,
   type ListColumn,
@@ -297,10 +298,26 @@ function companyColumns({
        * hydration — reported, not worked around with a hack.
        */
       cell: row => (
-        <StatusBadge
-          vocabulary={RECORD_COMPLETENESS}
-          status={row.is_complete ? 'Complete' : 'Incomplete'}
-        />
+        <div className="flex flex-col gap-0.5">
+          <StatusBadge
+            vocabulary={RECORD_COMPLETENESS}
+            status={row.is_complete ? 'Complete' : 'Incomplete'}
+          />
+          {/* P5-T7 §7.7: "what is missing", not just that it is missing.
+              A plain, non-interactive line — no `Tooltip`/`Truncate` — is
+              what the P1-T17 note above asks the next attempt to use:
+              those two broke hydration in this exact cell, this does not,
+              because it renders nothing client-only. The native `title`
+              carries the full text if the line itself is cut. */}
+          {!row.is_complete && row.completeness_missing && (
+            <span
+              className="block max-w-40 truncate text-xs text-text-secondary"
+              title={row.completeness_missing}
+            >
+              {row.completeness_missing}
+            </span>
+          )}
+        </div>
       ),
     },
     /*
@@ -580,6 +597,55 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
      The template holds `load` in a ref, so this is the ONLY refetch lever. */
   const [refreshKey, setRefreshKey] = useState(0)
 
+  /*
+   * P5-T7 §7.7 — the two Parties-list alerts. Both counts come from a
+   * SEPARATE, unfiltered fetch of this same scoped endpoint, not from
+   * whatever `load()` currently has on screen: a banner that only reflected
+   * the active search/filter would go quiet the moment somebody typed into
+   * the search box, which is the opposite of "stays true until resolved"
+   * (section 7.1). `/api/companies` already applies `getDataScope` via
+   * `scopedUserIds`/`scopeWhere`, so an executive's count never covers a
+   * company they cannot open.
+   *
+   * "Parties Without Any Deal" additionally needs `/api/deals` — a user
+   * without the `deals` permission gets a 403 there, which is read as "not
+   * knowable", not zero: the alert simply does not render rather than
+   * claiming every party has a deal.
+   */
+  const [allCompanies, setAllCompanies] = useState<CompanyRow[] | null>(null)
+  const [dealCompanyIds, setDealCompanyIds] = useState<Set<string> | null>(null)
+  const [onlyIncomplete, setOnlyIncomplete] = useState(false)
+  const [onlyNoDeal, setOnlyNoDeal] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    fetch('/api/companies')
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => { if (live) setAllCompanies(Array.isArray(d) ? d : []) })
+      .catch(() => { if (live) setAllCompanies([]) })
+    fetch('/api/deals')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (!live) return
+        if (!Array.isArray(d)) { setDealCompanyIds(null); return }
+        setDealCompanyIds(
+          new Set(
+            d
+              .map((deal: { company?: { id: string } | null }) => deal.company?.id)
+              .filter((id): id is string => Boolean(id))
+          )
+        )
+      })
+      .catch(() => { if (live) setDealCompanyIds(null) })
+    return () => { live = false }
+  }, [refreshKey])
+
+  const incompleteCount = allCompanies?.filter(c => !c.is_complete).length ?? 0
+  const noDealCount =
+    allCompanies && dealCompanyIds
+      ? allCompanies.filter(c => !dealCompanyIds.has(c.id)).length
+      : 0
+
   useEffect(() => {
     fetch('/api/masters/lead-types')
       .then(r => r.json())
@@ -679,6 +745,14 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
       if (filters.status === 'inactive' && row.is_active) return false
       if (filters.completeness === 'complete' && !row.is_complete) return false
       if (filters.completeness === 'incomplete' && row.is_complete) return false
+      // P5-T7: the alert banner's own one-click narrowing. `list-page.tsx`
+      // has no prop to set its declared filters from outside, so this is a
+      // second, independent narrowing this screen applies on top of them —
+      // `refreshKey` is what makes the template call this function again
+      // when a banner is clicked, since nothing it recognises as a
+      // dependency (search/filters) actually changed.
+      if (onlyIncomplete && row.is_complete) return false
+      if (onlyNoDeal && dealCompanyIds?.has(row.id)) return false
       return true
     })
   }
@@ -716,7 +790,45 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
 
   return (
     <>
+      {/*
+       * P5-T7: same wrapper P2-T7's pipeline strip uses above the Deals
+       * `ListPage` — a flex COLUMN with a definite height, so the banners
+       * are `shrink-0` and the template keeps zone 3's own scrollbar
+       * instead of the whole page scrolling. `className="h-auto min-h-0
+       * flex-1"` on `ListPage` is the same override that pattern relies
+       * on; `list-page.tsx` itself is untouched.
+       */}
+      <div className="flex h-full min-h-0 flex-col">
+        {onlyIncomplete ? (
+          <QuickFilterChip
+            label="Showing incomplete parties only"
+            onClear={() => { setOnlyIncomplete(false); setRefreshKey(k => k + 1) }}
+          />
+        ) : (
+          <DataHealthAlert
+            count={incompleteCount}
+            title={`${incompleteCount} ${incompleteCount === 1 ? 'party is' : 'parties are'} incomplete`}
+            description="Missing a primary address, city, state, pincode or GST number — an order against one stays in Draft."
+            actionLabel="View incomplete"
+            onAction={() => { setOnlyIncomplete(true); setRefreshKey(k => k + 1) }}
+          />
+        )}
+        {onlyNoDeal ? (
+          <QuickFilterChip
+            label="Showing parties without a deal"
+            onClear={() => { setOnlyNoDeal(false); setRefreshKey(k => k + 1) }}
+          />
+        ) : (
+          <DataHealthAlert
+            count={noDealCount}
+            title={`${noDealCount} ${noDealCount === 1 ? 'party has' : 'parties have'} no deal`}
+            description="Nothing in the pipeline is tied to these parties yet."
+            actionLabel="View"
+            onAction={() => { setOnlyNoDeal(true); setRefreshKey(k => k + 1) }}
+          />
+        )}
       <ListPage<CompanyRow>
+        className="h-auto min-h-0 flex-1"
         title="Parties"
         noun={{ one: 'company', many: 'companies' }}
         sectionTabs={sectionTabs}
@@ -786,6 +898,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
           onAction: canEdit ? () => router.push('/parties/companies/new') : undefined,
         }}
       />
+      </div>
 
       <Modal title="Edit company" isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
         <BusinessPartnerFormFields
@@ -996,6 +1109,23 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
   const [deleting, setDeleting] = useState<ContactRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
+  /* P5-T7 §7.7 — "Contacts Without Company", counted off a separate
+     unfiltered fetch of this same scoped endpoint, for the same reason the
+     Companies tab does — see its `allCompanies` note. */
+  const [allContacts, setAllContacts] = useState<ContactRow[] | null>(null)
+  const [onlyUnlinked, setOnlyUnlinked] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    fetch('/api/contacts?active=all')
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => { if (live) setAllContacts(Array.isArray(d) ? d : []) })
+      .catch(() => { if (live) setAllContacts([]) })
+    return () => { live = false }
+  }, [refreshKey])
+
+  const unlinkedCount = allContacts?.filter(c => c.companies.length === 0).length ?? 0
+
   useEffect(() => {
     fetch('/api/masters/contact-types')
       .then(r => r.json())
@@ -1038,6 +1168,10 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
       if (filters.status === 'inactive' && row.is_active) return false
       if (filters.linked === 'linked' && row.companies.length === 0) return false
       if (filters.linked === 'unlinked' && row.companies.length > 0) return false
+      // P5-T7: the alert banner's one-click narrowing — see the Companies
+      // tab's `load` for why this is a second filter rather than a prop on
+      // `list-page.tsx`.
+      if (onlyUnlinked && row.companies.length > 0) return false
       return true
     })
   }
@@ -1073,7 +1207,23 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
 
   return (
     <>
+      <div className="flex h-full min-h-0 flex-col">
+        {onlyUnlinked ? (
+          <QuickFilterChip
+            label="Showing contacts without a company"
+            onClear={() => { setOnlyUnlinked(false); setRefreshKey(k => k + 1) }}
+          />
+        ) : (
+          <DataHealthAlert
+            count={unlinkedCount}
+            title={`${unlinkedCount} ${unlinkedCount === 1 ? 'contact is' : 'contacts are'} not linked to any company`}
+            description="A contact belongs to no party until it is linked from a company's own page."
+            actionLabel="View"
+            onAction={() => { setOnlyUnlinked(true); setRefreshKey(k => k + 1) }}
+          />
+        )}
       <ListPage<ContactRow>
+        className="h-auto min-h-0 flex-1"
         title="Parties"
         noun={{ one: 'contact', many: 'contacts' }}
         sectionTabs={sectionTabs}
@@ -1095,6 +1245,7 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
           body: 'The people at those companies live here. A contact is added from the company page it belongs to, and may be linked to more than one company.',
         }}
       />
+      </div>
 
       <AlertDialog
         open={deleting !== null}

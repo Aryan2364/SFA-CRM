@@ -10,6 +10,7 @@ import {
   type ListFilter,
   type ListPageProps,
 } from '@/components/templates/list-page'
+import { DataHealthAlert, QuickFilterChip } from '@/components/alerts/data-health-alert'
 import { Badge } from '@/components/ui/badge'
 import {
   Board,
@@ -389,11 +390,12 @@ function dealBoardColumns(stages: NamedRow[], rows: DealRow[]): BoardColumn[] {
  * three zeroes, which is a real pipeline with nothing in it. Section 14 rule
  * 1: the shape of what is coming, never a figure that is about to change.
  */
-type PipelineTotals = { count: number; value: number; weighted: number }
+type PipelineTotals = { count: number; value: number; weighted: number; noFollowUp: number }
 
 function totalsOf(rows: DealRow[]): PipelineTotals {
   let value = 0
   let weighted = 0
+  let noFollowUp = 0
   for (const row of rows) {
     const amount = Number(row.expected_value) || 0
     value += amount
@@ -401,8 +403,12 @@ function totalsOf(rows: DealRow[]): PipelineTotals {
     // the column (0-100, in tens), so it is divided here — a weighted figure
     // larger than the estimate would be nonsense.
     weighted += (amount * (Number(row.probability) || 0)) / 100
+    // P5-T7 §7.7: "Deals Without Follow-up" — counted off the SAME rows the
+    // strip totals, so the alert and the table underneath it never disagree
+    // about what "on screen" means.
+    if (!row.next_follow_up) noFollowUp += 1
   }
-  return { count: rows.length, value, weighted }
+  return { count: rows.length, value, weighted, noFollowUp }
 }
 
 /**
@@ -528,6 +534,8 @@ function DealsScreen() {
   const [team, setTeam] = useState<NamedRow[]>([])
   /* The template's only refetch lever. Bumped after a move lands. */
   const [refreshKey, setRefreshKey] = useState(0)
+  /* P5-T7 §7.7 — "Deals Without Follow-up", the one-click narrowing state. */
+  const [onlyNoFollowUp, setOnlyNoFollowUp] = useState(false)
 
   /*
    * §35.3: the board is offered at 768px and above. Below that the switcher
@@ -664,7 +672,13 @@ function DealsScreen() {
     const body = await r.json()
     const loaded: DealRow[] = Array.isArray(body) ? body : []
     setTotals(totalsOf(loaded))
-    return loaded
+    // P5-T7: the alert banner's one-click narrowing, applied AFTER the
+    // totals are taken off the full `loaded` set — so the banner's own
+    // count stays true once its "View" button has been clicked, instead of
+    // reading zero the moment the rows underneath it are narrowed.
+    // `list-page.tsx` has no prop to set its declared filters from outside,
+    // so this is a second filter this screen applies on top of them.
+    return onlyNoFollowUp ? loaded.filter(row => !row.next_follow_up) : loaded
   }
 
   /* §4.8's four filters. Each one is declared, never rendered here — that is
@@ -738,6 +752,21 @@ function DealsScreen() {
      */
     <div className="flex h-full min-h-0 flex-col">
       <PipelineStrip totals={totals} />
+
+      {onlyNoFollowUp ? (
+        <QuickFilterChip
+          label="Showing Deals without a follow-up only"
+          onClear={() => { setOnlyNoFollowUp(false); setRefreshKey(k => k + 1) }}
+        />
+      ) : (
+        <DataHealthAlert
+          count={totals?.noFollowUp ?? 0}
+          title={`${totals?.noFollowUp ?? 0} ${(totals?.noFollowUp ?? 0) === 1 ? 'deal has' : 'deals have'} no open follow-up`}
+          description="Nothing is scheduled to move these forward."
+          actionLabel="View"
+          onAction={() => { setOnlyNoFollowUp(true); setRefreshKey(k => k + 1) }}
+        />
+      )}
 
       <ListPage<DealRow>
         className="h-auto min-h-0 flex-1"

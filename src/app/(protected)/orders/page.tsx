@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { PlusIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
+import { DataHealthAlert, QuickFilterChip } from '@/components/alerts/data-health-alert'
 import { DISCOUNT_FLAG, ORDER_STATUS, SpecBadge, StatusBadge } from '@/components/status-badge'
 import {
   ListPage,
@@ -38,6 +39,11 @@ type OrderRow = {
   /* Stored rather than derived (§7.2) — the list reads it directly. */
   has_discount: boolean
   users: { name: string } | null
+  /* P5-T7 §7.7: "Pending Draft Orders, with the reason each is stuck".
+     `GET /api/orders` selects every scalar column (no `select`, only
+     `include`), so this is already on the wire — it was simply not on
+     the type the list read. Null on anything that was never blocked. */
+  blocked_reason: string | null
 }
 
 type OrderDetail = OrderRow & {
@@ -912,9 +918,23 @@ function orderColumns(onOpen: (id: string) => void): ListColumn<OrderRow>[] {
       className: 'whitespace-nowrap',
       skeletonWidth: 'w-20',
       cell: order => (
-        <div className="flex items-center gap-1.5">
-          <StatusBadge vocabulary={ORDER_STATUS} status={order.status} />
-          {order.has_discount && <SpecBadge spec={DISCOUNT_FLAG} />}
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
+            <StatusBadge vocabulary={ORDER_STATUS} status={order.status} />
+            {order.has_discount && <SpecBadge spec={DISCOUNT_FLAG} />}
+          </div>
+          {/* P5-T7 §7.7: "with the reason each is stuck" — plain text, no
+              Tooltip, same reasoning as the Parties list's completeness
+              line: a client-only overlay component in a table cell is the
+              variable that broke hydration there. */}
+          {order.status === 'Draft' && order.blocked_reason && (
+            <span
+              className="block max-w-40 truncate text-xs text-text-secondary"
+              title={order.blocked_reason}
+            >
+              {order.blocked_reason}
+            </span>
+          )}
         </div>
       ),
     },
@@ -962,6 +982,24 @@ export default function OrdersPage() {
   /* Bumped when a create or a status change makes the list stale. */
   const [refreshKey, setRefreshKey] = useState(0)
 
+  /* P5-T7 §7.7 — "Pending Draft Orders". A separate, unfiltered fetch of
+     the same scoped `/api/orders?status=Draft`, for the same reason the
+     Parties list keeps its alert counts off a fetch of their own rather
+     than off whatever the table currently has on screen. */
+  const [draftOrders, setDraftOrders] = useState<OrderRow[] | null>(null)
+  const [onlyDraft, setOnlyDraft] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    fetch('/api/orders?status=Draft')
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => { if (live) setDraftOrders(Array.isArray(d) ? d : []) })
+      .catch(() => { if (live) setDraftOrders([]) })
+    return () => { live = false }
+  }, [refreshKey])
+
+  const draftCount = draftOrders?.length ?? 0
+
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => {
       setHasSubordinates(d.hasSubordinates ?? false)
@@ -997,7 +1035,12 @@ export default function OrdersPage() {
     if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
     if (filters.dateTo) params.set('dateTo', filters.dateTo)
     if (search) params.set('q', search)
+    // P5-T7: the alert banner's one-click narrowing. `/api/orders` already
+    // takes `?status=`, so — unlike the Parties/Deals overrides — this one
+    // can ride the server-side filter rather than a client-side pass; it
+    // only applies when the user has not picked a status of their own.
     if (filters.status) params.set('status', filters.status)
+    else if (onlyDraft) params.set('status', 'Draft')
     if (filters.discounted) params.set('discounted', filters.discounted)
     if (filters.user) params.set('userId', filters.user)
     const query = params.toString()
@@ -1031,9 +1074,33 @@ export default function OrdersPage() {
       : []),
   ]
 
+  const draftReasons = [
+    ...new Set((draftOrders ?? []).map(o => o.blocked_reason).filter((r): r is string => Boolean(r))),
+  ]
+
   return (
     <>
+      <div className="flex h-full min-h-0 flex-col">
+        {onlyDraft ? (
+          <QuickFilterChip
+            label="Showing Draft orders only"
+            onClear={() => { setOnlyDraft(false); setRefreshKey(k => k + 1) }}
+          />
+        ) : (
+          <DataHealthAlert
+            count={draftCount}
+            title={`${draftCount} ${draftCount === 1 ? 'order is' : 'orders are'} stuck in Draft`}
+            description={
+              draftReasons.length > 0
+                ? `Reasons on these orders: ${draftReasons.join('; ')}.`
+                : 'A Draft order stays there until its party record is complete.'
+            }
+            actionLabel="View Draft orders"
+            onAction={() => { setOnlyDraft(true); setRefreshKey(k => k + 1) }}
+          />
+        )}
       <ListPage<OrderRow>
+        className="h-auto min-h-0 flex-1"
         title="Orders"
         noun={{ one: 'order', many: 'orders' }}
         action={
@@ -1055,6 +1122,7 @@ export default function OrdersPage() {
           onAction: () => setCreateOpen(true),
         }}
       />
+      </div>
 
       {createOpen && (
         <CreateOrderModal
