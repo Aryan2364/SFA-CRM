@@ -12,7 +12,10 @@ export const DATE_ONLY_FIELDS: ReadonlySet<string> = new Set([
   'contacts.anniversary',
   'contacts.birthday',
   'daily_visits.visit_date',
+  'deal_follow_ups.due_date',
+  'deals.expected_close_date',
   'expenses.expense_date',
+  'journal_entries.week_start',
   'orders.order_date',
   'tenants.payment_due_date',
   'weekly_plan_items.plan_date',
@@ -28,6 +31,8 @@ export const DATE_ONLY_FIELD_NAMES: ReadonlySet<string> = new Set([
   'anniversary',
   'birthday',
   'date',
+  'due_date',
+  'expected_close_date',
   'expense_date',
   'next_follow_up_date',
   'order_date',
@@ -35,6 +40,7 @@ export const DATE_ONLY_FIELD_NAMES: ReadonlySet<string> = new Set([
   'plan_date',
   'visit_date',
   'week_end_date',
+  'week_start',
   'week_start_date',
 ])
 

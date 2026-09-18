@@ -30,29 +30,32 @@ model contextual_remarks {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model daily_visits {
-  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id     String    @db.Uuid
-  user_id       String    @db.Uuid
-  visit_date    DateTime  @db.Date
-  visit_type    String
-  entity_id     String?   @db.Uuid
-  entity_name   String
-  is_new_entity Boolean   @default(false)
-  start_time    DateTime? @db.Timestamptz(6)
-  end_time      DateTime? @db.Timestamptz(6)
-  duration_secs Int?
-  latitude      Decimal?  @db.Decimal(10, 7)
-  longitude     Decimal?  @db.Decimal(10, 7)
-  address       String?
-  status        String    @default("Pending")
-  notes         String?
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime  @default(now()) @db.Timestamptz(6)
-  end_latitude  Decimal?  @db.Decimal(10, 7)
-  end_longitude Decimal?  @db.Decimal(10, 7)
-  end_address   String?
-  users         users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  orders        orders?
+  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String    @db.Uuid
+  user_id             String    @db.Uuid
+  visit_date          DateTime  @db.Date
+  visit_type          String
+  entity_id           String?   @db.Uuid
+  entity_name         String
+  is_new_entity       Boolean   @default(false)
+  start_time          DateTime? @db.Timestamptz(6)
+  end_time            DateTime? @db.Timestamptz(6)
+  duration_secs       Int?
+  latitude            Decimal?  @db.Decimal(10, 7)
+  longitude           Decimal?  @db.Decimal(10, 7)
+  address             String?
+  status              String    @default("Pending")
+  notes               String?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  end_latitude        Decimal?  @db.Decimal(10, 7)
+  end_longitude       Decimal?  @db.Decimal(10, 7)
+  end_address         String?
+  is_manual_entry     Boolean   @default(false)
+  location_flagged    Boolean   @default(false)
+  weekly_plan_item_id String?   @db.Uuid
+  users               users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orders              orders?
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -147,37 +150,48 @@ model notifications {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model order_items {
-  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id    String    @db.Uuid
-  order_id     String    @db.Uuid
-  product_id   String?   @db.Uuid
-  product_name String
-  qty          Int       @default(1)
-  rate         Decimal   @default(0) @db.Decimal(12, 2)
-  amount       Decimal   @default(0) @db.Decimal(12, 2)
-  created_at   DateTime  @default(now()) @db.Timestamptz(6)
-  orders       orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  products     products? @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  order_id        String    @db.Uuid
+  product_id      String?   @db.Uuid
+  product_name    String
+  qty             Int       @default(1)
+  rate            Decimal   @default(0) @db.Decimal(12, 2)
+  amount          Decimal   @default(0) @db.Decimal(12, 2)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  discount_type   String    @default("none")
+  discount_value  Decimal   @default(0) @db.Decimal(12, 2)
+  discount_amount Decimal   @default(0) @db.Decimal(12, 2)
+  gross_amount    Decimal   @default(0) @db.Decimal(12, 2)
+  orders          orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products        products? @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model orders {
-  id           String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id    String        @db.Uuid
-  user_id      String        @db.Uuid
-  visit_id     String?       @unique @db.Uuid
-  order_date   DateTime      @db.Date
-  total_amount Decimal       @default(0) @db.Decimal(12, 2)
-  created_at   DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime      @default(now()) @db.Timestamptz(6)
-  order_source String        @default("meeting")
-  entity_type  String?
-  entity_id    String?       @db.Uuid
-  entity_name  String?
-  status       String        @default("Confirmed")
-  order_items  order_items[]
-  users        users         @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  daily_visits daily_visits? @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                    String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id             String        @db.Uuid
+  user_id               String        @db.Uuid
+  visit_id              String?       @unique @db.Uuid
+  order_date            DateTime      @db.Date
+  total_amount          Decimal       @default(0) @db.Decimal(12, 2)
+  created_at            DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime      @default(now()) @db.Timestamptz(6)
+  order_source          String        @default("meeting")
+  entity_type           String?
+  entity_id             String?       @db.Uuid
+  entity_name           String?
+  status                String        @default("Confirmed")
+  gross_amount          Decimal       @default(0) @db.Decimal(12, 2)
+  item_discount_total   Decimal       @default(0) @db.Decimal(12, 2)
+  order_discount_type   String        @default("none")
+  order_discount_value  Decimal       @default(0) @db.Decimal(12, 2)
+  order_discount_amount Decimal       @default(0) @db.Decimal(12, 2)
+  has_discount          Boolean       @default(false)
+  blocked_reason        String?
+  order_items           order_items[]
+  users                 users         @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  daily_visits          daily_visits? @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -189,6 +203,7 @@ model product_categories {
   is_active             Boolean                 @default(true)
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  deals                 deals[]
   product_subcategories product_subcategories[]
   products              products[]
 }
@@ -219,6 +234,7 @@ model products {
   is_active             Boolean               @default(true)
   created_at            DateTime              @default(now()) @db.Timestamptz(6)
   updated_at            DateTime              @default(now()) @db.Timestamptz(6)
+  deals                 deals[]
   order_items           order_items[]
   product_categories    product_categories    @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   product_subcategories product_subcategories @relation(fields: [subcategory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -368,6 +384,7 @@ model users {
   contacts                                              contacts[]
   contextual_remarks                                    contextual_remarks[]
   daily_visits                                          daily_visits[]
+  deals                                                 deals[]
   expenses                                              expenses[]
   notifications_notifications_actor_idTousers           notifications[]           @relation("notifications_actor_idTousers")
   notifications_notifications_recipient_idTousers       notifications[]           @relation("notifications_recipient_idTousers")
@@ -437,6 +454,9 @@ model weekly_plan_items {
   notes                 String?
   created_at            DateTime     @default(now()) @db.Timestamptz(6)
   updated_at            DateTime     @default(now()) @db.Timestamptz(6)
+  party_id              String?      @db.Uuid
+  party_type            String?
+  expected_order_value  Decimal?     @db.Decimal(12, 2)
   weekly_plans          weekly_plans @relation(fields: [weekly_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
@@ -625,6 +645,7 @@ model contacts {
   company_contacts     company_contacts[]
   contact_types        contact_types?     @relation(fields: [contact_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users                users?             @relation(fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deals                deals[]
 
   @@index([tenant_id])
 }
@@ -715,6 +736,7 @@ model companies {
   villages                                  villages?           @relation(fields: [village_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "business_partners_village_id_fkey")
   company_addresses                         company_addresses[]
   company_contacts                          company_contacts[]
+  deals                                     deals[]
 }
 
 model company_types {
@@ -734,4 +756,174 @@ model deal_stages {
   is_fixed   Boolean  @default(false)
   is_active  Boolean  @default(true)
   created_at DateTime @default(now()) @db.Timestamptz(6)
+  deals      deals[]
+}
+
+model deal_attachments {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String   @db.Uuid
+  deal_id             String   @db.Uuid
+  file_key            String
+  file_name           String
+  content_type        String?
+  size_bytes          BigInt?
+  uploaded_by_user_id String?  @db.Uuid
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  deals               deals    @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([deal_id])
+  @@index([tenant_id])
+}
+
+model deal_follow_ups {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id    String    @db.Uuid
+  deal_id      String    @db.Uuid
+  due_date     DateTime  @db.Date
+  mode         String
+  status       String    @default("not_done")
+  notes        String?
+  completed_at DateTime? @db.Timestamptz(6)
+  visit_id     String?   @db.Uuid
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  deals        deals     @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([deal_id])
+  @@index([tenant_id, due_date])
+  @@index([tenant_id])
+}
+
+model deal_meetings {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  deal_id    String   @db.Uuid
+  visit_id   String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  deals      deals    @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([deal_id, visit_id])
+  @@index([tenant_id])
+  @@index([visit_id])
+}
+
+model deal_stage_logs {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id              String   @db.Uuid
+  deal_id                String   @db.Uuid
+  from_stage_id          String?  @db.Uuid
+  to_stage_id            String   @db.Uuid
+  changed_by_user_id     String?  @db.Uuid
+  changed_at             DateTime @default(now()) @db.Timestamptz(6)
+  days_in_previous_stage Int?
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+  deals                  deals    @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([deal_id])
+  @@index([tenant_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model deals {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String              @db.Uuid
+  name                String
+  owner_user_id       String?             @db.Uuid
+  company_id          String?             @db.Uuid
+  contact_id          String?             @db.Uuid
+  expected_value      Decimal             @default(0) @db.Decimal(12, 2)
+  probability         Int                 @default(0)
+  deal_stage_id       String?             @db.Uuid
+  expected_close_date DateTime?           @db.Date
+  product_id          String?             @db.Uuid
+  product_category_id String?             @db.Uuid
+  source              String?
+  remarks             String?
+  outcome             String?
+  reason_for_loss_id  String?             @db.Uuid
+  stage_entered_at    DateTime            @default(now()) @db.Timestamptz(6)
+  closed_at           DateTime?           @db.Timestamptz(6)
+  is_active           Boolean             @default(true)
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime            @default(now()) @db.Timestamptz(6)
+  deal_attachments    deal_attachments[]
+  deal_follow_ups     deal_follow_ups[]
+  deal_meetings       deal_meetings[]
+  deal_stage_logs     deal_stage_logs[]
+  companies           companies?          @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  contacts            contacts?           @relation(fields: [contact_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deal_stages         deal_stages?        @relation(fields: [deal_stage_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users               users?              @relation(fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product_categories  product_categories? @relation(fields: [product_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  products            products?           @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reason_for_loss     reason_for_loss?    @relation(fields: [reason_for_loss_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id])
+  @@index([contact_id])
+  @@index([tenant_id, deal_stage_id])
+  @@index([tenant_id])
+  @@index([tenant_id, owner_user_id])
+}
+
+model journal_entries {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  user_id    String   @db.Uuid
+  week_start DateTime @db.Date
+  kind       String
+  body       String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id])
+  @@index([tenant_id, user_id, week_start])
+}
+
+model reason_for_loss {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  deals      deals[]
+
+  @@index([tenant_id])
+}
+
+model saved_reports {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  user_id    String   @db.Uuid
+  name       String
+  config     Json
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id])
+  @@index([tenant_id, user_id])
+}
+
+model tenant_settings {
+  tenant_id                 String   @id @db.Uuid
+  auto_checkout_minutes     Int      @default(0)
+  location_flag_threshold_m Int      @default(500)
+  deal_stage_ageing_days    Int      @default(15)
+  created_at                DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime @default(now()) @db.Timestamptz(6)
+  updated_by_user_id        String?  @db.Uuid
+}
+
+model weekly_goals {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id      String   @db.Uuid
+  weekly_plan_id String   @db.Uuid
+  text           String
+  is_done        Boolean  @default(false)
+  sort_order     Int      @default(0)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id])
+  @@index([weekly_plan_id])
 }
