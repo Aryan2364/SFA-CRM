@@ -308,10 +308,18 @@ nothing appears. Do not render an empty "Meetings" section.
 
 ---
 
-### **P3-T12 · Expenses restyle** · M · independent
+### **P3-T12 · Expenses restyle** · M · independent · ✅ **DONE 18 Sep — no change needed**
 
 §5.7 — **look and feel only, no functional change.** Verify by diffing behaviour, not by reading
 the diff.
+
+**Closed 18 Sep with no code change.** P3-T5 rewrote Daily Activity from 1685 lines into ten
+components (`d561ad3`), and the two expense files came out of that already on the current kit
+standard: `Badge`, `Button`, `EmptyState`, `Skeleton`, `AlertDialog`, `Dialog`, `Select`, `Input`
+and `Label` from the kit, design tokens only, a styled `AlertDialog` in place of `confirm()`, and
+zero `dark:` utilities or raw hex. Verified independently: both files unmodified, all four counts
+zero, and a live create-then-delete cycle returned 201 then 200 with the row appearing and going,
+so behaviour is unchanged. The restyle had nothing left to do.
 
 ---
 
