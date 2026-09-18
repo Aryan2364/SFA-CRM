@@ -39,13 +39,62 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await requireUser()
-  const { visit_type, entity_id, entity_name, is_new_entity, visit_date, new_prospect, weekly_plan_item_id } = await req.json()
+  const {
+    visit_type, entity_id, entity_name, is_new_entity, visit_date, new_prospect, weekly_plan_item_id,
+    is_manual_entry, manual_start_time, manual_end_time,
+  } = await req.json()
   if (!visit_type) return NextResponse.json({ error: 'visit_type is required' }, { status: 400 })
   const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const effectiveDate = visit_date ?? todayStr
   if (effectiveDate > todayStr) return NextResponse.json({ error: 'Cannot create meetings for future dates' }, { status: 400 })
   const tid = getTenantId()
   const visitDate = new Date(effectiveDate)
+
+  /*
+   * P3-T10, §5.4. A past meeting that was not logged live is entered by
+   * hand: the caller types Start and End, which the spec calls
+   * "tentative" — there is no real GPS fix behind them. So this branch
+   * never writes latitude/longitude/address/end_* location fields (they
+   * stay at their column defaults, null), and it stores exactly the
+   * wall-clock instant the browser sent — no "now" substitution, no
+   * fabricated accuracy.
+   *
+   * `manual_start_time`/`manual_end_time` arrive as ISO strings built by
+   * the browser from LOCAL date+time components (`new Date(...)` on a
+   * "YYYY-MM-DDTHH:mm" literal is parsed in the browser's own zone), so
+   * the UTC instant is already correct regardless of what zone this
+   * server process happens to run in. Reading it back is just
+   * `toLocaleTimeString()` in the viewer's own browser — see
+   * `formatTime` in `types.ts`. Nothing here does zone arithmetic, which
+   * is the one thing that would actually introduce the IST/UTC skew.
+   */
+  let manualFields: {
+    status: 'Completed'
+    is_manual_entry: true
+    start_time: Date
+    end_time: Date
+    duration_secs: number
+  } | null = null
+  if (is_manual_entry) {
+    if (!manual_start_time || !manual_end_time) {
+      return NextResponse.json({ error: 'Start and end time are required for a manual entry' }, { status: 400 })
+    }
+    const start = new Date(manual_start_time)
+    const end = new Date(manual_end_time)
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return NextResponse.json({ error: 'Start and end time are not valid' }, { status: 400 })
+    }
+    if (end.getTime() <= start.getTime()) {
+      return NextResponse.json({ error: 'End time must be after start time' }, { status: 400 })
+    }
+    manualFields = {
+      status: 'Completed',
+      is_manual_entry: true,
+      start_time: start,
+      end_time: end,
+      duration_secs: Math.floor((end.getTime() - start.getTime()) / 1000),
+    }
+  }
 
   /*
    * §5.3 rule 1. A meeting started from an approved plan line carries
@@ -96,6 +145,7 @@ export async function POST(req: NextRequest) {
           tenant_id: tid, user_id: user.userId!, visit_date: visitDate,
           visit_type, entity_id: bp.id, entity_name: bp.name, is_new_entity: true, status: 'Pending',
           weekly_plan_item_id: planItemId,
+          ...manualFields,
         },
       })
       void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${bp.name} on ${effectiveDate}` })
@@ -109,6 +159,7 @@ export async function POST(req: NextRequest) {
         visit_type, entity_id: entity_id || null, entity_name: entity_name.trim(),
         is_new_entity: is_new_entity ?? false, status: 'Pending',
         weekly_plan_item_id: planItemId,
+        ...manualFields,
       },
     })
     void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${entity_name.trim()} on ${effectiveDate}` })

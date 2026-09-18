@@ -2,11 +2,12 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { PlusIcon } from 'lucide-react'
+import { HistoryIcon, PlusIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
 import RemarksPanel from '@/components/ui/RemarksPanel'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -33,6 +34,7 @@ import {
 import { AddMeetingDialog } from '@/components/daily-activity/add-meeting-dialog'
 import { AttendanceCard } from '@/components/daily-activity/attendance-card'
 import { ExpensesTab } from '@/components/daily-activity/expenses-tab'
+import { ManualMeetingDialog } from '@/components/daily-activity/manual-meeting-dialog'
 import { OrderEntryDialog } from '@/components/daily-activity/order-entry-dialog'
 import { PlannedCard } from '@/components/daily-activity/planned-card'
 import { SummaryTab } from '@/components/daily-activity/summary-tab'
@@ -98,6 +100,7 @@ function DailyActivityInner() {
   const [acting, setActing] = useState(false)
   const [startingPlanItem, setStartingPlanItem] = useState<string | null>(null)
   const [meetingDialog, setMeetingDialog] = useState<{ open: boolean; planItem: PlannedItem | null }>({ open: false, planItem: null })
+  const [manualDialogOpen, setManualDialogOpen] = useState(false)
   const [orderEntry, setOrderEntry] = useState<Visit | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Visit | null>(null)
   const [locationDenied, setLocationDenied] = useState<{ visitId: string; action: 'start' | 'stop' } | null>(null)
@@ -200,6 +203,31 @@ function DailyActivityInner() {
     })
     if (!r.ok) { toast((await r.json()).error ?? 'Failed to log the meeting', 'error'); return }
     setMeetingDialog({ open: false, planItem: null })
+    await loadVisits()
+  }
+
+  /**
+   * P3-T10 — a past meeting entered by hand. Kept separate from
+   * `handleAdd` (rather than folded in) because the future-date guard
+   * and the "day already selected on screen" date are shared, but the
+   * success path never opens `meetingDialog` — it has its own dialog
+   * state — and a 400 here (e.g. end before start) needs to land back
+   * in the manual dialog's own inline errors, not the toast-only path
+   * the ad-hoc dialog uses.
+   */
+  async function handleAddManual(partial: Partial<Visit> & {
+    is_manual_entry: true
+    manual_start_time: string
+    manual_end_time: string
+  }) {
+    if (isFuture) { toast('Meetings cannot be logged for a future date', 'error'); return }
+    const r = await fetch('/api/daily-activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...partial, visit_date: selectedDate }),
+    })
+    if (!r.ok) { toast((await r.json()).error ?? 'Failed to log the past meeting', 'error'); return }
+    setManualDialogOpen(false)
     await loadVisits()
   }
 
@@ -333,6 +361,11 @@ function DailyActivityInner() {
 
   const activeCount = visits.filter(v => v.status === 'Active').length
   const doneCount = visits.filter(v => v.status === 'Completed').length
+  // `is_manual_entry` is not yet on the shared `Visit` type (P3-T10 reads
+  // it from the API response without widening `types.ts` — see the
+  // handoff note in this file's own header comment); cast at the point
+  // of use rather than `any`-ing the whole array.
+  const manualCount = visits.filter(v => (v as Visit & { is_manual_entry?: boolean }).is_manual_entry).length
 
   return (
     <Tabs value={activeTab} onValueChange={v => setActiveTab(String(v))} className="h-full">
@@ -344,10 +377,16 @@ function DailyActivityInner() {
             <p className="text-body text-text-secondary">{displayDate}</p>
           </div>
           {canLogMeeting && !isFuture && (
-            <Button onClick={() => setMeetingDialog({ open: true, planItem: null })} className="w-full sm:w-auto">
-              <PlusIcon />
-              Log a meeting
-            </Button>
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              <Button variant="secondary" onClick={() => setManualDialogOpen(true)} className="flex-1 sm:flex-none">
+                <HistoryIcon />
+                Log a past meeting
+              </Button>
+              <Button onClick={() => setMeetingDialog({ open: true, planItem: null })} className="flex-1 sm:flex-none">
+                <PlusIcon />
+                Log a meeting
+              </Button>
+            </div>
           )}
         </div>
 
@@ -396,6 +435,7 @@ function DailyActivityInner() {
                   {visits.length} logged
                   {activeCount > 0 && <> · {activeCount} active</>}
                   {doneCount > 0 && <> · {doneCount} done</>}
+                  {manualCount > 0 && <> · {manualCount} manually entered</>}
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {openPlanned.map(item => (
@@ -409,24 +449,45 @@ function DailyActivityInner() {
                       onAddMeeting={p => setMeetingDialog({ open: true, planItem: p })}
                     />
                   ))}
-                  {visits.map(visit => (
-                    <VisitCard
-                      key={visit.id}
-                      visit={visit}
-                      showOwner={multiUser}
-                      ownerName={visit.user_id ? userNames[visit.user_id] : null}
-                      /* A manager may read the team's meetings and may not
-                         drive someone else's stopwatch. */
-                      canEdit={canLogMeeting && (!visit.user_id || visit.user_id === me?.userId)}
-                      canDelete={canDeleteMeeting && (!visit.user_id || visit.user_id === me?.userId)}
-                      onStart={handleStart}
-                      onStop={handleStop}
-                      onDelete={setPendingDelete}
-                      onOrderEntry={setOrderEntry}
-                      onRemarks={v => setRemarksPanel({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
-                      onNotesUpdate={handleNotesUpdate}
-                    />
-                  ))}
+                  {visits.map(visit => {
+                    // P3-T10: `is_manual_entry` is not on `Visit` yet (see
+                    // `manualCount` above) and `visit-card.tsx` is owned by
+                    // another task right now, so the "visibly distinct"
+                    // marking for a manual entry is rendered HERE, wrapping
+                    // the card, rather than inside it. Once `types.ts` gets
+                    // the field and `visit-card.tsx` is free, this ribbon
+                    // belongs next to the card's other badges instead — see
+                    // this file's P3-T10 handoff note in the header comment.
+                    const isManual = (visit as Visit & { is_manual_entry?: boolean }).is_manual_entry === true
+                    return (
+                      <div key={visit.id} className={isManual ? 'relative pt-3' : undefined}>
+                        {isManual && (
+                          <Badge
+                            variant="warning"
+                            className="absolute left-3 top-0 z-10 -translate-y-1/2 gap-1"
+                          >
+                            <HistoryIcon className="size-3" />
+                            Manually Entered · Tentative
+                          </Badge>
+                        )}
+                        <VisitCard
+                          visit={visit}
+                          showOwner={multiUser}
+                          ownerName={visit.user_id ? userNames[visit.user_id] : null}
+                          /* A manager may read the team's meetings and may not
+                             drive someone else's stopwatch. */
+                          canEdit={canLogMeeting && (!visit.user_id || visit.user_id === me?.userId)}
+                          canDelete={canDeleteMeeting && (!visit.user_id || visit.user_id === me?.userId)}
+                          onStart={handleStart}
+                          onStop={handleStop}
+                          onDelete={setPendingDelete}
+                          onOrderEntry={setOrderEntry}
+                          onRemarks={v => setRemarksPanel({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
+                          onNotesUpdate={handleNotesUpdate}
+                        />
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -456,6 +517,13 @@ function DailyActivityInner() {
         onOpenChange={v => setMeetingDialog(s => ({ open: v, planItem: v ? s.planItem : null }))}
         planItem={meetingDialog.planItem}
         onAdd={handleAdd}
+      />
+
+      <ManualMeetingDialog
+        open={manualDialogOpen}
+        onOpenChange={setManualDialogOpen}
+        visitDate={selectedDate}
+        onAdd={handleAddManual}
       />
 
       {orderEntry && (
