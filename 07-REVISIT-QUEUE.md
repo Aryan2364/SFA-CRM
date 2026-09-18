@@ -156,3 +156,13 @@ And: *"`list-page.tsx`, `src/app/globals.css`, `src/components/shell/*` and
 
 **Nothing is left in the queue as "still in flux".** The two open items are open because they are
 **unanswerable without live database access**, not because they were skipped.
+
+## R-14 — a malformed UUID reaches `POST /api/deals` as a bare 500
+
+Found 18 Sep while verifying the board. A `company_id` carrying a stray `\r` produced
+**HTTP 500 with an empty body** — no `{"error":…}` at all, so the client has nothing to show and
+the toast has nothing to say. The route validates `name` and `probability` but passes ids straight
+to Prisma, and `dbErrorMessage()` evidently returns nothing for that error class.
+
+A bad id is a 400 with a sentence, not a 500 with silence. Likely the same in every route that
+accepts an id in a body. Low severity, wide surface — worth one sweep rather than one fix.
