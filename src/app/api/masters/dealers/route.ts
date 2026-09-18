@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const tid = getTenantId()
 
   try {
-    const dealers = await prisma.business_partners.findMany({
+    const dealers = await prisma.companies.findMany({
       where: {
         tenant_id: tid,
         type: 'Dealer',
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       // zero violations), so this cannot change results — it is defence in depth
       // on a tenant-isolation boundary, and it removes an asymmetry with the
       // mirror-image lookup in distributors/route.ts, which always had it.
-      const dists = await prisma.business_partners.findMany({
+      const dists = await prisma.companies.findMany({
         where: { tenant_id: tid, id: { in: distIds } },
         select: { id: true, name: true },
       })
@@ -48,9 +48,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Serialise before attaching `distributors`, which is a plain object built
-    // in JS and needs no conversion. business_partners carries NUMERIC
+    // in JS and needs no conversion. companies carries NUMERIC
     // latitude/longitude and a DATE next_follow_up_date (PLAN.md §5.1).
-    const serialised = serialize(dealers, 'business_partners') as Record<string, unknown>[]
+    const serialised = serialize(dealers, 'companies') as Record<string, unknown>[]
     const result = serialised.map(d => ({
       ...d,
       distributors: d.distributor_id ? { name: distMap.get(d.distributor_id as string) ?? null } : null,
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Longitude must be between -180 and 180' }, { status: 400 })
 
   try {
-    const data = await prisma.business_partners.create({
+    const data = await prisma.companies.create({
       data: {
         type: 'Dealer',
         name: name.trim(),
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
         tenant_id: getTenantId(),
       },
     })
-    return NextResponse.json(serialize(data, 'business_partners'), { status: 201 })
+    return NextResponse.json(serialize(data, 'companies'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

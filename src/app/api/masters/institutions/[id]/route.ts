@@ -32,11 +32,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   try {
     // The `type IN (...)` guard rides along in `where`, so this endpoint cannot
     // edit a Dealer or Distributor row (PLAN.md 8.4).
-    const data = await prisma.business_partners.update({
+    const data = await prisma.companies.update({
       where: { id: params.id, tenant_id: getTenantId(), type: { in: INSTITUTION_TYPES } },
       data: body,
     })
-    return NextResponse.json(serialize(data, 'business_partners'))
+    return NextResponse.json(serialize(data, 'companies'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -47,7 +47,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!await checkPermission(user, 'institutions', 'delete')) return forbidden()
   try {
     // deleteMany, NOT delete: a no-match was silent before (PLAN.md 8.4).
-    await prisma.business_partners.deleteMany({
+    await prisma.companies.deleteMany({
       where: { id: params.id, tenant_id: getTenantId(), type: { in: INSTITUTION_TYPES } },
     })
     return NextResponse.json({ ok: true })

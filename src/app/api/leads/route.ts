@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const tid = getTenantId()
 
   try {
-    const rows = await prisma.business_partners.findMany({
+    const rows = await prisma.companies.findMany({
       where: {
         tenant_id: tid,
         ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
@@ -27,14 +27,19 @@ export async function GET(req: NextRequest) {
         // `created_by:created_by_user_id(id, name)` is an ALIASED embed; the
         // introspected relation field has a different name, so it is renamed
         // back to `created_by` below.
-        users: { select: { id: true, name: true } },
+        //
+        // The relation is no longer plain `users`: companies now has TWO FKs to
+        // users (created_by_user_id and owner_user_id), so Prisma disambiguates
+        // both by the @relation name rather than the model name.
+        users_companies_created_by_user_idTousers: { select: { id: true, name: true } },
       },
       orderBy: { name: 'asc' },
     })
 
     // NUMERIC latitude/longitude and DATE next_follow_up_date (PLAN.md 5.1).
-    const data = (serialize(rows, 'business_partners') as Record<string, unknown>[])
-      .map(({ users, ...rest }) => ({ ...rest, created_by: users ?? null }))
+    const data = (serialize(rows, 'companies') as Record<string, unknown>[])
+      .map(({ users_companies_created_by_user_idTousers: createdBy, ...rest }) =>
+        ({ ...rest, created_by: createdBy ?? null }))
 
     return NextResponse.json(data)
   } catch (err) {
@@ -59,7 +64,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Mobile Number 2 must be exactly 10 digits' }, { status: 400 })
 
   try {
-    const data = await prisma.business_partners.create({
+    const data = await prisma.companies.create({
       data: {
         tenant_id: getTenantId(),
         type: type.trim(),
@@ -84,7 +89,7 @@ export async function POST(req: NextRequest) {
         created_by_user_id: user.userId || null,
       },
     })
-    return NextResponse.json(serialize(data, 'business_partners'), { status: 201 })
+    return NextResponse.json(serialize(data, 'companies'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

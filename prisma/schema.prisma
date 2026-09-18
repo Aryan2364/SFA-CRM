@@ -6,53 +6,6 @@ datasource db {
   provider = "postgresql"
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model business_partners {
-  id                                           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                                    String              @db.Uuid
-  type                                         String
-  name                                         String
-  distributor_id                               String?             @db.Uuid
-  mobile_1                                     String?
-  address                                      String?
-  description                                  String?
-  state_id                                     String?             @db.Uuid
-  district_id                                  String?             @db.Uuid
-  taluka_id                                    String?             @db.Uuid
-  village_id                                   String?             @db.Uuid
-  latitude                                     Decimal?            @db.Decimal(10, 7)
-  longitude                                    Decimal?            @db.Decimal(10, 7)
-  is_active                                    Boolean             @default(true)
-  created_at                                   DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at                                   DateTime            @default(now()) @db.Timestamptz(6)
-  mobile_2                                     String?
-  contact_person_name                          String?
-  pincode                                      String?
-  gst_number                                   String?
-  sub_type                                     String?
-  stage                                        String              @default("Existing")
-  temperature                                  String?
-  next_follow_up_date                          DateTime?           @db.Date
-  created_by_user_id                           String?             @db.Uuid
-  owner_user_id                                String?             @db.Uuid
-  email                                        String?
-  website                                      String?
-  industry_id                                  String?             @db.Uuid
-  is_complete                                  Boolean             @default(false)
-  completeness_missing                         String?
-  users                                        users?              @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction)
-  business_partners                            business_partners?  @relation("business_partnersTobusiness_partners", fields: [distributor_id], references: [id], onUpdate: NoAction)
-  other_business_partners                      business_partners[] @relation("business_partnersTobusiness_partners")
-  districts                                    districts?          @relation(fields: [district_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  industries                                   industries?         @relation(fields: [industry_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users_business_partners_owner_user_idTousers users?              @relation("business_partners_owner_user_idTousers", fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  states                                       states?             @relation(fields: [state_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  talukas                                      talukas?            @relation(fields: [taluka_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  villages                                     villages?           @relation(fields: [village_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  company_addresses                            company_addresses[]
-  company_contacts                             company_contacts[]
-}
-
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model contextual_remarks {
@@ -138,7 +91,7 @@ model districts {
   is_active         Boolean             @default(true)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
-  business_partners business_partners[]
+  companies         companies[]
   company_addresses company_addresses[]
   states            states              @relation(fields: [state_id], references: [id], onUpdate: NoAction)
   talukas           talukas[]
@@ -160,26 +113,7 @@ model expenses {
   users        users    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-model lead_stages {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id  String   @db.Uuid
-  name       String
-  sort_order Int      @default(0)
-  is_fixed   Boolean  @default(false)
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-}
-
 model lead_temperatures {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id  String   @db.Uuid
-  name       String
-  sort_order Int      @default(0)
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-}
-
-model lead_types {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id  String   @db.Uuid
   name       String
@@ -340,7 +274,7 @@ model states {
   is_active         Boolean             @default(true)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
-  business_partners business_partners[]
+  companies         companies[]
   company_addresses company_addresses[]
   districts         districts[]
 }
@@ -355,7 +289,7 @@ model talukas {
   is_active         Boolean             @default(true)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
-  business_partners business_partners[]
+  companies         companies[]
   company_addresses company_addresses[]
   districts         districts           @relation(fields: [district_id], references: [id], onUpdate: NoAction)
   villages          villages[]
@@ -411,45 +345,45 @@ model user_visibility {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model users {
-  id                                                       String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id                                                String                    @db.Uuid
-  name                                                     String
-  email                                                    String
-  contact                                                  String
-  department_id                                            String?                   @db.Uuid
-  designation_id                                           String?                   @db.Uuid
-  profile                                                  String                    @default("Standard")
-  manager_user_id                                          String?                   @db.Uuid
-  status                                                   String                    @default("Active")
-  created_at                                               DateTime                  @default(now()) @db.Timestamptz(6)
-  updated_at                                               DateTime                  @default(now()) @db.Timestamptz(6)
-  password                                                 String                    @default("")
-  password_reset_token                                     String?
-  password_reset_expires                                   DateTime?                 @db.Timestamptz(6)
-  role_id                                                  String?                   @db.Uuid
-  credentials_version                                      Int                       @default(1)
-  attendance                                               attendance[]
-  business_partners                                        business_partners[]
-  business_partners_business_partners_owner_user_idTousers business_partners[]       @relation("business_partners_owner_user_idTousers")
-  contacts                                                 contacts[]
-  contextual_remarks                                       contextual_remarks[]
-  daily_visits                                             daily_visits[]
-  expenses                                                 expenses[]
-  notifications_notifications_actor_idTousers              notifications[]           @relation("notifications_actor_idTousers")
-  notifications_notifications_recipient_idTousers          notifications[]           @relation("notifications_recipient_idTousers")
-  orders                                                   orders[]
-  remark_reads                                             remark_reads[]
-  user_territory_mappings                                  user_territory_mappings[]
-  user_visibility_user_visibility_target_user_idTousers    user_visibility[]         @relation("user_visibility_target_user_idTousers")
-  user_visibility_user_visibility_viewer_user_idTousers    user_visibility[]         @relation("user_visibility_viewer_user_idTousers")
-  departments                                              departments?              @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  designations                                             designations?             @relation(fields: [designation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users                                                    users?                    @relation("usersTousers", fields: [manager_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  other_users                                              users[]                   @relation("usersTousers")
-  roles                                                    roles?                    @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  weekly_plan_audit_logs                                   weekly_plan_audit_logs[]
-  weekly_plans_weekly_plans_current_manager_idTousers      weekly_plans[]            @relation("weekly_plans_current_manager_idTousers")
-  weekly_plans_weekly_plans_user_idTousers                 weekly_plans[]            @relation("weekly_plans_user_idTousers")
+  id                                                    String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                                             String                    @db.Uuid
+  name                                                  String
+  email                                                 String
+  contact                                               String
+  department_id                                         String?                   @db.Uuid
+  designation_id                                        String?                   @db.Uuid
+  profile                                               String                    @default("Standard")
+  manager_user_id                                       String?                   @db.Uuid
+  status                                                String                    @default("Active")
+  created_at                                            DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                                            DateTime                  @default(now()) @db.Timestamptz(6)
+  password                                              String                    @default("")
+  password_reset_token                                  String?
+  password_reset_expires                                DateTime?                 @db.Timestamptz(6)
+  role_id                                               String?                   @db.Uuid
+  credentials_version                                   Int                       @default(1)
+  attendance                                            attendance[]
+  companies_companies_created_by_user_idTousers         companies[]               @relation("companies_created_by_user_idTousers")
+  companies_companies_owner_user_idTousers              companies[]               @relation("companies_owner_user_idTousers")
+  contacts                                              contacts[]
+  contextual_remarks                                    contextual_remarks[]
+  daily_visits                                          daily_visits[]
+  expenses                                              expenses[]
+  notifications_notifications_actor_idTousers           notifications[]           @relation("notifications_actor_idTousers")
+  notifications_notifications_recipient_idTousers       notifications[]           @relation("notifications_recipient_idTousers")
+  orders                                                orders[]
+  remark_reads                                          remark_reads[]
+  user_territory_mappings                               user_territory_mappings[]
+  user_visibility_user_visibility_target_user_idTousers user_visibility[]         @relation("user_visibility_target_user_idTousers")
+  user_visibility_user_visibility_viewer_user_idTousers user_visibility[]         @relation("user_visibility_viewer_user_idTousers")
+  departments                                           departments?              @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  designations                                          designations?             @relation(fields: [designation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                                 users?                    @relation("usersTousers", fields: [manager_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_users                                           users[]                   @relation("usersTousers")
+  roles                                                 roles?                    @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  weekly_plan_audit_logs                                weekly_plan_audit_logs[]
+  weekly_plans_weekly_plans_current_manager_idTousers   weekly_plans[]            @relation("weekly_plans_current_manager_idTousers")
+  weekly_plans_weekly_plans_user_idTousers              weekly_plans[]            @relation("weekly_plans_user_idTousers")
 
   @@unique([tenant_id, contact], map: "users_tenant_contact")
 }
@@ -464,7 +398,7 @@ model villages {
   is_active         Boolean             @default(true)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
-  business_partners business_partners[]
+  companies         companies[]
   company_addresses company_addresses[]
   talukas           talukas             @relation(fields: [taluka_id], references: [id], onUpdate: NoAction)
 }
@@ -616,41 +550,41 @@ model tenant_point_settings {
 }
 
 model company_addresses {
-  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id         String            @db.Uuid
-  company_id        String            @db.Uuid
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id         String     @db.Uuid
+  company_id        String     @db.Uuid
   label             String?
   address_line      String?
   city              String?
-  state_id          String?           @db.Uuid
-  district_id       String?           @db.Uuid
-  taluka_id         String?           @db.Uuid
-  village_id        String?           @db.Uuid
+  state_id          String?    @db.Uuid
+  district_id       String?    @db.Uuid
+  taluka_id         String?    @db.Uuid
+  village_id        String?    @db.Uuid
   pincode           String?
-  latitude          Decimal?          @db.Decimal(10, 7)
-  longitude         Decimal?          @db.Decimal(10, 7)
-  is_primary        Boolean           @default(false)
-  created_at        DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime          @default(now()) @db.Timestamptz(6)
-  business_partners business_partners @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  districts         districts?        @relation(fields: [district_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  states            states?           @relation(fields: [state_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  talukas           talukas?          @relation(fields: [taluka_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  villages          villages?         @relation(fields: [village_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  latitude          Decimal?   @db.Decimal(10, 7)
+  longitude         Decimal?   @db.Decimal(10, 7)
+  is_primary        Boolean    @default(false)
+  created_at        DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime   @default(now()) @db.Timestamptz(6)
+  business_partners companies  @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  districts         districts? @relation(fields: [district_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  states            states?    @relation(fields: [state_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  talukas           talukas?   @relation(fields: [taluka_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  villages          villages?  @relation(fields: [village_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([company_id])
   @@index([tenant_id])
 }
 
 model company_contacts {
-  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id         String            @db.Uuid
-  company_id        String            @db.Uuid
-  contact_id        String            @db.Uuid
-  is_primary        Boolean           @default(false)
-  created_at        DateTime          @default(now()) @db.Timestamptz(6)
-  business_partners business_partners @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  contacts          contacts          @relation(fields: [contact_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id         String    @db.Uuid
+  company_id        String    @db.Uuid
+  contact_id        String    @db.Uuid
+  is_primary        Boolean   @default(false)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  business_partners companies @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  contacts          contacts  @relation(fields: [contact_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([company_id, contact_id])
   @@index([contact_id])
@@ -726,13 +660,78 @@ model custom_field_values {
 }
 
 model industries {
-  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id         String              @db.Uuid
-  name              String
-  sort_order        Int                 @default(0)
-  is_active         Boolean             @default(true)
-  created_at        DateTime            @default(now()) @db.Timestamptz(6)
-  business_partners business_partners[]
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String      @db.Uuid
+  name       String
+  sort_order Int         @default(0)
+  is_active  Boolean     @default(true)
+  created_at DateTime    @default(now()) @db.Timestamptz(6)
+  companies  companies[]
 
   @@index([tenant_id])
+}
+
+model companies {
+  id                                        String              @id(map: "business_partners_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                 String              @db.Uuid
+  type                                      String
+  name                                      String
+  distributor_id                            String?             @db.Uuid
+  mobile_1                                  String?
+  address                                   String?
+  description                               String?
+  state_id                                  String?             @db.Uuid
+  district_id                               String?             @db.Uuid
+  taluka_id                                 String?             @db.Uuid
+  village_id                                String?             @db.Uuid
+  latitude                                  Decimal?            @db.Decimal(10, 7)
+  longitude                                 Decimal?            @db.Decimal(10, 7)
+  is_active                                 Boolean             @default(true)
+  created_at                                DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                DateTime            @default(now()) @db.Timestamptz(6)
+  mobile_2                                  String?
+  contact_person_name                       String?
+  pincode                                   String?
+  gst_number                                String?
+  sub_type                                  String?
+  stage                                     String              @default("Existing")
+  temperature                               String?
+  next_follow_up_date                       DateTime?           @db.Date
+  created_by_user_id                        String?             @db.Uuid
+  completeness_missing                      String?
+  email                                     String?
+  industry_id                               String?             @db.Uuid
+  is_complete                               Boolean             @default(false)
+  owner_user_id                             String?             @db.Uuid
+  website                                   String?
+  users_companies_created_by_user_idTousers users?              @relation("companies_created_by_user_idTousers", fields: [created_by_user_id], references: [id], onUpdate: NoAction, map: "business_partners_created_by_user_id_fkey")
+  companies                                 companies?          @relation("companiesTocompanies", fields: [distributor_id], references: [id], onUpdate: NoAction, map: "business_partners_distributor_id_fkey")
+  other_companies                           companies[]         @relation("companiesTocompanies")
+  districts                                 districts?          @relation(fields: [district_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "business_partners_district_id_fkey")
+  industries                                industries?         @relation(fields: [industry_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "business_partners_industry_id_fkey")
+  users_companies_owner_user_idTousers      users?              @relation("companies_owner_user_idTousers", fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "business_partners_owner_user_id_fkey")
+  states                                    states?             @relation(fields: [state_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "business_partners_state_id_fkey")
+  talukas                                   talukas?            @relation(fields: [taluka_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "business_partners_taluka_id_fkey")
+  villages                                  villages?           @relation(fields: [village_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "business_partners_village_id_fkey")
+  company_addresses                         company_addresses[]
+  company_contacts                          company_contacts[]
+}
+
+model company_types {
+  id         String   @id(map: "lead_types_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model deal_stages {
+  id         String   @id(map: "lead_stages_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String
+  sort_order Int      @default(0)
+  is_fixed   Boolean  @default(false)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
 }

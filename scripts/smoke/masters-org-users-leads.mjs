@@ -141,7 +141,7 @@ export async function run() {
   t.section('institutions (business_partners, two types)')
   const inst = await get('/api/masters/institutions')
   const instBody = await inst.json()
-  const expectedInst = await prisma.business_partners.count({
+  const expectedInst = await prisma.companies.count({
     where: { tenant_id: tid, type: { in: ['Institution', 'End Consumer'] }, stage: 'Existing' },
   })
   t.ok('GET /api/masters/institutions -> 200', inst.status === 200, inst.status)

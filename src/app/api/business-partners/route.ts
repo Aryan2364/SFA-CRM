@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const type   = req.nextUrl.searchParams.get('type') ?? ''
   const status = req.nextUrl.searchParams.get('status') ?? 'existing'
   try {
-    const data = await prisma.business_partners.findMany({
+    const data = await prisma.companies.findMany({
       where: {
         tenant_id: getTenantId(),
         is_active: true,

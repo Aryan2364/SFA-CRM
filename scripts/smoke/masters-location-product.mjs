@@ -107,7 +107,7 @@ export async function run() {
   ]) {
     const r = await get(path)
     const b = await r.json()
-    const expected = await prisma.business_partners.count({ where: { tenant_id: tid, type, stage: 'Existing' } })
+    const expected = await prisma.companies.count({ where: { tenant_id: tid, type, stage: 'Existing' } })
     t.ok(`GET ${path} -> 200`, r.status === 200, r.status)
     t.ok(`  returns all ${expected} ${type} rows`, Array.isArray(b) && b.length === expected, Array.isArray(b) ? b.length : b)
     if (!Array.isArray(b) || !b.length) { t.skip(`${path} row-shape checks`, `no ${type} rows in this tenant`); continue }
@@ -120,7 +120,7 @@ export async function run() {
       t.ok('  attached `dealers` is an ARRAY on every row', b.every(x => Array.isArray(x.dealers)), typeof b[0].dealers)
       const withDealers = b.find(x => x.dealers.length)
       if (withDealers) {
-        const expectedDealers = await prisma.business_partners.count({ where: { tenant_id: tid, type: 'Dealer', distributor_id: withDealers.id } })
+        const expectedDealers = await prisma.companies.count({ where: { tenant_id: tid, type: 'Dealer', distributor_id: withDealers.id } })
         t.ok('  dealer count per distributor matches the DB', withDealers.dealers.length === expectedDealers, `${withDealers.dealers.length} vs ${expectedDealers}`)
       } else t.skip('distributor->dealers count', 'no distributor in this tenant has dealers')
     } else {

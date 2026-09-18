@@ -155,7 +155,7 @@ async function main() {
     data: { id: SEED.productB, tenant_id: SEED.tenantB, name: 'TENANT B PRODUCT — MUST NEVER BE TOUCHED',
       category_id: catB.id, subcategory_id: subB.id, price: 999.99 },
   })
-  await prisma.business_partners.create({
+  await prisma.companies.create({
     data: { id: SEED.distributorB, tenant_id: SEED.tenantB, type: 'Distributor', stage: 'Existing',
       name: 'TENANT B DISTRIBUTOR — MUST NEVER BE TOUCHED' },
   })

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const tid = getTenantId()
 
   try {
-    const data = await prisma.business_partners.findMany({
+    const data = await prisma.companies.findMany({
       where: {
         tenant_id: tid,
         type: { in: ['Institution', 'End Consumer'] },
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
       orderBy: { name: 'asc' },
     })
     // NUMERIC latitude/longitude and DATE next_follow_up_date (PLAN.md 5.1).
-    return NextResponse.json(serialize(data, 'business_partners'))
+    return NextResponse.json(serialize(data, 'companies'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   if (longitude != null && (isNaN(Number(longitude)) || Number(longitude) < -180 || Number(longitude) > 180))
     return NextResponse.json({ error: 'Longitude must be between -180 and 180' }, { status: 400 })
   try {
-    const data = await prisma.business_partners.create({
+    const data = await prisma.companies.create({
       data: {
         type: resolvedType,
         stage: 'Existing',
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
         tenant_id: getTenantId(),
       },
     })
-    return NextResponse.json(serialize(data, 'business_partners'), { status: 201 })
+    return NextResponse.json(serialize(data, 'companies'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

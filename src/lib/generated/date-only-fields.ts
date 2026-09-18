@@ -8,7 +8,7 @@
 /** "model.field" keys for every date-only (`@db.Date`) column. */
 export const DATE_ONLY_FIELDS: ReadonlySet<string> = new Set([
   'attendance.date',
-  'business_partners.next_follow_up_date',
+  'companies.next_follow_up_date',
   'contacts.anniversary',
   'contacts.birthday',
   'daily_visits.visit_date',

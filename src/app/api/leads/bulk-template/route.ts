@@ -14,8 +14,8 @@ export async function GET() {
   const tid = getTenantId()
 
   const [leadTypes, leadStages, states, districts, talukas] = await Promise.all([
-    prisma.lead_types.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { sort_order: 'asc' } }),
-    prisma.lead_stages.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { sort_order: 'asc' } }),
+    prisma.company_types.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { sort_order: 'asc' } }),
+    prisma.deal_stages.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { sort_order: 'asc' } }),
     prisma.states.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }),
     prisma.districts.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }),
     prisma.talukas.findMany({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }),

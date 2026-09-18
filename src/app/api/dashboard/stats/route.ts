@@ -11,8 +11,8 @@ export async function GET() {
     // Seven `count: 'exact', head: true` totals. The original looped over a table
     // name array; Prisma's client is typed per model, so they are written out.
     const [dealers, distributors, states, districts, users, products, weeklyPlans] = await Promise.all([
-      prisma.business_partners.count({ where: { tenant_id: tid, type: 'Dealer' } }),
-      prisma.business_partners.count({ where: { tenant_id: tid, type: 'Distributor' } }),
+      prisma.companies.count({ where: { tenant_id: tid, type: 'Dealer' } }),
+      prisma.companies.count({ where: { tenant_id: tid, type: 'Distributor' } }),
       prisma.states.count({ where: { tenant_id: tid } }),
       prisma.districts.count({ where: { tenant_id: tid } }),
       prisma.users.count({ where: { tenant_id: tid } }),

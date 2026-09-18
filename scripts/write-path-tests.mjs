@@ -128,22 +128,22 @@ async function main() {
 
   // === 3. business_partners `type` guard ====================================
   section('business_partners type guard: a dealers endpoint cannot touch a distributor')
-  const distBefore = (await prisma.business_partners.findUnique({ where: { id: SEED.distributorB } })).name
+  const distBefore = (await prisma.companies.findUnique({ where: { id: SEED.distributorB } })).name
   const rTypePut = await call(`/api/masters/dealers/${SEED.distributorB}`, 'PUT', { name: 'HIJACKED VIA DEALERS' })
   ok('PUT distributor id via /dealers -> 500', rTypePut.status === 500, rTypePut.status)
-  ok('distributor name UNCHANGED', (await prisma.business_partners.findUnique({ where: { id: SEED.distributorB } })).name === distBefore)
+  ok('distributor name UNCHANGED', (await prisma.companies.findUnique({ where: { id: SEED.distributorB } })).name === distBefore)
 
   // Same-tenant distributor, to prove the guard is about `type`, not tenancy.
-  const distA = await prisma.business_partners.create({
+  const distA = await prisma.companies.create({
     data: { tenant_id: SEED.tenantA, type: 'Distributor', stage: 'Existing', name: 'Scratch Distributor A' },
   })
   const rTypeSame = await call(`/api/masters/dealers/${distA.id}`, 'PUT', { name: 'HIJACKED SAME TENANT' })
   ok('PUT same-tenant distributor via /dealers -> 500 (type guard, not tenancy)', rTypeSame.status === 500, rTypeSame.status)
   ok('same-tenant distributor name UNCHANGED',
-    (await prisma.business_partners.findUnique({ where: { id: distA.id } })).name === 'Scratch Distributor A')
+    (await prisma.companies.findUnique({ where: { id: distA.id } })).name === 'Scratch Distributor A')
   const rTypeDel = await call(`/api/masters/dealers/${distA.id}`, 'DELETE')
   ok('DELETE same-tenant distributor via /dealers -> 200 but NO-OP', rTypeDel.status === 200)
-  ok('distributor SURVIVES the dealers DELETE', (await prisma.business_partners.count({ where: { id: distA.id } })) === 1)
+  ok('distributor SURVIVES the dealers DELETE', (await prisma.companies.count({ where: { id: distA.id } })) === 1)
 
   // === 4. POST serialisation: Decimal + Date ================================
   section('POST responses serialise Decimal and Date correctly (§5.1)')
@@ -171,7 +171,7 @@ async function main() {
   ok('latitude value exact', dist.latitude === 12.9716, dist.latitude)
 
   // next_follow_up_date is DATE — set it directly, then read it back through the API.
-  await prisma.business_partners.update({
+  await prisma.companies.update({
     where: { id: dist.id }, data: { next_follow_up_date: new Date('2026-03-04T00:00:00.000Z') },
   })
   const listed = await (await call('/api/masters/distributors', 'GET')).json()
@@ -277,13 +277,13 @@ async function main() {
   section('FINAL ISOLATION CHECK — tenant B must be byte-identical')
   ok('tenant B still has exactly 1 state', (await prisma.states.count({ where: { tenant_id: SEED.tenantB } })) === 1)
   ok('tenant B still has exactly 1 product', (await prisma.products.count({ where: { tenant_id: SEED.tenantB } })) === 1)
-  ok('tenant B still has exactly 1 business_partner', (await prisma.business_partners.count({ where: { tenant_id: SEED.tenantB } })) === 1)
+  ok('tenant B still has exactly 1 business_partner', (await prisma.companies.count({ where: { tenant_id: SEED.tenantB } })) === 1)
   ok('tenant B state name never changed',
     (await prisma.states.findUnique({ where: { id: SEED.stateB } })).name === 'TENANT B STATE — MUST NEVER BE TOUCHED')
   ok('tenant B product name never changed',
     (await prisma.products.findUnique({ where: { id: SEED.productB } })).name === 'TENANT B PRODUCT — MUST NEVER BE TOUCHED')
   ok('tenant B distributor name never changed',
-    (await prisma.business_partners.findUnique({ where: { id: SEED.distributorB } })).name === 'TENANT B DISTRIBUTOR — MUST NEVER BE TOUCHED')
+    (await prisma.companies.findUnique({ where: { id: SEED.distributorB } })).name === 'TENANT B DISTRIBUTOR — MUST NEVER BE TOUCHED')
 
   console.log(`\n${fail === 0 ? 'WRITE-PATH TESTS PASSED' : `WRITE-PATH TESTS FAILED — ${fail}`}   (${pass} passed, ${fail} failed)`)
 }

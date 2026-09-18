@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     // New Prospect mode: create business_partner first, then link visit
     if (new_prospect) {
       if (!new_prospect.name?.trim()) return NextResponse.json({ error: 'Prospect name is required' }, { status: 400 })
-      const bp = await prisma.business_partners.create({
+      const bp = await prisma.companies.create({
         data: {
           tenant_id: tid,
           type: visit_type,

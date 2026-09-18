@@ -43,8 +43,8 @@ export async function run() {
     states: await prisma.states.count({ where: { tenant_id: tid } }),
     districts: await prisma.districts.count({ where: { tenant_id: tid } }),
     users: await prisma.users.count({ where: { tenant_id: tid } }),
-    dealers: await prisma.business_partners.count({ where: { tenant_id: tid, type: 'Dealer' } }),
-    distributors: await prisma.business_partners.count({ where: { tenant_id: tid, type: 'Distributor' } }),
+    dealers: await prisma.companies.count({ where: { tenant_id: tid, type: 'Dealer' } }),
+    distributors: await prisma.companies.count({ where: { tenant_id: tid, type: 'Distributor' } }),
     products: await prisma.products.count({ where: { tenant_id: tid } }),
     weeklyPlans: await prisma.weekly_plans.count({ where: { tenant_id: tid } }),
   }

@@ -25,11 +25,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   try {
     // update(), not updateMany(): the original ended in .select().single().
-    const data = await prisma.business_partners.update({
+    const data = await prisma.companies.update({
       where: { id: params.id, tenant_id: getTenantId() },
       data: body,
     })
-    return NextResponse.json(serialize(data, 'business_partners'))
+    return NextResponse.json(serialize(data, 'companies'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -40,7 +40,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!await checkPermission(user, 'leads', 'delete')) return forbidden()
   try {
     // deleteMany: a no-match was silent before (PLAN.md 8.4).
-    await prisma.business_partners.deleteMany({
+    await prisma.companies.deleteMany({
       where: { id: params.id, tenant_id: getTenantId() },
     })
     return NextResponse.json({ ok: true })

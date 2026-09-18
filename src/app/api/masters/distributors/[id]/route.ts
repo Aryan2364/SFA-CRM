@@ -23,11 +23,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   try {
     // The `type` guard is kept alongside the primary key and tenant_id, so a
     // Distributor endpoint still cannot edit a row of the other partner type.
-    const data = await prisma.business_partners.update({
+    const data = await prisma.companies.update({
       where: { id: params.id, tenant_id: getTenantId(), type: 'Distributor' },
       data: body,
     })
-    return NextResponse.json(serialize(data, 'business_partners'))
+    return NextResponse.json(serialize(data, 'companies'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -39,7 +39,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   try {
     // deleteMany, NOT delete: the previous .delete() returned ok when nothing
     // matched; delete() would throw P2025 and turn that into a 500.
-    await prisma.business_partners.deleteMany({
+    await prisma.companies.deleteMany({
       where: { id: params.id, tenant_id: getTenantId(), type: 'Distributor' },
     })
     return NextResponse.json({ ok: true })

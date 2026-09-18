@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const tid = getTenantId()
 
   try {
-    const distributors = await prisma.business_partners.findMany({
+    const distributors = await prisma.companies.findMany({
       where: {
         tenant_id: tid,
         type: 'Distributor',
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     const distIds = distributors.map(d => d.id)
     const dealersByDist = new Map<string, { id: string; name: string }[]>()
     if (distIds.length > 0) {
-      const dealers = await prisma.business_partners.findMany({
+      const dealers = await prisma.companies.findMany({
         where: {
           tenant_id: tid,
           type: 'Dealer',
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     // business_partners carries latitude/longitude (NUMERIC) and
     // next_follow_up_date (DATE), so serialise the rows BEFORE attaching the
     // plain `dealers` arrays, which need no conversion.
-    const serialised = serialize(distributors, 'business_partners') as Record<string, unknown>[]
+    const serialised = serialize(distributors, 'companies') as Record<string, unknown>[]
     const result = serialised.map(d => ({
       ...d,
       dealers: dealersByDist.get(d.id as string) ?? [],
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   if (longitude != null && (isNaN(Number(longitude)) || Number(longitude) < -180 || Number(longitude) > 180))
     return NextResponse.json({ error: 'Longitude must be between -180 and 180' }, { status: 400 })
   try {
-    const data = await prisma.business_partners.create({
+    const data = await prisma.companies.create({
       data: {
         type: 'Distributor',
         name: name.trim(),
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
         tenant_id: getTenantId(),
       },
     })
-    return NextResponse.json(serialize(data, 'business_partners'), { status: 201 })
+    return NextResponse.json(serialize(data, 'companies'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

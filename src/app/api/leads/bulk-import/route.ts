@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
     prisma.states.findMany({ where: { tenant_id: tid }, select: { id: true, name: true } }),
     prisma.districts.findMany({ where: { tenant_id: tid }, select: { id: true, name: true, state_id: true } }),
     prisma.talukas.findMany({ where: { tenant_id: tid }, select: { id: true, name: true, district_id: true } }),
-    prisma.lead_types.findMany({ where: { tenant_id: tid }, select: { id: true, name: true } }),
-    prisma.lead_stages.findMany({ where: { tenant_id: tid }, select: { name: true } }),
+    prisma.company_types.findMany({ where: { tenant_id: tid }, select: { id: true, name: true } }),
+    prisma.deal_stages.findMany({ where: { tenant_id: tid }, select: { name: true } }),
   ])
 
   const stateMap   = new Map(states.map(r => [r.name.toLowerCase(), r.id]))
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     // That per-row behaviour is preserved exactly: the throw is caught inside the
     // loop and recorded against the row number.
     try {
-      await prisma.business_partners.create({
+      await prisma.companies.create({
         data: {
           tenant_id: tid,
           stage,

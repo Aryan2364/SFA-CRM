@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     // missing or belonged to another tenant, and `!existing?.is_fixed` then
     // allowed the rename — which the update below still rejects, because its
     // own tenant filter matches nothing. findFirst reproduces that exactly.
-    const existing = await prisma.lead_stages.findFirst({
+    const existing = await prisma.deal_stages.findFirst({
       where: { id: params.id, tenant_id: tid },
       select: { is_fixed: true },
     })
@@ -26,11 +26,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       update.sort_order = sort_order ?? 0
     }
     // update(), not updateMany(): the original ended in .select().single().
-    const data = await prisma.lead_stages.update({
+    const data = await prisma.deal_stages.update({
       where: { id: params.id, tenant_id: tid },
       data: update,
     })
-    return NextResponse.json(serialize(data, 'lead_stages'))
+    return NextResponse.json(serialize(data, 'deal_stages'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -41,14 +41,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!await checkPermission(user, 'lead_stages', 'delete')) return forbidden()
   const tid = getTenantId()
   try {
-    const stage = await prisma.lead_stages.findFirst({
+    const stage = await prisma.deal_stages.findFirst({
       where: { id: params.id, tenant_id: tid },
       select: { is_fixed: true },
     })
     if (stage?.is_fixed) return NextResponse.json({ error: 'Fixed stages cannot be deleted' }, { status: 400 })
     // Soft delete. updateMany(), NOT update(): no .single() in the original, so
     // a no-match stayed silent and returned ok (PLAN.md §8.4).
-    await prisma.lead_stages.updateMany({
+    await prisma.deal_stages.updateMany({
       where: { id: params.id, tenant_id: tid },
       data: { is_active: false },
     })

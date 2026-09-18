@@ -98,7 +98,7 @@ export async function run() {
   t.section('leads')
   const lr = await get('/api/leads')
   const lb = await lr.json()
-  const leadCount = await prisma.business_partners.count({ where: { tenant_id: tid } })
+  const leadCount = await prisma.companies.count({ where: { tenant_id: tid } })
   t.ok(`-> 200 with all ${leadCount} partners`, lr.status === 200 && lb.length === leadCount, { status: lr.status, got: lb.length })
   if (lb.length) {
     t.ok('ALIASED embed is exposed as `created_by`, not the relation name',
@@ -110,18 +110,18 @@ export async function run() {
     t.ok('next_follow_up_date is DATE-ONLY or null', lb.every(l => l.next_follow_up_date === null || DATE_ONLY.test(l.next_follow_up_date)), lb[0].next_follow_up_date)
     const someType = lb[0].type
     const tb2 = await (await get(`/api/leads?type=${encodeURIComponent(someType)}`)).json()
-    const expType = await prisma.business_partners.count({ where: { tenant_id: tid, type: someType } })
+    const expType = await prisma.companies.count({ where: { tenant_id: tid, type: someType } })
     t.ok(`?type= filters exactly (${expType})`, tb2.length === expType, tb2.length)
   }
 
   t.section('business-partners lookup (.neq preserved)')
   const bpe = await get('/api/business-partners?status=existing')
   const bpeb = await bpe.json()
-  const expExisting = await prisma.business_partners.count({ where: { tenant_id: tid, is_active: true, stage: 'Existing' } })
+  const expExisting = await prisma.companies.count({ where: { tenant_id: tid, is_active: true, stage: 'Existing' } })
   t.ok(`status=existing -> ${expExisting}`, bpe.status === 200 && bpeb.length === expExisting, { status: bpe.status, got: bpeb.length })
   const bpl = await get('/api/business-partners?status=lead')
   const bplb = await bpl.json()
-  const expLead = await prisma.business_partners.count({ where: { tenant_id: tid, is_active: true, stage: { not: 'Existing' } } })
+  const expLead = await prisma.companies.count({ where: { tenant_id: tid, is_active: true, stage: { not: 'Existing' } } })
   t.ok(`status=lead -> ${expLead} (the .neq branch)`, bpl.status === 200 && bplb.length === expLead, { status: bpl.status, got: bplb.length })
   t.ok('the two branches are disjoint', !bpeb.some(a => bplb.some(b => b.id === a.id)))
 

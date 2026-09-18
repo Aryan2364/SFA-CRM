@@ -11,11 +11,11 @@ export async function GET() {
   // Managing the master still requires create/edit permission below.
   await requireUser()
   try {
-    const data = await prisma.lead_stages.findMany({
+    const data = await prisma.deal_stages.findMany({
       where: { tenant_id: getTenantId() },
       orderBy: { sort_order: 'asc' },
     })
-    return NextResponse.json(serialize(data, 'lead_stages'))
+    return NextResponse.json(serialize(data, 'deal_stages'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
   const { name, sort_order } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   try {
-    const data = await prisma.lead_stages.create({
+    const data = await prisma.deal_stages.create({
       data: { tenant_id: getTenantId(), name: name.trim(), sort_order: sort_order ?? 0, is_fixed: false },
     })
-    return NextResponse.json(serialize(data, 'lead_stages'), { status: 201 })
+    return NextResponse.json(serialize(data, 'deal_stages'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

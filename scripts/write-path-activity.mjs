@@ -107,13 +107,13 @@ async function main() {
   ok('next_follow_up_date round-trips DATE-ONLY', lub.next_follow_up_date === '2026-06-01', lub.next_follow_up_date)
 
   section('leads cross-tenant guards')
-  const bpB = await prisma.business_partners.findFirst({ where: { tenant_id: SEED.tenantB }, select: { id: true, name: true } })
+  const bpB = await prisma.companies.findFirst({ where: { tenant_id: SEED.tenantB }, select: { id: true, name: true } })
   const xPut = await call(`/api/leads/${bpB.id}`, MGR, 'PUT', { name: 'HIJACKED' })
   ok('PUT on another tenant\'s partner -> 500', xPut.status === 500, xPut.status)
-  ok('that row is unchanged', (await prisma.business_partners.findUnique({ where: { id: bpB.id } })).name === bpB.name)
+  ok('that row is unchanged', (await prisma.companies.findUnique({ where: { id: bpB.id } })).name === bpB.name)
   const xDel = await call(`/api/leads/${bpB.id}`, MGR, 'DELETE')
   ok('DELETE on another tenant\'s partner -> 200 but NO-OP', xDel.status === 200, xDel.status)
-  ok('that row survives', (await prisma.business_partners.count({ where: { id: bpB.id } })) === 1)
+  ok('that row survives', (await prisma.companies.count({ where: { id: bpB.id } })) === 1)
   ok('DELETE of a non-existent id -> 200 (no-op, not 500)', (await call('/api/leads/0000000f-0000-4000-8000-0000000000ff', MGR, 'DELETE')).status === 200)
 
   // ===== daily-activity ====================================================
