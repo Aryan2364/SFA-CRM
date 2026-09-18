@@ -167,7 +167,7 @@ to Prisma, and `dbErrorMessage()` evidently returns nothing for that error class
 A bad id is a 400 with a sentence, not a 500 with silence. Likely the same in every route that
 accepts an id in a body. Low severity, wide surface — worth one sweep rather than one fix.
 
-## R-15 — two review routes deny a user their own data
+## R-15 — two review routes deny a user their own data · **RESOLVED 18 Sep (P3-T5)**
 
 Found 18 Sep by the orchestrator session, while the build fleet was down. Reproduced against
 `sfacrm_local` on :3010 as **Amit Kulkarni** (`9000000102`, role *Sales Executive*, scope `own`),
@@ -201,3 +201,16 @@ made deliberately rather than inherited from whichever helper the route happens 
 ⚠️ Do **not** "fix" this by adding self rows to `user_visibility`. That table is the manager
 closure; seeding it with self rows would silently widen every other `canView()` caller, including
 the nine weekly-plan routes that gate transitions on it.
+
+### R-15 resolution
+
+Fixed by P3-T5, which owns these files. Both `daily-activity` and `expenses` now gate on
+`checkPermission` + `scopedUserIds`/`intersectScope` — the composition `daily-summary`,
+`remarks/_access.ts` and Weekly Review already used. Verified: the executive reads his own day
+at 200 on all three routes, is still refused a peer at 403 on both, and the manager still reads
+downward at 200. The fix opened self-view **without** widening peer access, which was the risk.
+
+Rejected alternative: a `userId === user.userId` special case. It clears the 403 and leaves
+`canView()`'s blindness to `data_scope` in place, so the next caller repeats the bug.
+
+`user_visibility` was not touched, as warned.

@@ -6,6 +6,9 @@ export type SectionPerm = { view: boolean; edit: boolean; delete: boolean }
 export type MePermissions = Record<string, SectionPerm>
 
 export type Me = {
+  /** Already on the wire from /api/auth/me; typed here so screens that
+   *  separate "my rows" from "my team's rows" do not re-fetch it. */
+  userId: string
   name: string
   phone: string
   role: string
