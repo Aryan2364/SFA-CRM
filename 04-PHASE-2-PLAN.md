@@ -76,6 +76,106 @@ written by any route, so ageing would read as years old for every migrated Deal 
 
 **Rollback:** `DELETE FROM deals` — sources untouched.
 
+**Built:** `scripts/migrate-funnel-to-deals.mjs` — `--dry-run`, `--tenant <uuid>`,
+`--skip-purge`, `--probability-from-sort-order`. Refuses any non-localhost
+`SCRATCH_DATABASE_URL`. Idempotent by (`tenant_id`, `company_id`, `name`): a company whose
+`<name> — migrated` Deal already exists is skipped, so a re-run inserts nothing.
+
+**Run 2026-09-18 against the local demo tenant** (`0000000d-…0001`):
+
+| | before | after |
+|---|---|---|
+| `deals` | 11 (all junk: `Pipeline deal 0-7`, `Verification deal 4`, `B22 drag verification deal`, `Err probe`) | 5 |
+| `deal_follow_ups` | 0 | 5 |
+| `deal_stage_logs` | 3 (junk) | 0 |
+
+Purge deleted 11 deals + 3 dependent rows. Migrated 5 companies (all `stage = 'Prospect'`),
+each with a `deal_follow_ups` row from `next_follow_up_date` (`mode = 'Other'`,
+`status = 'not_done'`). 16 companies excluded by `stage = 'Existing'`; 0 rows with an
+unresolvable `stage`; 0 rows with no owner; 0 companies with >1 contact. A second run created
+0 rows. `stage_entered_at` = the migration timestamp for all 5.
+
+⚠️ **Open:** `probability` is written as `0`. §4.3 asks for "the stage's default band",
+but `deal_stages` has no probability column and §10's 0-30/40-60/70-100 are *report* buckets,
+not per-stage defaults — so nothing was guessed. `--probability-from-sort-order` derives one
+from stage position if that is wanted instead. Weighted Deal Value reads 0 until this is settled.
+
+⚠️ The migration writes no `deal_stage_logs` row for the initial stage; §4.3 does not ask
+for one, and P2-T5's stage PATCH is what creates them.
+
+#### Verification 2026-09-18 — database queried directly, not the script's own log
+
+Local `sfacrm_local` only. Idempotency, `--dry-run` and the non-local guard were all unproven
+before this pass; all three now hold.
+
+| check | method | result |
+|---|---|---|
+| `--dry-run` writes nothing | full row dump of `deals` + `deal_follow_ups` diffed before/after | byte-identical, `created_at`/`updated_at` included |
+| second **live** run inserts nothing | same dump diffed | byte-identical; `count(*) from deals` = 5, 5 distinct `created_at`, all still `11:25:54` from the first run |
+| purge branch under `--dry-run` | inserted `Pipeline deal PURGE-PROOF` + one child follow-up, ran `--dry-run` | reported `would delete: …` and `deal_follow_ups: 1`; both rows still present afterwards |
+| purge branch live | ran live | deleted 1 deal + 1 dependent row; the 5 real deals diffed byte-identical to baseline |
+| refuses a non-local host | `SCRATCH_DATABASE_URL` overridden to a fabricated remote host in a subshell | `REFUSING TO RUN: … not a local host.`, exit 1, before any client is constructed |
+| refuses scratch == live | both vars set to the same fabricated localhost value | `REFUSING TO RUN: SCRATCH_DATABASE_URL is identical to DATABASE_URL.`, exit 1 |
+| guard fires under `--dry-run` too | remote host + `--dry-run` | same refusal, exit 1 |
+
+The production URL was never placed into any run.
+
+**Required report, from the database:**
+
+| | |
+|---|---|
+| candidate companies (`is_active`, `stage <> 'Existing'`) | 5 |
+| rows migrated | 5 |
+| rows skipped — already migrated | 5 on re-run (0 on the original run) |
+| rows skipped — `stage` has no `deal_stages` row | 0 (the only candidate stage is `Prospect`, which resolves) |
+| rows with no owner | 0 |
+| companies with >1 contact (`contact_id` left NULL) | 0 — in fact all 5 have **zero** linked contacts, so every migrated Deal has `contact_id IS NULL` |
+| companies excluded by `stage = 'Existing'` | 16 |
+| eligible companies left unmigrated | 0 |
+| Deals sourced from an `Existing` company | 0 |
+| `deals.tenant_id` differing from its company's, or from its follow-up's | 0 |
+| follow-up `due_date` matching the source `next_follow_up_date` | 5 of 5 |
+
+**REBUILD-PLAN.md §10 — "migrate as-is, flag as Incomplete, report them":** no candidate has a
+blank name and there are no duplicate names, so no malformed row was skipped. All 5 sources are
+already `is_complete = false` with `completeness_missing = 'Primary Address, City, State,
+Pincode, GST Number'`. The Incomplete flag lives on `companies`/`contacts`, **not** on `deals` —
+a Deal has no completeness column, and inherits the state of the Party it points at. Reported
+here as §10 requires.
+
+#### Script review — findings, none fixed in this pass
+
+**Findings 1 and 2 are latent bugs, not style points. Do not use the script further without
+reading them.** The rest are cleanups.
+
+1. 🐞 **`--probability-from-sort-order` ranks `Lost` highest.** `probabilityFor()` maps stage
+   position linearly onto 0-100 across all active stages. The tenant's six stages end
+   `… Won (5), Lost (6)`, so `Lost` lands at index 5 of 5 → **probability 100** and `Won` at 80.
+   The default path is unaffected (`probability = 0`), but the flag must not be used as written.
+2. 🐞 **Idempotency keys on the derived *name*, not on provenance.** Renaming either the Deal or
+   its source company changes the key, and the next run inserts a **duplicate** Deal for that
+   company. Renaming a Deal is an ordinary user action, so this will bite in production.
+   **Recommended fix:** key the skip on "a Deal already exists for this `company_id`" (or on a
+   stored provenance marker). The derived name never will be a safe key.
+3. **`--tenant <uuid>` still purges the demo tenant.** `purge()` is hardcoded to `DEMO_TENANT`
+   and ignores `ONLY_TENANT`, so a run targeted at another tenant silently deletes rows in
+   `0000000d-…0001`. It should skip the purge when `--tenant` names a different tenant.
+4. **Three queries carry no `tenant_id` predicate** — the idempotency lookup on `deals`, the
+   `company_contacts` lookup, and the child-row counts in `purge()`. All are scoped by `id`/
+   `company_id` so no cross-tenant row is reachable in practice, and the idempotency *key*
+   includes `tenant_id`. It still violates the repo's standing rule. Whether
+   `npm run audit:tenant` actually flags them is **unverified** — the audit was not run in this
+   pass, and the claim is inference from the rule, not a result.
+5. **`JUNK_LIKE` is not a LIKE.** The patterns are turned into `startsWith` by stripping a
+   trailing `%`; a pattern with a leading or interior `%` would silently become a prefix match.
+   The name implies more than the code does.
+6. **The "excluded by stage" report number omits `is_active`.** The candidate query requires
+   `is_active = true`; the exclusion count at the end of `report()` does not, so the two numbers
+   are not drawn from the same population. Both read 16 today only because every `Existing`
+   company happens to be active.
+7. **Each Deal is its own transaction**, so a crash mid-run leaves a partial migration. Harmless
+   given idempotency, but undocumented.
+
 ---
 
 ### **P2-T5 · Deals API** · L · after P2-T2
