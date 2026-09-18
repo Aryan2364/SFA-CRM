@@ -60,3 +60,10 @@ next-env.d.ts
 # python bytecode from scripts/migrate
 __pycache__/
 *.pyc
+
+# Dev-server output from scripts/dev-local.mjs, and agent scratch dirs.
+# Both are local run artefacts: they say what one machine did for a few
+# minutes, never what the code is, so committing them only creates conflicts.
+devserver.log
+*.log
+/.t9/
