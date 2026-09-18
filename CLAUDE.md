@@ -5,7 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev       # Start development server
+npm run dev       # Start development server — ⚠ uses DATABASE_URL, i.e. the LIVE database
+npm run dev:local # Start dev server on :3007 against the LOCAL database (see below)
+npm run dev:seed  # (Re)seed the local demo tenant — destructive, local-only
 npm run build     # Production build
 npm run start     # Start production server
 npm run lint      # Run ESLint
@@ -19,6 +21,28 @@ npm run audit:tenant       # Tenant-scope audit — needs --batch <name>
 There is no unit-test framework. Verification is script-based and lives in `scripts/`; see
 "Testing" below. `PLAN.md` documents the Supabase → Prisma migration and is the source of truth
 for why the data layer looks the way it does.
+
+### Local development database
+
+`next dev` reads `DATABASE_URL` from `.env.local`, which is the **live Supabase database** — so a
+plain `npm run dev` browses and edits production data. `npm run dev:local`
+(`scripts/dev-local.mjs`) exists to avoid that: it overrides `DATABASE_URL` with
+`SCRATCH_DATABASE_URL` in the child process (an explicit process env wins over a `.env.local`
+value, which is what makes the override stick), clears `DATABASE_CA_CERT_PATH` — the local URL
+carries no `sslmode`, so no CA is consulted — and points `DEFAULT_TENANT_ID` at the demo tenant.
+Like every other scratch script it refuses any non-local host.
+
+`npm run dev:seed` (`scripts/seed-dev.mjs`) fills that local database with a browsable demo
+tenant: 5 users (password `dev1234`, phones `9000000100`–`9000000104`), the full location and
+product hierarchies, every list master, ~20 business partners and leads with contacts and
+addresses, and three weeks of attendance, visits, orders, expenses and weekly plans. It is
+deterministic, and it wipes and re-creates **only** tenant `0000000d-…0001` — so it coexists with
+`scratch:seed`, whose tenants A and B the write-path suites assert against. The demo tenant has
+no R2 objects, so seeded expenses carry no photo.
+
+If `prisma/schema.prisma` has changed since the local database was last built, run
+`npm run scratch:push` first. That wrapper runs `prisma db push --accept-data-loss`, which Prisma
+blocks for AI agents — a human has to run it.
 
 ## Architecture
 
