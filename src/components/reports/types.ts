@@ -58,6 +58,12 @@ export type MetaPreset = {
   description: string
   spec: MetaPresetSpec
   companions?: { name: string; spec: MetaPresetSpec }[]
+  /**
+   * What §7.4 asked this report for that it does not yet show, in plain words.
+   * Rendered beside the preset so a shortfall is read rather than guessed at.
+   * Absent on a preset that shows everything it was asked for.
+   */
+  gap?: string
 }
 
 export type MetaBand = { key: string; label: string }

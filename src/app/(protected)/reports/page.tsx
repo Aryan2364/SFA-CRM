@@ -23,6 +23,12 @@ import {
   type DateRangeValue,
 } from '@/components/reports/date-range-control'
 import { ReportChart } from '@/components/reports/report-chart'
+import { ReportHeadline } from '@/components/reports/report-headline'
+import {
+  matchPreset,
+  ReportPresets,
+  type PresetPick,
+} from '@/components/reports/report-presets'
 import { ReportTable } from '@/components/reports/report-table'
 import {
   SavedReports,
@@ -316,6 +322,49 @@ export default function ReportsPage() {
 
   const dimensionOptions = measure ? optionsOf(measure.dimensions) : {}
 
+  // ── The ten ready-made reports (P5-T4) ──────────────────────────────────
+
+  /**
+   * Which preset the builder is showing, DERIVED from the spec rather than
+   * remembered. Change a dimension after opening "Pipeline Summary" and the
+   * name drops off by itself; there is no flag left claiming the report on
+   * screen is still that one.
+   */
+  const activePreset = React.useMemo(
+    () =>
+      meta && spec
+        ? matchPreset(meta.presets, {
+            measure: spec.measure,
+            dimensions: spec.dimensions,
+            filters: filterMap(spec.filters),
+          })
+        : null,
+    [meta, spec]
+  )
+
+  /**
+   * A preset fills the builder; it does not replace it. Only the three things
+   * a preset actually declares are written — measure, dimensions, filters —
+   * so the date range the person has chosen SURVIVES the click. A preset has
+   * no opinion about the period, and overwriting a carefully set range with a
+   * default is the fastest way to make a ready-made report feel like a trap.
+   */
+  function openPreset(pick: PresetPick) {
+    if (!spec) return
+    setSpec({
+      ...spec,
+      measure: pick.spec.measure,
+      dimensions: [...pick.spec.dimensions],
+      filters: Object.entries(pick.spec.filters ?? {}).map(([dimension, value]) => ({
+        id: nextFilterId(),
+        dimension,
+        value,
+      })),
+    })
+    // The combination on screen is now the preset's, not the saved report's.
+    setActiveSaved(null)
+  }
+
   // ── Saved reports (P5-T3) ───────────────────────────────────────────────
 
   const currentConfig = spec ? toSavedConfig(spec) : null
@@ -475,6 +524,14 @@ export default function ReportsPage() {
           // are also reachable with the panel collapsed, which is the state a
           // phone spends most of its time in.
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* The ready-made ten sit beside Saved, on the same pinned row and
+                in the same shape as their peer: a labelled button that opens a
+                list. They are both "open a report someone already set up". */}
+            <ReportPresets
+              presets={meta.presets}
+              active={activePreset}
+              onPick={openPreset}
+            />
             {savedControls}
             <div className="flex items-center gap-1 rounded-lg border border-border-light bg-surface p-1">
               <ViewToggle view={view} setView={setView} target="table" icon={TableIcon} label="Table" />
@@ -482,6 +539,18 @@ export default function ReportsPage() {
             </div>
           </div>
         }
+      />
+
+      {/* ── §7.5 — THE FOUR NUMBERS ──────────────────────────────────────
+          Above everything, full width, for the range selected below. They
+          are four runs of the same engine, so they carry the same §6.6 scope
+          as everything else on the page. `shrink-0`: they are the last thing
+          on this page that should give up height. */}
+      <ReportHeadline
+        tiles={meta.headline}
+        dateFrom={spec.range.from}
+        dateTo={spec.range.to}
+        rangeLabel={describeRange(spec.range)}
       />
 
       {/* ── PINNED CONTROLS ──────────────────────────────────────────────
@@ -620,36 +689,11 @@ export default function ReportsPage() {
                 dimensionOptions={dimensionOptions}
               />
 
-              {meta.presets.length > 0 && (
-                <Field label="Start from a named report">
-                  <div className="flex flex-wrap gap-1.5">
-                    {meta.presets.map(preset => (
-                      <button
-                        key={preset.key}
-                        type="button"
-                        title={preset.description}
-                        onClick={() =>
-                          setSpec({
-                            ...spec,
-                            measure: preset.spec.measure,
-                            dimensions: [...preset.spec.dimensions],
-                            filters: Object.entries(preset.spec.filters ?? {}).map(
-                              ([dimension, value]) => ({
-                                id: nextFilterId(),
-                                dimension,
-                                value,
-                              })
-                            ),
-                          })
-                        }
-                        className="min-h-11 rounded-lg border border-border-light bg-surface px-3 text-label text-text-secondary transition-colors hover:bg-surface-sunken sm:min-h-8"
-                      >
-                        {preset.name}
-                      </button>
-                    ))}
-                  </div>
-                </Field>
-              )}
+              {/* The ready-made reports USED to be a row of chips here. They
+                  are now the "Ready-made" button on the pinned header row —
+                  said once, in the place where the other "open something
+                  already set up" action lives, and reachable with this panel
+                  collapsed, which is the state a phone spends its life in. */}
             </div>
           </div>
         </div>
@@ -758,7 +802,12 @@ function PageHeader({ action }: { action?: React.ReactNode }) {
           Pick what to measure, what to break it down by, and over what period.
         </p>
       </div>
-      {action && <div className="shrink-0">{action}</div>}
+      {/* `max-w-full`, NOT `shrink-0`. A `shrink-0` box takes its max-content
+          width, so the `flex-wrap` row of buttons inside it never reaches a
+          width it has to wrap at — on a phone the last actions simply ran off
+          the right edge, unreachable. Capping the box at the header's width is
+          what lets that wrap actually happen. */}
+      {action && <div className="min-w-0 max-w-full">{action}</div>}
     </header>
   )
 }

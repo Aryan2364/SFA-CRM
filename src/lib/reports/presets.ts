@@ -30,13 +30,31 @@ export type ReportPreset = {
   /** Additional specs shown alongside the first, for a report that is really
    *  two numbers side by side (Plan vs Actual, Expense vs Order Value). */
   companions?: { name: string; spec: PresetSpec }[]
+  /**
+   * WHAT §7.4 ASKED FOR THAT THIS PRESET DOES NOT YET SHOW, in plain words,
+   * shown on the card next to the preset it belongs to.
+   *
+   * ⚠️ This field exists so that a shortfall is VISIBLE rather than invented.
+   * The alternative — quietly computing something adjacent and labelling it
+   * with the name §7.4 used — puts a plausible wrong figure in front of an
+   * owner who has no way to tell. A named gap costs a line of text; a wrong
+   * conversion rate costs a decision. Delete the note on the day the registry
+   * can express the thing, not before.
+   */
+  gap?: string
 }
 
 export const PRESETS: ReportPreset[] = [
   {
     key: 'sales_person_performance',
     name: 'Sales Person Performance',
-    description: 'Order value booked per person, with meetings and discount alongside.',
+    description: 'Order value booked per person, with meetings, orders and discount alongside.',
+    // §7.4 also names CONVERSION RATE. There is no such measure: a rate is one
+    // measure divided by another across two different sources (orders per
+    // meeting, or deals won per deal), and the registry's `ratio` kind divides
+    // two columns of the SAME row. Nothing here is labelled "conversion rate",
+    // because the numbers that are here are all exact.
+    gap: 'Conversion rate is not shown — the engine cannot yet divide one measure by another across two sources.',
     spec: { measure: 'order_amount', dimensions: ['sales_person'] },
     companions: [
       { name: 'Meetings done', spec: { measure: 'meeting_count', dimensions: ['sales_person'] } },
@@ -70,12 +88,22 @@ export const PRESETS: ReportPreset[] = [
     key: 'deal_ageing',
     name: 'Deal Ageing',
     description: 'Deals stuck too long at one stage, by ageing band.',
+    // §7.4 says "oldest first". The bands come back in their KEY order, and the
+    // keys are compared as text, so "8-14" sorts after "60+". Read the band
+    // labels, not the row order, until the engine sorts a band dimension by the
+    // band's position in `AGEING_BANDS` rather than by its key.
+    gap: 'The ageing bands are not in age order — “8–14 days” sorts after “Over 60 days”. Read the band names, not the row order.',
     spec: { measure: 'deal_count', dimensions: ['deal_ageing_band', 'deal_stage'] },
   },
   {
     key: 'plan_vs_actual',
     name: 'Plan versus Actual',
     description: 'Meetings planned against meetings done, per person.',
+    // Planned meetings live in `weekly_plan_items` and done ones in
+    // `daily_visits`. A report reads ONE source, so the two cannot share a
+    // table; they are the same breakdown run twice and read side by side.
+    // Switching the breakdown to a time dimension gives §7.4's "by period".
+    gap: 'Planned and done come from two different tables, so they are two reports side by side rather than two columns of one.',
     spec: { measure: 'planned_visits', dimensions: ['sales_person'] },
     companions: [
       { name: 'Meetings done', spec: { measure: 'meeting_count', dimensions: ['sales_person'] } },
@@ -100,6 +128,10 @@ export const PRESETS: ReportPreset[] = [
     key: 'follow_up_compliance',
     name: 'Follow-up Compliance',
     description: 'Follow-ups due against follow-ups done, per person.',
+    // "Missed" is the open ones whose due date is in the range. With a range
+    // that ends in the future it also counts follow-ups that are merely still
+    // ahead of their date — which is why the note says to end the range today.
+    gap: '“Missed” counts every follow-up still open in the range, so end the range today or earlier for it to mean missed.',
     spec: { measure: 'follow_ups_due', dimensions: ['sales_person'] },
     companions: [
       { name: 'Done', spec: { measure: 'follow_ups_done', dimensions: ['sales_person'] } },
