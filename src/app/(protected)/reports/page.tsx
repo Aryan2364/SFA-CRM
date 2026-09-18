@@ -19,10 +19,17 @@ import {
   defaultRange,
   describeRange,
   isValidRange,
+  resolvePreset,
   type DateRangeValue,
 } from '@/components/reports/date-range-control'
 import { ReportChart } from '@/components/reports/report-chart'
 import { ReportTable } from '@/components/reports/report-table'
+import {
+  SavedReports,
+  type SavedReport,
+  type SavedReportConfig,
+} from '@/components/reports/saved-reports'
+import { useToast } from '@/contexts/ToastContext'
 import type {
   MetaMeasure,
   ReportMeta,
@@ -61,13 +68,15 @@ import { cn } from '@/lib/utils'
  * ---------------------------------------------------------------------------
  * THE SHAPE OF THE STATE IS THE SHAPE OF A SAVED REPORT
  *
- * Saved Reports are P5-T3 and are not built here, but `BuilderSpec` below is
- * already JSON-serialisable with no derived values in it: a measure key, one
- * or two dimension keys, a `{ preset, from, to }` range and a flat filter map.
- * The range keeps its PRESET rather than only its dates, so a report saved as
- * "Last 30 days" reopens in December meaning December's last thirty days — the
- * thing the person actually chose. That is the one decision here that P5-T3
- * cannot retrofit, so it is made now.
+ * `BuilderSpec` below is JSON-serialisable with no derived values in it: a
+ * measure key, one or two dimension keys, a `{ preset, from, to }` range and a
+ * flat filter map. The range keeps its PRESET rather than only its dates, so a
+ * report saved as "Last 30 days" reopens in December meaning December's last
+ * thirty days — the thing the person actually chose.
+ *
+ * P5-T3 stores exactly that, minus the dates a preset can re-derive:
+ * `toSavedConfig()` / `fromSavedConfig()` below are the whole translation, and
+ * a non-custom preset is re-resolved against TODAY every time it is opened.
  *
  * ---------------------------------------------------------------------------
  * WHY THERE IS NO "RUN" BUTTON
@@ -126,7 +135,49 @@ function optionsOf(items: { key: string; label: string }[]): Record<string, stri
   return out
 }
 
+// ── Saved reports (P5-T3) ─────────────────────────────────────────────────
+
+/**
+ * Builder state → the stored `config`.
+ *
+ * ⚠️ A NON-CUSTOM RANGE LOSES ITS DATES ON PURPOSE. Storing them beside the
+ * preset would leave two sources of truth for the same range, and the stale
+ * one is the one somebody eventually reads. `custom` is the only preset whose
+ * dates ARE the choice.
+ */
+function toSavedConfig(spec: BuilderSpec): SavedReportConfig {
+  return {
+    measure: spec.measure,
+    dimensions: [...spec.dimensions],
+    range:
+      spec.range.preset === 'custom'
+        ? { preset: 'custom', from: spec.range.from, to: spec.range.to }
+        : { preset: spec.range.preset },
+    filters: filterMap(spec.filters),
+  }
+}
+
+/** The stored `config` → builder state, with the preset re-resolved to TODAY. */
+function fromSavedConfig(config: SavedReportConfig): BuilderSpec {
+  const range: DateRangeValue =
+    config.range.preset === 'custom'
+      ? { preset: 'custom', from: config.range.from, to: config.range.to }
+      : { preset: config.range.preset, ...resolvePreset(config.range.preset, new Date()) }
+
+  return {
+    measure: config.measure,
+    dimensions: [...config.dimensions],
+    range,
+    filters: Object.entries(config.filters ?? {}).map(([dimension, value]) => ({
+      id: nextFilterId(),
+      dimension,
+      value,
+    })),
+  }
+}
+
 export default function ReportsPage() {
+  const { toast } = useToast()
   const [meta, setMeta] = React.useState<ReportMeta | null>(null)
   const [metaError, setMetaError] = React.useState<string | null>(null)
   const [spec, setSpec] = React.useState<BuilderSpec | null>(null)
@@ -138,6 +189,9 @@ export default function ReportsPage() {
   const [runError, setRunError] = React.useState<string | null>(null)
   /** Bumped to re-run the same spec after a failure. */
   const [attempt, setAttempt] = React.useState(0)
+
+  /** The saved report currently open, if the combination came from one. */
+  const [activeSaved, setActiveSaved] = React.useState<SavedReport | null>(null)
 
   // ── Meta ────────────────────────────────────────────────────────────────
   const loadMeta = React.useCallback(() => {
@@ -262,6 +316,98 @@ export default function ReportsPage() {
 
   const dimensionOptions = measure ? optionsOf(measure.dimensions) : {}
 
+  // ── Saved reports (P5-T3) ───────────────────────────────────────────────
+
+  const currentConfig = spec ? toSavedConfig(spec) : null
+
+  /**
+   * A saved config can name a measure or a dimension that has since left the
+   * registry — or that this person's permissions no longer reach, since `meta`
+   * is already filtered by `checkPermission`. Answering here rather than in the
+   * saved-reports component is what keeps that component free of any knowledge
+   * of the registries.
+   */
+  const unavailableReason = React.useCallback(
+    (config: SavedReportConfig): string | null => {
+      if (!meta) return null
+      const m = meta.measures.find(x => x.key === config.measure)
+      if (!m) return 'This measure is no longer available to you.'
+      const allowed = new Set(m.dimensions.map(d => d.key))
+      if (!config.dimensions[0] || !allowed.has(config.dimensions[0])) {
+        return 'The field it breaks down by is no longer available to you.'
+      }
+      return null
+    },
+    [meta]
+  )
+
+  const describeConfig = React.useCallback(
+    (config: SavedReportConfig): string => {
+      const m = meta?.measures.find(x => x.key === config.measure)
+      const labels = config.dimensions.map(
+        d => m?.dimensions.find(x => x.key === d)?.label ?? d
+      )
+      const range: DateRangeValue =
+        config.range.preset === 'custom'
+          ? { preset: 'custom', from: config.range.from, to: config.range.to }
+          : { preset: config.range.preset, ...resolvePreset(config.range.preset, new Date()) }
+      return `${m?.label ?? config.measure} by ${labels.join(' and ')} · ${describeRange(range)}`
+    },
+    [meta]
+  )
+
+  /**
+   * Open a saved report.
+   *
+   * Anything the measure can no longer be sliced by is dropped rather than
+   * posted to the engine for a 400: a second dimension that has gone, and any
+   * filter on a dimension that has gone. The person is told what was dropped —
+   * a report that quietly returns different numbers than it did when it was
+   * saved is the failure worth spending a toast on.
+   */
+  function openSaved(report: SavedReport) {
+    if (!meta) return
+    const m = meta.measures.find(x => x.key === report.config.measure)
+    if (!m) return
+    const allowed = new Set(m.dimensions.map(d => d.key))
+
+    const next = fromSavedConfig(report.config)
+    const dimensions = next.dimensions.filter(d => allowed.has(d))
+    const filters = next.filters.filter(f => allowed.has(f.dimension))
+    const dropped =
+      dimensions.length !== next.dimensions.length || filters.length !== next.filters.length
+
+    setSpec({ ...next, dimensions, filters })
+    setActiveSaved(report)
+    if (dropped) {
+      toast(
+        `Part of “${report.name}” is no longer available and was left out.`,
+        'warning'
+      )
+    }
+  }
+
+  /** True once the person has changed anything since the saved report opened. */
+  const savedEdited =
+    activeSaved !== null &&
+    currentConfig !== null &&
+    JSON.stringify(currentConfig) !== JSON.stringify(activeSaved.config)
+
+  const savedControls = (
+    <SavedReports
+      currentConfig={currentConfig}
+      activeId={activeSaved?.id ?? null}
+      activeName={
+        activeSaved ? (savedEdited ? `${activeSaved.name} (edited)` : activeSaved.name) : null
+      }
+      edited={savedEdited}
+      onOpen={openSaved}
+      onActiveChange={setActiveSaved}
+      unavailableReason={unavailableReason}
+      describeConfig={describeConfig}
+    />
+  )
+
   // ── Render ──────────────────────────────────────────────────────────────
 
   if (metaError) {
@@ -323,9 +469,17 @@ export default function ReportsPage() {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         action={
-          <div className="flex items-center gap-1 rounded-lg border border-border-light bg-surface p-1">
-            <ViewToggle view={view} setView={setView} target="table" icon={TableIcon} label="Table" />
-            <ViewToggle view={view} setView={setView} target="chart" icon={BarChart3Icon} label="Chart" />
+          // Save/open sit on the header bar beside the view toggle — the one
+          // row that is pinned and never scrolls away — because they act on
+          // the whole report, not on any one control inside the panel. They
+          // are also reachable with the panel collapsed, which is the state a
+          // phone spends most of its time in.
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {savedControls}
+            <div className="flex items-center gap-1 rounded-lg border border-border-light bg-surface p-1">
+              <ViewToggle view={view} setView={setView} target="table" icon={TableIcon} label="Table" />
+              <ViewToggle view={view} setView={setView} target="chart" icon={BarChart3Icon} label="Chart" />
+            </div>
           </div>
         }
       />
@@ -597,7 +751,7 @@ function scopeLabel(result: ReportResult): string {
 
 function PageHeader({ action }: { action?: React.ReactNode }) {
   return (
-    <header className="flex shrink-0 items-start justify-between gap-4">
+    <header className="flex shrink-0 flex-wrap items-start justify-between gap-x-4 gap-y-3">
       <div className="min-w-0">
         <h1 className="text-page-title font-medium text-text-primary">Reports</h1>
         <p className="mt-1 text-meta text-text-muted">
