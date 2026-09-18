@@ -3,6 +3,8 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { getVisibleUserIds } from '@/lib/visibility'
+import { checkPermission } from '@/lib/permissions'
+import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { isOrderStatus, type OrderStatus } from '@/lib/order-math'
 
 export const dynamic = 'force-dynamic'
@@ -25,7 +27,45 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       },
     })
     if (!order) return NextResponse.json({ error: 'No rows found' }, { status: 404 })
-    return NextResponse.json(serialize(order, 'orders'))
+
+    /*
+     * §5.6's Order → Meeting direction, resolved HERE rather than left to the
+     * drawer to infer from `visit_id`.
+     *
+     * `orders.visit_id` being set says an order was taken in a meeting; it does
+     * NOT say the reader may open that meeting. The two records are scoped
+     * separately — a manager can be handed a rep's order through the `orders`
+     * scope while the `meetings` scope puts the visit out of reach, and the
+     * reverse happens too. Rendering a link off the raw column would name a
+     * party and a date the reader was never granted, and the click would then
+     * 404, which is the worst of both.
+     *
+     * So the visit is re-read under `meetings:view` plus the `meetings` scope,
+     * and `meeting` is null whenever that read finds nothing. Null means "no
+     * link", never "no meeting": the drawer cannot tell the two apart and must
+     * not try, because the only honest thing to do with either is show nothing.
+     */
+    let meeting: { id: string; entity_name: string; visit_date: string } | null = null
+    if (order.visit_id && (await checkPermission(user, 'meetings', 'view'))) {
+      const visit = await prisma.daily_visits.findFirst({
+        where: {
+          id: order.visit_id,
+          tenant_id: tid,
+          ...scopeWhere(await scopedUserIds(user, 'meetings')),
+        },
+        select: { id: true, entity_name: true, visit_date: true },
+      })
+      // `visit_date` is @db.Date; without the model name it would reach the
+      // drawer as a full ISO timestamp and print the wrong day in IST.
+      if (visit) {
+        meeting = serialize(visit, 'daily_visits') as typeof meeting
+      }
+    }
+
+    // `serialize` is declared `unknown` (it walks an arbitrary shape), so the
+    // cast is what lets the one extra key be spread alongside it.
+    const body = serialize(order, 'orders') as Record<string, unknown>
+    return NextResponse.json({ ...body, meeting })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

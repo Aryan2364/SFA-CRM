@@ -1,8 +1,9 @@
 'use client'
 
 import { Suspense, useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { PlusIcon } from 'lucide-react'
+import { PlusIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { DataHealthAlert, QuickFilterChip } from '@/components/alerts/data-health-alert'
@@ -48,6 +49,15 @@ type OrderRow = {
 }
 
 type OrderDetail = OrderRow & {
+  /**
+   * §5.6's Order → Meeting link, already scope-checked by
+   * `GET /api/orders/[id]`. NOT derived from `visit_id`: that column says an
+   * order came from a meeting, it does not say this reader may open it. Null
+   * covers both "no meeting" and "not yours", and the drawer must render
+   * nothing for either — a link the reader cannot follow, or a party name
+   * they were never granted, are the same leak in two shapes.
+   */
+  meeting: { id: string; entity_name: string; visit_date: string } | null
   item_discount_total: number
   order_discount_type: DiscountType
   order_discount_value: number
@@ -696,6 +706,35 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
             </div>
           </div>
 
+          {/*
+            §5.6, Order → Meeting. It sits directly under Source, which is the
+            field that says this order came from a meeting at all — the link
+            belongs beside the fact it follows from, not in a corner.
+
+            Rendered ONLY when the API resolved a meeting this reader may open.
+            A Direct order has none and shows nothing here; so does an order
+            whose meeting is outside the reader's scope. §5.6: if meetings
+            exist, links appear; if not, nothing appears — no empty row, no
+            disabled link, no "no meeting" line.
+          */}
+          {order.meeting && (
+            <Link
+              href={`/daily-activity/meeting/${order.meeting.id}`}
+              className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-border-light px-3 py-2.5 transition-colors hover:bg-surface-control"
+            >
+              <span className="min-w-0">
+                <span className="text-xs text-text-muted block mb-0.5">Taken in this meeting</span>
+                <span className="block truncate text-sm font-medium text-text-primary">
+                  {order.meeting.entity_name}
+                  <span className="ml-2 font-normal text-text-secondary">
+                    {fmtDate(order.meeting.visit_date)}
+                  </span>
+                </span>
+              </span>
+              <SquareArrowOutUpRightIcon className="size-4 shrink-0 text-text-muted" aria-hidden="true" />
+            </Link>
+          )}
+
           {/* Status */}
           <div>
             <label htmlFor="order-detail-status" className="text-xs text-text-secondary block mb-1">Status</label>
@@ -1074,6 +1113,23 @@ function OrdersPageInner() {
     if (!r.ok) { toast('Could not load order details', 'error'); return }
     setDetailOrder(await r.json())
   }
+
+  /*
+   * §5.6's Meeting → Order landing. There is no `/orders/[id]` page — an
+   * order is read in the drawer below — so a link to one order carries
+   * `?open=<id>` and this opens it on arrival, over the list it belongs to.
+   *
+   * Read once, not watched: a `searchParams` dependency would re-open the
+   * drawer every time the URL changed for any other reason, including the
+   * user closing it. And the id is NOT trusted — `openDetail` fetches it
+   * through the scoped route, so a stale or guessed id ends in the toast and
+   * the plain list, never in somebody else's order.
+   */
+  const [deepLinkId] = useState(() => searchParams.get('open') ?? '')
+  useEffect(() => {
+    if (deepLinkId) void openDetail(deepLinkId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkId])
 
   /*
    * Deliberately NOT memoised. The template holds `load` in a ref and

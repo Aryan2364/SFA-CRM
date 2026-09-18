@@ -60,6 +60,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EMPTY, fmtAmount, fmtDate, fmtDateTime, parseApiDate } from '@/lib/format'
 import { FollowUpsSection, type FollowUp } from '@/components/deals/follow-ups-section'
+import { DealMeetingsSection } from '@/components/deals/deal-meetings-section'
 
 // ─────────────────────────────────────────────────────────────
 // The wire shape
@@ -456,6 +457,13 @@ export default function DealDetailPage() {
                   setDeal(current => (current ? { ...current, follow_ups: followUps } : current))
                 }
               />
+              {/*
+                §5.6. Every meeting this Deal was discussed in, each one a
+                link into that meeting. It renders NOTHING when there are
+                none — a Meeting is not compulsory for a Deal, so absence is
+                an ordinary state and not an empty state. See the component.
+              */}
+              <DealMeetingsSection dealId={deal.id} />
               <StageHistoryCard
                 logs={deal.deal_stage_logs ?? []}
                 stageNames={stageNames}

@@ -1,12 +1,15 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import {
   ClipboardListIcon,
+  HistoryIcon,
   MapIcon,
   MapPinIcon,
   MessageSquareIcon,
   PencilIcon,
+  SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from 'lucide-react'
 
@@ -101,6 +104,22 @@ export function VisitCard({
               <Badge variant="neutral">{visit.visit_type}</Badge>
               {visit.is_new_entity && <Badge variant="neutral">New</Badge>}
               {visit.weekly_plan_item_id && <Badge variant="neutral">From plan</Badge>}
+              {/*
+                P3-T10, folded in by P3-T11. A hand-typed meeting is marked
+                INSIDE the card, beside the badges that describe the same
+                meeting, rather than on a ribbon the page drew around it —
+                the page's wrapper could not survive the card being used
+                anywhere else, and this fact belongs to the meeting.
+
+                Colour is never the only signal (kit rule): the icon carries
+                it for anyone who cannot tell the warning tint from neutral.
+              */}
+              {visit.is_manual_entry && (
+                <Badge variant="warning" className="gap-1">
+                  <HistoryIcon className="size-3" />
+                  Manually Entered · Tentative
+                </Badge>
+              )}
               {showOwner && ownerName && <span className="text-meta text-text-muted">{ownerName}</span>}
             </div>
             <h3 className="mt-1.5 truncate text-card-heading font-medium text-text-primary">{visit.entity_name}</h3>
@@ -132,6 +151,29 @@ export function VisitCard({
 
       {/* One action row, grouped, next to the meeting they act on. */}
       <div className="flex flex-wrap items-center gap-1.5 border-t border-border-light px-4 py-2.5">
+        {/*
+          P3-T11 §5.6. The only way INTO the meeting page, and the reason it
+          leads the row: everything else here acts on the meeting from the
+          outside, while this opens the record itself — the Deals discussed,
+          the Orders taken and the minutes. It is shown for every meeting,
+          including a Pending one: the page renders the party's pipeline
+          whether or not the stopwatch has been started, so there is no
+          state in which the link is a dead end.
+        */}
+        <Button
+          size="sm"
+          variant="secondary"
+          /* Base UI asserts on a button that renders as something else: an
+             anchor has no native button semantics, and saying so is what
+             stops it being submitted as one. `pagination.tsx` does the same
+             for the same reason. Without it this logs an error on every
+             card, which is how it was caught. */
+          nativeButton={false}
+          render={<Link href={`/daily-activity/meeting/${visit.id}`} />}
+        >
+          <SquareArrowOutUpRightIcon />
+          Open meeting
+        </Button>
         {(visit.status === 'Active' || visit.status === 'Completed') && (
           <Button size="sm" variant="secondary" onClick={() => onOrderEntry(visit)}>
             <ClipboardListIcon />

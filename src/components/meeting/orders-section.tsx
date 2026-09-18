@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRightIcon } from 'lucide-react'
+import { ArrowRightIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,14 +30,11 @@ import type { MeetingOrder, VisitOrder } from './types'
  * a meeting has NO `entity_name` at all, so a name search finds a party's
  * direct orders and silently drops the ones taken in front of them.
  *
- * ⚠️ Seeding the Orders SCREEN's own controls from that parameter is P3-T11's
- * cross-linking task and is NOT done here: `templates/list-page.tsx`
- * initialises its search and filter state to empty and never reads
- * `useSearchParams`, and both that file and `orders/page.tsx` belong to other
- * tasks. The server side of the filter and this end of the link are done; the
- * page-side seeding is one `useSearchParams` call away and is not yet written.
- * An unfiltered Orders page is a worse landing than a filtered one but it is
- * still the right place, so the link is never withheld.
+ * The Orders screen reads that parameter on mount and shows a clearable chip
+ * saying which party it is narrowed to, so the landing is filtered and the
+ * narrowing can be taken off without leaving the page. `templates/list-page.tsx`
+ * is untouched by any of it — the seeding lives in `orders/page.tsx`, outside
+ * the template.
  */
 export function OrdersSection({
   visitId,
@@ -183,28 +180,52 @@ export function OrdersSection({
   )
 }
 
+/**
+ * §5.6's Meeting → Order direction.
+ *
+ * The whole row is the link, so the target is the row and not a word inside
+ * it, and it opens the order's own record rather than a filtered list the
+ * reader then has to search. There is no `/orders/[id]` PAGE in this app —
+ * an order is read in a drawer over the list — so the link carries the id as
+ * `?open=`, which `orders/page.tsx` opens on arrival. That keeps one reader
+ * for an order instead of a second, drifting copy of the same panel.
+ *
+ * ⚠️ Every order rendered here already survived the caller's `orders` scope in
+ * `GET /api/daily-activity/[id]`, and `GET /api/orders/[id]` applies the same
+ * scope again on arrival. A stale or guessed id therefore refuses rather than
+ * reveals, and the refusal is the toast on the Orders page.
+ */
 function OrderRow({ order }: { order: MeetingOrder }) {
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-border-light p-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <p className="truncate text-body font-medium text-text-primary">
-          {fmtAmount(order.total_amount)}
-          <span className="ml-2 text-label font-normal text-text-secondary">
-            {order.item_count} {order.item_count === 1 ? 'line' : 'lines'}
-          </span>
-        </p>
-        <p className="text-label text-text-secondary">
-          {fmtDate(order.order_date)}
-          {order.users ? ` · ${order.users.name}` : ''}
-          {order.order_source === 'meeting' ? ' · from a meeting' : ''}
-        </p>
-        {order.blocked_reason ? (
-          <p className="text-label text-warning">{order.blocked_reason}</p>
-        ) : null}
-      </div>
-      <Badge variant={order.status === 'Placed' ? 'success' : 'warning'}>
-        {order.status}
-      </Badge>
+    <li>
+      <Link
+        href={`/orders?open=${order.id}`}
+        className="flex min-h-11 flex-col gap-2 rounded-lg border border-border-light p-3 transition-colors hover:bg-surface-control sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 truncate text-body font-medium text-text-primary">
+            {fmtAmount(order.total_amount)}
+            <span className="text-label font-normal text-text-secondary">
+              {order.item_count} {order.item_count === 1 ? 'line' : 'lines'}
+            </span>
+            <SquareArrowOutUpRightIcon
+              className="size-3.5 shrink-0 text-text-muted"
+              aria-hidden="true"
+            />
+          </p>
+          <p className="text-label text-text-secondary">
+            {fmtDate(order.order_date)}
+            {order.users ? ` · ${order.users.name}` : ''}
+            {order.order_source === 'meeting' ? ' · from a meeting' : ''}
+          </p>
+          {order.blocked_reason ? (
+            <p className="text-label text-warning">{order.blocked_reason}</p>
+          ) : null}
+        </div>
+        <Badge variant={order.status === 'Placed' ? 'success' : 'warning'}>
+          {order.status}
+        </Badge>
+      </Link>
     </li>
   )
 }

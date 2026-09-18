@@ -205,9 +205,15 @@ export function DealsSection({
                   <div className="min-w-0 flex-1">
                     {/* The identifier leads: largest, first. Everything else
                         is metadata and sits under it, smaller. */}
+                    {/* §5.6's Meeting → Deal link. `min-h-11` on a phone: a
+                        22px line of text is not a tap target, and this is the
+                        only route from the meeting into the Deal. The
+                        constraint is dropped from `sm` up, where the pointer
+                        is a mouse and the row should stay compact — the same
+                        shape the Discussed checkbox above uses. */}
                     <Link
                       href={`/deals/${deal.id}`}
-                      className="block truncate text-body font-medium text-text-primary underline-offset-2 hover:underline"
+                      className="flex min-h-11 items-center truncate text-body font-medium text-text-primary underline-offset-2 hover:underline sm:min-h-0"
                     >
                       {deal.name}
                     </Link>

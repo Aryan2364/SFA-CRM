@@ -38,6 +38,15 @@ export type Visit = {
   /** Set when the meeting came from an approved weekly-plan line. */
   weekly_plan_item_id?: string | null
   /**
+   * P3-T10 (§5.3) — the meeting was typed in after the fact rather than
+   * timed live, so its start and end are somebody's recollection.
+   *
+   * The card marks it, because a hand-typed duration must never be read as
+   * a captured one. It carries no other consequence: nothing is blocked and
+   * nothing is recomputed from it.
+   */
+  is_manual_entry?: boolean
+  /**
    * §5.4's location flag, decided SERVER-SIDE on stop: a real Haversine
    * distance in metres against the tenant's `location_flag_threshold_m`
    * (default 500). See `src/lib/geo.ts`.

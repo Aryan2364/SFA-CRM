@@ -7,7 +7,6 @@ import { HistoryIcon, PlusIcon } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
 import RemarksPanel from '@/components/ui/RemarksPanel'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -361,11 +360,7 @@ function DailyActivityInner() {
 
   const activeCount = visits.filter(v => v.status === 'Active').length
   const doneCount = visits.filter(v => v.status === 'Completed').length
-  // `is_manual_entry` is not yet on the shared `Visit` type (P3-T10 reads
-  // it from the API response without widening `types.ts` — see the
-  // handoff note in this file's own header comment); cast at the point
-  // of use rather than `any`-ing the whole array.
-  const manualCount = visits.filter(v => (v as Visit & { is_manual_entry?: boolean }).is_manual_entry).length
+  const manualCount = visits.filter(v => v.is_manual_entry).length
 
   return (
     <Tabs value={activeTab} onValueChange={v => setActiveTab(String(v))} className="h-full">
@@ -449,45 +444,32 @@ function DailyActivityInner() {
                       onAddMeeting={p => setMeetingDialog({ open: true, planItem: p })}
                     />
                   ))}
-                  {visits.map(visit => {
-                    // P3-T10: `is_manual_entry` is not on `Visit` yet (see
-                    // `manualCount` above) and `visit-card.tsx` is owned by
-                    // another task right now, so the "visibly distinct"
-                    // marking for a manual entry is rendered HERE, wrapping
-                    // the card, rather than inside it. Once `types.ts` gets
-                    // the field and `visit-card.tsx` is free, this ribbon
-                    // belongs next to the card's other badges instead — see
-                    // this file's P3-T10 handoff note in the header comment.
-                    const isManual = (visit as Visit & { is_manual_entry?: boolean }).is_manual_entry === true
-                    return (
-                      <div key={visit.id} className={isManual ? 'relative pt-3' : undefined}>
-                        {isManual && (
-                          <Badge
-                            variant="warning"
-                            className="absolute left-3 top-0 z-10 -translate-y-1/2 gap-1"
-                          >
-                            <HistoryIcon className="size-3" />
-                            Manually Entered · Tentative
-                          </Badge>
-                        )}
-                        <VisitCard
-                          visit={visit}
-                          showOwner={multiUser}
-                          ownerName={visit.user_id ? userNames[visit.user_id] : null}
-                          /* A manager may read the team's meetings and may not
-                             drive someone else's stopwatch. */
-                          canEdit={canLogMeeting && (!visit.user_id || visit.user_id === me?.userId)}
-                          canDelete={canDeleteMeeting && (!visit.user_id || visit.user_id === me?.userId)}
-                          onStart={handleStart}
-                          onStop={handleStop}
-                          onDelete={setPendingDelete}
-                          onOrderEntry={setOrderEntry}
-                          onRemarks={v => setRemarksPanel({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
-                          onNotesUpdate={handleNotesUpdate}
-                        />
-                      </div>
-                    )
-                  })}
+                  {/*
+                    P3-T11 removed the ribbon that used to wrap each card
+                    here. `is_manual_entry` is on `Visit` now and
+                    `visit-card.tsx` marks it beside the card's own badges,
+                    so the wrapper was a second copy of one fact — and a copy
+                    that only existed on this one screen, which meant any
+                    other list of meetings silently lost the distinction.
+                  */}
+                  {visits.map(visit => (
+                    <VisitCard
+                      key={visit.id}
+                      visit={visit}
+                      showOwner={multiUser}
+                      ownerName={visit.user_id ? userNames[visit.user_id] : null}
+                      /* A manager may read the team's meetings and may not
+                         drive someone else's stopwatch. */
+                      canEdit={canLogMeeting && (!visit.user_id || visit.user_id === me?.userId)}
+                      canDelete={canDeleteMeeting && (!visit.user_id || visit.user_id === me?.userId)}
+                      onStart={handleStart}
+                      onStop={handleStop}
+                      onDelete={setPendingDelete}
+                      onOrderEntry={setOrderEntry}
+                      onRemarks={v => setRemarksPanel({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
+                      onNotesUpdate={handleNotesUpdate}
+                    />
+                  ))}
                 </div>
               </div>
             )}
