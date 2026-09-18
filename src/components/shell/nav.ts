@@ -9,6 +9,7 @@ import {
   Settings,
   ShoppingCart,
   UserRoundCheck,
+  UsersRound,
   UserRoundSearch,
   type LucideIcon,
 } from 'lucide-react'
@@ -212,6 +213,20 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Review',
     href: '/review',
     icon: UserRoundCheck,
+    visible: me => me.hasSubordinates,
+  },
+  {
+    /*
+     * REBUILD-PLAN.md §6.4 — the summary-of-summaries, one level above the
+     * per-person review screens. Gated on the same predicate as Review for the
+     * same reason: the page aggregates the people below this user, so a user
+     * with nobody below them has nothing to aggregate. The server refuses it
+     * on `role_permissions.data_scope` rather than on this predicate — this is
+     * the client-side statement of the same fact, not the check.
+     */
+    label: 'Team Summary',
+    href: '/review/team',
+    icon: UsersRound,
     visible: me => me.hasSubordinates,
   },
   {
