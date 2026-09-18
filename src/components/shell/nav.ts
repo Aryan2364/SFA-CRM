@@ -2,6 +2,7 @@ import {
   CalendarDays,
   ClipboardList,
   Database,
+  Handshake,
   LayoutDashboard,
   MessageSquare,
   Settings,
@@ -36,6 +37,7 @@ import type { Me } from '@/hooks/useMe'
  *   | Weekly Plan    | clipboard-list      |
  *   | Orders         | shopping-cart       |
  *   | Parties        | user-round-search   |
+ *   | Deals          | handshake           |
  *   | Review         | user-round-check    |
  *   | Conversations  | message-square      |
  *   | Masters        | database            |
@@ -53,10 +55,16 @@ import type { Me } from '@/hooks/useMe'
  * 26 is what brings it under seven: whole areas a user has no access to
  * are hidden, not disabled.
  *
- * Nine entries are declared. A field rep sees six; a manager sees seven;
- * an administrator sees all nine, which is the one role the cap does not
- * hold for and the one role that is not scanning for a destination it
- * has never used.
+ * Ten entries are declared. A field rep sees seven; a manager sees
+ * eight; an administrator sees all ten, which is the one role the cap
+ * does not hold for and the one role that is not scanning for a
+ * destination it has never used.
+ *
+ * Deals is the tenth (P2-T7). It is NOT a tab on Parties: section 33.1's
+ * test is whether the views are siblings of ONE section, and a Deal is a
+ * different record with its own permission section, its own masters and
+ * its own scope — a Party is who you sell to, a Deal is what you are
+ * selling them.
  *
  * Three destinations are deliberately NOT here, and none is lost:
  *
@@ -159,6 +167,18 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/parties',
     icon: UserRoundSearch,
     visible: me => canView(me, 'companies') || canView(me, 'contacts'),
+  },
+  {
+    /*
+     * REBUILD-PLAN.md §4. Gated on the `deals` section of
+     * role_permissions — the same table `checkPermission(user,'deals',…)`
+     * reads on the server, so the entry appears exactly when
+     * `GET /api/deals` would answer rather than 403.
+     */
+    label: 'Deals',
+    href: '/deals',
+    icon: Handshake,
+    visible: me => canView(me, 'deals'),
   },
   {
     /*
