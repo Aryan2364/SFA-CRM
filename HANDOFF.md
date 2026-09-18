@@ -1,6 +1,6 @@
 # HANDOFF — SFA CRM rebuild, orchestrator session
 
-Written 18 Sep 2026. Branch **`rebuild/phase-1`**, 23 commits ahead of `main`.
+Written 18 Sep 2026. Branch **`rebuild/phase-1`**, **28 commits** ahead of `main`.
 `main` is untouched at `221f47e`, tagged **`pre-phase1-2026-09-18`**.
 
 Read this, then `08-EXECUTION-SEQUENCE.md` for the task queue and the phase plans for detail.
@@ -60,7 +60,7 @@ rehearsed, targeted reversal to undo — see §7. **Do not repeat it.**
 
 ---
 
-## 3. What is built (23 commits)
+## 3. What is built (28 commits)
 
 **Phase 1 — Parties.** `business_partners` → `companies`, `lead_types` → `company_types`,
 `lead_stages` → `deal_stages`. Contacts + the many-to-many join. Parties page, two tabs, on
@@ -95,8 +95,8 @@ Auto check-out (lazy sweep — there is no scheduler in this codebase).
 
 ## 4. What is left — 31 of 58 tasks
 
-**Phase 1:** COMPLETE except T19 — eliminate the word "Lead" — eliminate the word "Lead" (deliberately last; it is a sweep over
-everything else). ~280 occurrences. ⚠️ **Do not rename master *values*** (`Prospect`, `Existing`,
+**Phase 1: COMPLETE except T19** — eliminate the word "Lead" (deliberately last; it is a sweep
+over everything else, so run it when nothing is mid-edit). ~280 occurrences. ⚠️ **Do not rename master *values*** (`Prospect`, `Existing`,
 `Dealer`) — they are join keys in `orders.entity_type` and `daily_visits.visit_type` with no FK.
 ⚠️ A registry group key is still named `lead_config`.
 
