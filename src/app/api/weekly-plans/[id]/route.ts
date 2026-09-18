@@ -3,8 +3,96 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { toItemRows } from '../_items'
+import { canView } from '@/lib/visibility'
+import { readItemsDiff } from '@/lib/weekly-plan-diff'
+import { readOthers, carriedNote, toItemRows } from '../_items'
 import { loadGoals, saveGoals } from '../_goals'
+import { loadPartyLabels } from '../_diff'
+
+/**
+ * One plan, everything a reviewer needs to decide on it: the lines with their
+ * party names resolved, the §5.1 goal checklist, and the audit trail with each
+ * manager edit's before/after payload already parsed.
+ *
+ * Only PUT lived on this path. The approval screen needed a plan by id, and the
+ * two alternatives were both wrong: `/my` is keyed on the CALLER's user id and
+ * week, so a manager cannot reach a subordinate's plan through it, and `/review`
+ * returns every plan of every subordinate to read one.
+ *
+ * Authorisation is the owner-or-visible rule the write verbs use, over the view
+ * permission — the same pair `logs` settled on after it was found calling
+ * neither.
+ */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await requireUser()
+  if (!await checkPermission(user, 'weekly_plan', 'view')) return forbidden()
+  const tid = getTenantId()
+
+  try {
+    const plan = await prisma.weekly_plans.findFirst({
+      where: { id: params.id, tenant_id: tid },
+      include: {
+        weekly_plan_items: { orderBy: [{ plan_date: 'asc' }, { created_at: 'asc' }] },
+        users_weekly_plans_user_idTousers: { select: { id: true, name: true, contact: true } },
+      },
+    })
+    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (!user.userId) return NextResponse.json({ error: 'User not in DB' }, { status: 400 })
+    if (plan.user_id !== user.userId && !(await canView(user.userId, plan.user_id, tid))) {
+      return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    }
+
+    const [labels, logs, goals] = await Promise.all([
+      loadPartyLabels(
+        plan.weekly_plan_items
+          .map(i => i.party_id)
+          .filter((id): id is string => Boolean(id)),
+        tid,
+      ),
+      prisma.weekly_plan_audit_logs.findMany({
+        where: { weekly_plan_id: params.id, tenant_id: tid },
+        include: { users: { select: { name: true } } },
+        orderBy: { timestamp: 'desc' },
+      }),
+      loadGoals(params.id, tid),
+    ])
+
+    const { users_weekly_plans_user_idTousers, weekly_plan_items, ...rest } = plan
+    const serialised = serialize(
+      { ...rest, weekly_plan_items },
+      'weekly_plans',
+    ) as Record<string, unknown> & { weekly_plan_items: Record<string, unknown>[] }
+
+    return NextResponse.json({
+      ...serialised,
+      owner: users_weekly_plans_user_idTousers ?? null,
+      // The party's name travels with the line so the screen renders it without
+      // loading the whole company master, and a line whose party has since been
+      // deleted reads as blank rather than as a uuid.
+      weekly_plan_items: serialised.weekly_plan_items.map((item, i) => ({
+        ...item,
+        party_label: weekly_plan_items[i].party_id
+          ? labels.get(weekly_plan_items[i].party_id!) ?? null
+          : null,
+        // The legacy Others count is still stranded in `notes` on rows written
+        // before `others_goal` existed; read it the one way `_items.ts` defines.
+        others_goal: readOthers(weekly_plan_items[i].others_goal, weekly_plan_items[i].notes),
+        notes: carriedNote(weekly_plan_items[i].notes),
+      })),
+      weekly_goals: goals,
+      logs: (serialize(logs, 'weekly_plan_audit_logs') as Record<string, unknown>[]).map(
+        (log, i) => ({
+          ...log,
+          // Parsed once, here, so neither the manager's screen nor the owner's
+          // has to know the payload's shape or its version rules.
+          changes: readItemsDiff(logs[i].edited_fields),
+        }),
+      ),
+    })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
+}
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()

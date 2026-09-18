@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { canView } from '@/lib/visibility'
+import { readItemsDiff } from '@/lib/weekly-plan-diff'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   /*
@@ -39,7 +40,21 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       include: { users: { select: { name: true } } },
       orderBy: { timestamp: 'desc' },
     })
-    return NextResponse.json(serialize(data, 'weekly_plan_audit_logs'))
+    /*
+      §5.2: "The User must be able to see what changes his Manager made."
+
+      `edited_fields` is a Json column that carried an unrenderable placeholder
+      until this release. An `EditByManager` row now carries a before/after
+      payload, and it is parsed HERE rather than in each screen — the manager's
+      approval screen and the owner's own plan screen both read this endpoint,
+      and a second copy of the version rules is a second place to get them
+      wrong. `changes` is null for every other action type, and for the
+      pre-release rows whose before/after was never recorded.
+    */
+    const rows = serialize(data, 'weekly_plan_audit_logs') as Record<string, unknown>[]
+    return NextResponse.json(
+      rows.map((row, i) => ({ ...row, changes: readItemsDiff(data[i].edited_fields) })),
+    )
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

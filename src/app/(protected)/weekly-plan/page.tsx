@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { useToast } from '@/contexts/ToastContext'
 import RemarksPanel from '@/components/ui/RemarksPanel'
+import { ManagerChanges, changeCountLabel } from '@/components/weekly-plan/manager-changes'
+import type { ItemsDiff } from '@/lib/weekly-plan-diff'
 
 // ---- helpers ----
 function getMondayOf(date: Date): Date {
@@ -119,7 +121,13 @@ type Plan = {
   weekly_goals?: { id: string; text: string; is_done: boolean; sort_order: number }[]
 }
 
-type LogEntry = { id: string; action_type: string; actor_role: string; timestamp: string; previous_status: string | null; new_status: string | null; comment: string | null; users?: { name: string } }
+/**
+ * `changes` is §5.2's before/after, already parsed by the logs route — null for
+ * every action that recorded none. The casing of `action_type` is the API's,
+ * never this screen's: 'EditByManager' is the ACTION, 'Edited by Manager' is
+ * the STATUS, and the two are compared against different fields below.
+ */
+type LogEntry = { id: string; action_type: string; actor_role: string; timestamp: string; previous_status: string | null; new_status: string | null; comment: string | null; users?: { name: string }; changes?: ItemsDiff | null }
 
 /** A selectable party — a Company or a Contact, flattened into one list. */
 type PartyOption = {
@@ -416,12 +424,49 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     return () => clearInterval(interval)
   }, [plan])
 
+  /**
+   * Split from `loadLogs` so the trail can be fetched WITHOUT opening the
+   * modal. §5.2's banner renders the manager's before/after inline, and that
+   * payload lives on the audit row — so the plan screen needs the log as data
+   * whenever the plan comes back edited, not only when somebody asks for the
+   * history.
+   */
+  const fetchLogs = useCallback(async (planId: string) => {
+    const r = await fetch(`/api/weekly-plans/${planId}/logs`)
+    if (!r.ok) return
+    const data = await r.json()
+    setLogs(Array.isArray(data) ? data : [])
+  }, [])
+
   async function loadLogs() {
     if (!plan) return
-    const r = await fetch(`/api/weekly-plans/${plan.id}/logs`)
-    setLogs(await r.json())
+    await fetchLogs(plan.id)
     setLogsOpen(true)
   }
+
+  /*
+    The trail is loaded eagerly for exactly one status. 'Edited by Manager' is
+    the only state whose banner has something to render from it, so every other
+    plan costs no extra request.
+  */
+  useEffect(() => {
+    if (plan && plan.status === 'Edited by Manager') void fetchLogs(plan.id)
+  }, [plan, fetchLogs])
+
+  /**
+   * The change the banner shows: the most recent manager edit that actually
+   * recorded a before/after.
+   *
+   * `logs` arrives newest-first from the API, so the first match is the latest.
+   * Matched on the ACTION 'EditByManager' — not on the status — because a plan
+   * can be edited twice and only the last edit is the one still unreviewed.
+   * Pre-release rows carry `changes: null` and are skipped rather than shown
+   * as an empty change list.
+   */
+  const latestManagerEdit = useMemo(
+    () => logs.find(l => l.action_type === 'EditByManager' && l.changes)?.changes ?? null,
+    [logs],
+  )
 
   /** Blank rows are form, not data — only goals with text are sent. */
   function goalsPayload() {
@@ -770,6 +815,21 @@ function MyPlanTab({ userId }: { userId: string | null }) {
             Plan Edited by Manager — Review changes and resubmit
           </div>
           {plan.manager_comment && <p className="text-sm text-purple-600 mt-1 ml-7">{plan.manager_comment}</p>}
+          {/*
+            §5.2: "The User must be able to see what changes his Manager made."
+            The banner said to review the changes without ever showing them, so
+            the owner had to compare the grid against their own memory of it.
+            This is the frozen before/after from the audit row — see
+            src/lib/weekly-plan-diff.ts for why it is recorded at write time.
+          */}
+          {latestManagerEdit && (
+            <div className="mt-2 ml-7">
+              <p className="text-xs font-medium text-purple-700">
+                {changeCountLabel(latestManagerEdit)} to your plan
+              </p>
+              <ManagerChanges changes={latestManagerEdit} className="mt-1" />
+            </div>
+          )}
         </div>
       )}
       {plan && plan.status === 'On Hold' && (
@@ -1001,6 +1061,8 @@ function MyPlanTab({ userId }: { userId: string | null }) {
                     <p className="font-medium text-text-primary">{log.action_type} <span className="text-text-muted font-normal text-xs">by {log.users?.name ?? log.actor_role}</span></p>
                     {(log.previous_status || log.new_status) && <p className="text-xs text-text-secondary">{log.previous_status} → {log.new_status}</p>}
                     {log.comment && <p className="text-xs text-warning bg-warning-bg rounded px-2 py-0.5 mt-0.5">&ldquo;{log.comment}&rdquo;</p>}
+                    {/* Every manager edit in the history, not just the last one. */}
+                    {log.changes && <ManagerChanges changes={log.changes} className="mt-1" />}
                     <p className="text-xs text-text-secondary">{new Date(log.timestamp).toLocaleString('en-IN')}</p>
                   </div>
                 </div>

@@ -16,8 +16,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const now = new Date()
 
-    const plan = await prisma.weekly_plans.findUnique({
-      where: { id: params.id },
+    const plan = await prisma.weekly_plans.findFirst({
+      // tenant_id, not the id alone: the id is a global key, so without this
+      // a guessed uuid reaches another tenant plan and nothing crashes.
+      where: { id: params.id, tenant_id: tid },
       select: { status: true, user_id: true },
     })
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
@@ -27,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // updateMany, not update: no .select().single() in the original (PLAN.md 8.4).
     await prisma.weekly_plans.updateMany({
-      where: { id: params.id },
+      where: { id: params.id, tenant_id: tid },
       data: { status: 'Approved', last_status_changed_at: now, ...(comment ? { manager_comment: comment } : {}) },
     })
 
