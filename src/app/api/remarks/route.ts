@@ -2,18 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
-import { canView } from '@/lib/visibility'
+import { denySummaryThreadViolation, resolveRemarkContext } from './_access'
+import { isSummaryContext } from './_context'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
-  const contextType = req.nextUrl.searchParams.get('contextType')
-  const contextId = req.nextUrl.searchParams.get('contextId')
+  const tenantId = getTenantId()
 
-  if (!contextType || !contextId) {
-    return NextResponse.json({ error: 'contextType and contextId are required' }, { status: 400 })
-  }
+  /*
+   * ⚠️ THIS USED TO RETURN THE THREAD TO ANYONE WHO ASKED.
+   *
+   * It read contextType/contextId straight out of the query string and
+   * answered with every matching row in the tenant. POST checked visibility;
+   * GET did not — so any signed-in user holding another person's meeting or
+   * expense id could read the remarks on it, a manager's comments about them
+   * included. `resolveRemarkContext` now runs the same check on both verbs.
+   */
+  const ctx = await resolveRemarkContext(user, tenantId, {
+    contextType: req.nextUrl.searchParams.get('contextType'),
+    contextId: req.nextUrl.searchParams.get('contextId'),
+    userId: req.nextUrl.searchParams.get('userId'),
+    date: req.nextUrl.searchParams.get('date'),
+    style: 'query',
+  })
+  if (ctx instanceof NextResponse) return ctx
 
   try {
     // `users!author_user_id(id, name)` arrived under the key `users`, and the
@@ -21,9 +35,9 @@ export async function GET(req: NextRequest) {
     // (unlike conversations, which aliased it to `author`).
     const rows = await prisma.contextual_remarks.findMany({
       where: {
-        tenant_id: getTenantId(),
-        context_type: contextType,
-        context_id: contextId,
+        tenant_id: tenantId,
+        context_type: ctx.contextType,
+        context_id: ctx.contextId,
       },
       include: { users: { select: { id: true, name: true } } },
       orderBy: { created_at: 'asc' },
@@ -37,7 +51,7 @@ export async function GET(req: NextRequest) {
         // tenant_id added, unlike the pre-migration query. Both remark_id and
         // user_id are FK-enforced and the ids come from a tenant-scoped query,
         // so this cannot change results — same precedent as the dealers lookup.
-        where: { tenant_id: getTenantId(), user_id: user.userId ?? undefined, remark_id: { in: remarkIds } },
+        where: { tenant_id: tenantId, user_id: user.userId ?? undefined, remark_id: { in: remarkIds } },
         select: { remark_id: true },
       })
       readSet = new Set(reads.map(r => r.remark_id))
@@ -45,7 +59,15 @@ export async function GET(req: NextRequest) {
 
     const data = serialize(rows, 'contextual_remarks') as Record<string, unknown>[]
     const enriched = data.map(r => ({ ...r, is_read: readSet.has(r.id as string) }))
-    return NextResponse.json(enriched)
+    /*
+     * `context_id` is echoed because for a summary the caller never sent one —
+     * it was derived here — and the client needs it to mark a remark read and
+     * to reply. It is not a secret: holding it grants nothing, because the
+     * summary routes refuse a raw contextId (see `_access.ts`).
+     */
+    return NextResponse.json(enriched, {
+      headers: { 'x-remark-context-id': ctx.contextId },
+    })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -53,44 +75,47 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await requireUser()
-  const { context_type, context_id, parent_remark_id, body } = await req.json()
+  const payload = await req.json()
+  const { context_type, context_id, user_id, date, parent_remark_id, body } = payload
 
-  if (!context_type || !context_id || !body?.trim()) {
-    return NextResponse.json({ error: 'context_type, context_id and body are required' }, { status: 400 })
+  if (!body?.trim()) {
+    return NextResponse.json({ error: 'body is required' }, { status: 400 })
   }
 
   const tenantId = getTenantId()
 
+  /*
+   * The same resolution and the same visibility check the GET runs. The four
+   * hand-rolled owner lookups that used to live here have moved into
+   * `_context.ts` — they were missing `deal` entirely, which meant a deal note
+   * was written with no authorisation of any kind, and they had no tenant
+   * predicate on the lookup either.
+   */
+  const ctx = await resolveRemarkContext(user, tenantId, {
+    contextType: context_type,
+    contextId: context_id,
+    userId: user_id,
+    date,
+    style: 'body',
+  })
+  if (ctx instanceof NextResponse) return ctx
+
+  // §6.5's one comment and one reply, enforced server-side.
+  const violation = await denySummaryThreadViolation(
+    user,
+    tenantId,
+    ctx,
+    parent_remark_id ?? null
+  )
+  if (violation) return violation
+
   let remark
   try {
-    // Check visibility: if commenting on someone else's data, viewer must have access
-    let contextOwnerId: string | null = null
-    if (context_type === 'meeting') {
-      const visit = await prisma.daily_visits.findUnique({ where: { id: context_id }, select: { user_id: true } })
-      contextOwnerId = visit?.user_id ?? null
-    } else if (context_type === 'expense') {
-      const expense = await prisma.expenses.findUnique({ where: { id: context_id }, select: { user_id: true } })
-      contextOwnerId = expense?.user_id ?? null
-    } else if (context_type === 'weekly_plan_day') {
-      const item = await prisma.weekly_plan_items.findUnique({ where: { id: context_id }, select: { weekly_plan_id: true } })
-      if (item) {
-        const plan = await prisma.weekly_plans.findUnique({ where: { id: item.weekly_plan_id }, select: { user_id: true } })
-        contextOwnerId = plan?.user_id ?? null
-      }
-    } else if (context_type === 'weekly_plan') {
-      const plan = await prisma.weekly_plans.findUnique({ where: { id: context_id }, select: { user_id: true } })
-      contextOwnerId = plan?.user_id ?? null
-    }
-    if (contextOwnerId && contextOwnerId !== user.userId) {
-      const allowed = await canView(user.userId!, contextOwnerId, tenantId)
-      if (!allowed) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
-    }
-
     const created = await prisma.contextual_remarks.create({
       data: {
         tenant_id: tenantId,
-        context_type,
-        context_id,
+        context_type: ctx.contextType,
+        context_id: ctx.contextId,
         parent_remark_id: parent_remark_id ?? null,
         // author_user_id is NOT NULL while SessionUser.userId is nullable. A null
         // hit the not-null constraint under Supabase and produced a 500; the cast
@@ -105,6 +130,24 @@ export async function POST(req: NextRequest) {
     remark = serialize(created, 'contextual_remarks') as Record<string, unknown>
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
+
+  /*
+   * NOTIFICATION FAN-OUT — for the three ORIGINAL contexts only.
+   *
+   * ⚠️ §9 item 5 is explicit that a manager comment on a summary carries no
+   * approval, no resolved/unresolved status and NO NOTIFICATION CHAIN. The
+   * team member sees the comment when they open the summary; nothing chases
+   * them. The branches below have no case for `daily_summary` or
+   * `weekly_summary`, so nothing would fire anyway — this returns early so
+   * that stays true by intent rather than by omission, and so adding a branch
+   * later has to get past this line.
+   *
+   * `deal` is also deliberately absent: §4.4 asks for notes on a deal, not for
+   * a notification when one is written.
+   */
+  if (isSummaryContext(ctx.contextType) || ctx.contextType === 'deal') {
+    return NextResponse.json({ ...remark, is_read: false }, { status: 201 })
   }
 
   // Auto-create notification: find the other party
