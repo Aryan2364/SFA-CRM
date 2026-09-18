@@ -59,6 +59,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EMPTY, fmtAmount, fmtDate, fmtDateTime, parseApiDate } from '@/lib/format'
+import { FollowUpsSection, type FollowUp } from '@/components/deals/follow-ups-section'
 
 // ─────────────────────────────────────────────────────────────
 // The wire shape
@@ -76,14 +77,16 @@ import { EMPTY, fmtAmount, fmtDate, fmtDateTime, parseApiDate } from '@/lib/form
 
 type NamedRef = { id: string; name: string }
 
-type FollowUp = {
-  id: string
-  due_date: string | null
-  mode: string | null
-  status: string
-  notes: string | null
-  completed_at: string | null
-}
+// `FollowUp` is imported from `follow-ups-section.tsx` rather than declared
+// twice. The section owns the §4.5 lifecycle and its shape is the one the
+// follow-ups routes return, so a second copy here could only ever drift.
+
+/**
+ * A stable empty array for the section's `initialFollowUps`. A fresh `[]` on
+ * every render is a new reference, which would restart the section's state
+ * each time the page re-rendered while the Deal was still loading.
+ */
+const EMPTY_FOLLOW_UPS: FollowUp[] = []
 
 type StageLog = {
   id: string
@@ -172,90 +175,6 @@ function DealSkeleton() {
         <Skeleton className="h-64 w-full rounded-xl" />
       </div>
     </div>
-  )
-}
-
-/**
- * §4.5. Read-only: due date, mode, status, notes and completed-on, which is
- * every column the table has. Open ones first and by due date, which is the
- * order the work happens in; done ones after, since they are history.
- *
- * An open follow-up whose date has passed carries the same warning badge the
- * list uses — one rule for "overdue", stated in both places the user meets it.
- *
- * `status-badge.tsx` has no follow-up vocabulary and is held by another agent,
- * so these are the kit `Badge` directly rather than an edit to that file.
- * Section 7.2 rule 1 still holds: every one carries an icon as well as a
- * colour.
- */
-function FollowUpsCard({ followUps }: { followUps: FollowUp[] }) {
-  const sorted = [...followUps].sort((a, b) => {
-    const aDone = a.status === 'done'
-    const bDone = b.status === 'done'
-    if (aDone !== bDone) return aDone ? 1 : -1
-    return (a.due_date ?? '').localeCompare(b.due_date ?? '')
-  })
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Follow-ups</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {sorted.length === 0 ? (
-          <p className="text-body text-text-secondary">
-            No follow-ups yet. A follow-up records what is due next on this
-            deal — a meeting, a call, an email — and the earliest open one is
-            what shows on the Deals list.
-          </p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border-light">
-            {sorted.map(followUp => {
-              const done = followUp.status === 'done'
-              const overdue = !done && isOverdue(followUp.due_date)
-              return (
-                <li key={followUp.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    {done ? (
-                      <Badge variant="success">
-                        <CheckIcon />
-                        Done
-                      </Badge>
-                    ) : overdue ? (
-                      <Badge variant="warning">
-                        <TriangleAlertIcon />
-                        Overdue
-                      </Badge>
-                    ) : (
-                      <Badge>
-                        <ClockIcon />
-                        Not done
-                      </Badge>
-                    )}
-                    <span className="text-body font-medium text-text-primary">
-                      {fmtDate(followUp.due_date)}
-                    </span>
-                    <span className="text-body text-text-secondary">
-                      {orEmpty(followUp.mode)}
-                    </span>
-                    {done && followUp.completed_at && (
-                      <span className="text-meta text-text-muted">
-                        Completed {fmtDateTime(followUp.completed_at)}
-                      </span>
-                    )}
-                  </div>
-                  {followUp.notes && (
-                    <p className="whitespace-pre-wrap text-body text-text-secondary">
-                      {followUp.notes}
-                    </p>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
   )
 }
 
@@ -522,7 +441,21 @@ export default function DealDetailPage() {
           {/* Global rule 2: one column on a phone, two from 1024 up. */}
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
             <div className="flex flex-col gap-6 lg:col-span-2">
-              <FollowUpsCard followUps={deal.follow_ups ?? []} />
+              {/*
+                P2-T9. The section owns the whole §4.5 lifecycle — add, edit,
+                mark done (with the prompt for the next date), re-open and
+                delete — and writes through `/api/deals/[id]/follow-ups`. It is
+                seeded from what this page already fetched rather than fetching
+                the list a second time, and hands back every change so the page's
+                copy of the Deal stays the one on screen.
+              */}
+              <FollowUpsSection
+                dealId={deal.id}
+                initialFollowUps={deal.follow_ups ?? EMPTY_FOLLOW_UPS}
+                onChange={followUps =>
+                  setDeal(current => (current ? { ...current, follow_ups: followUps } : current))
+                }
+              />
               <StageHistoryCard
                 logs={deal.deal_stage_logs ?? []}
                 stageNames={stageNames}
