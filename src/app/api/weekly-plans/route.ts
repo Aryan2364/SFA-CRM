@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
+import { toItemRows } from './_items'
+import { saveGoals } from './_goals'
 
 export async function POST(req: NextRequest) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'weekly_plan', 'create')) return forbidden()
   if (!user.userId) return NextResponse.json({ error: 'User not in DB' }, { status: 400 })
 
-  const { week_start_date, week_end_date, items, day_notes, week_goal } = await req.json()
+  const { week_start_date, week_end_date, items, day_notes, goals } = await req.json()
   if (!week_start_date) return NextResponse.json({ error: 'week_start_date required' }, { status: 400 })
 
   const tid = getTenantId()
@@ -30,20 +34,19 @@ export async function POST(req: NextRequest) {
         current_manager_id: dbUser?.manager_user_id ?? null,
         last_status_changed_at: new Date(),
         day_notes: day_notes ?? {},
-        week_goal: week_goal ?? null,
+        // `week_goal` is retired — §5.1's checklist lives in `weekly_goals`. A
+        // new plan never writes the column, so nothing new needs migrating.
+        week_goal: null,
       },
     })
 
-    if (items?.length) {
-      await prisma.weekly_plan_items.createMany({
-        data: items.map((item: Record<string, unknown>) => ({
-          ...item,
-          plan_date: new Date(item.plan_date as string),
-          weekly_plan_id: plan.id,
-          tenant_id: tid,
-        })),
-      })
-    }
+    // toItemRows whitelists the columns. The old `{ ...item }` spread put
+    // whatever the client sent into createMany, where an unknown key is a Prisma
+    // throw rather than an ignored field.
+    const rows = toItemRows(items, tid, plan.id)
+    if (rows.length) await prisma.weekly_plan_items.createMany({ data: rows })
+
+    await saveGoals(plan.id, tid, goals)
 
     await prisma.weekly_plan_audit_logs.create({
       data: {

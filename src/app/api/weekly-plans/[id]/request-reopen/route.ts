@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'weekly_plan', 'edit')) return forbidden()
   const body = await req.json().catch(() => ({}))
   const message: string = body.message?.trim() ?? ''
 

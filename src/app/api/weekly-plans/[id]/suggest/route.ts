@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
 import { canView } from '@/lib/visibility'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'weekly_plan', 'edit')) return forbidden()
   const { comment } = await req.json()
   if (!comment?.trim()) return NextResponse.json({ error: 'Comment is required for suggestion' }, { status: 400 })
   const tid = getTenantId()

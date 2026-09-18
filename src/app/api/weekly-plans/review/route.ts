@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
 import { getVisibleUserIds } from '@/lib/visibility'
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'weekly_plan', 'view')) return forbidden()
   if (!user.userId) return NextResponse.json([])
 
   const status = req.nextUrl.searchParams.get('status')

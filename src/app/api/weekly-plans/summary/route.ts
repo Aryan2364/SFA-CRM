@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, dateOnlyString, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
 import { getVisibleUserIds } from '@/lib/visibility'
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,7 @@ function toDateStr(d: Date) { return d.toISOString().split('T')[0] }
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'weekly_plan', 'view')) return forbidden()
   if (!user.userId) return NextResponse.json({ weeks: [], subordinates: [] })
 
   const weeksBack = Math.min(parseInt(req.nextUrl.searchParams.get('weeksBack') ?? '11'), 51)
@@ -55,7 +57,7 @@ export async function GET(req: NextRequest) {
     },
     select: {
       user_id: true, week_start_date: true, status: true,
-      weekly_plan_items: { select: { plan_date: true, from_place: true } },
+      weekly_plan_items: { select: { plan_date: true, from_place: true, party_id: true } },
     },
   })
 
@@ -71,12 +73,17 @@ export async function GET(req: NextRequest) {
 
   for (const plan of plans) {
     const items = plan.weekly_plan_items
-    // Count distinct dates that have at least one item with a non-empty place.
+    // Count distinct dates that have at least one item the user actually filled
+    // in. ⚠️ `from_place` ALONE is no longer that test: §5.1 took Location off
+    // the plan screen and a line is now identified by its party, so a plan
+    // written after that release has no places at all and would have counted
+    // zero planned days here — the manager grid would have gone blank with
+    // nothing throwing.
     // plan_date is a Date now, so it is reduced to "YYYY-MM-DD" before going
     // into the Set — otherwise two Date objects for the same day are distinct
     // members and the count silently inflates.
     const uniqueDates = new Set(
-      items.filter(i => i.from_place?.trim()).map(i => dateOnlyString(i.plan_date))
+      items.filter(i => i.party_id || i.from_place?.trim()).map(i => dateOnlyString(i.plan_date))
     )
     // The grid is keyed by "YYYY-MM-DD"; indexing it with a Date would stringify
     // to "Mon Sep 14 2026 ..." and never match, leaving every cell blank.

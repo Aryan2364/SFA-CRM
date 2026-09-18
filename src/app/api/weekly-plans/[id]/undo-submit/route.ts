@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
 
 const UNDO_WINDOW_MS = 15 * 60 * 1000
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'weekly_plan', 'edit')) return forbidden()
   const tid = getTenantId()
 
   try {

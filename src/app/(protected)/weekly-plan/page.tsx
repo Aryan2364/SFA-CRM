@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { useToast } from '@/contexts/ToastContext'
 import RemarksPanel from '@/components/ui/RemarksPanel'
@@ -44,111 +44,246 @@ function formatCountdown(secs: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-type PlaceEntry = { id: string; place: string; dist: number; dealer: number; others: number }
-type DayData = { [dateStr: string]: PlaceEntry[] }
+/**
+ * The mirror of `src/app/api/weekly-plans/_items.ts` — see the long note there.
+ *
+ * ⚠️ "Others" used to have no column of its own: it was stringified into the
+ * TEXT column `notes` on save and hardcoded back to 0 on load, so every value a
+ * user typed was lost on the next reload. `others_goal` is now the real home.
+ * Rows written before it existed still have their number stranded in `notes`, so
+ * a 0 in the column falls back to it — a legacy row shows what its user typed
+ * rather than a confident 0 that would assert "none" where the truth is
+ * "unknown". Saving the row moves the value across for good.
+ *
+ * The regex stays strict: it is the one place a note is reread as a number, and
+ * a looser match would eat 'Collection focus'.
+ */
+const BARE_NUMBER = /^\s*\d+(\.\d+)?\s*$/
+function readOthers(othersGoal: number | null | undefined, notes: string | null | undefined): number {
+  if (othersGoal && othersGoal > 0) return othersGoal
+  if (!notes || !BARE_NUMBER.test(notes)) return 0
+  return Math.max(0, Math.trunc(Number(notes)))
+}
+function carriedNote(notes: string | null | undefined): string {
+  return notes && !BARE_NUMBER.test(notes) ? notes : ''
+}
+
+const PLACEHOLDER_TYPE = '—'
+
+/** One planned line. §5.1: a line is a PARTY, not a place. */
+type PlanEntry = {
+  id: string
+  partyId: string
+  partyType: 'company' | 'contact' | ''
+  dist: number
+  dealer: number
+  others: number
+  /** Kept as a string so an empty field stays distinguishable from a typed 0. */
+  expectedOrderValue: string
+  /**
+   * Location is off the screen (§5.1) but its columns live on for a release, so
+   * whatever an older place-based row carried is round-tripped invisibly. Without
+   * this, the first re-save of an existing plan would blank its places.
+   */
+  fromPlace: string
+  toPlace: string
+  modeOfTravel: string
+  /** Free text already in `notes` — preserved, never shown, see above. */
+  note: string
+}
+type DayData = { [dateStr: string]: PlanEntry[] }
+
+/** A checklist row. `id` is null until it has been saved. */
+type Goal = { key: string; id: string | null; text: string; is_done: boolean }
+
+type PlanItem = {
+  plan_date: string
+  from_place: string | null
+  to_place: string | null
+  new_dealers_goal: number | null
+  existing_dealers_goal: number | null
+  mode_of_travel: string | null
+  notes: string | null
+  others_goal: number | null
+  party_id: string | null
+  party_type: string | null
+  expected_order_value: number | null
+}
 
 type Plan = {
   id: string; status: string; submitted_at: string | null; manager_comment: string | null
   reopen_requested: boolean; reopen_request_message: string | null
-  weekly_plan_items: { plan_date: string; from_place: string; to_place: string; new_dealers_goal: number; existing_dealers_goal: number; mode_of_travel: string; notes: string }[]
+  weekly_plan_items: PlanItem[]
   week_start_date: string; week_end_date: string
   day_notes?: Record<string, string>
-  week_goal?: string | null
+  weekly_goals?: { id: string; text: string; is_done: boolean; sort_order: number }[]
 }
 
 type LogEntry = { id: string; action_type: string; actor_role: string; timestamp: string; previous_status: string | null; new_status: string | null; comment: string | null; users?: { name: string } }
 
+/** A selectable party — a Company or a Contact, flattened into one list. */
+type PartyOption = {
+  id: string
+  type: 'company' | 'contact'
+  name: string
+  /** The Company Type from the master. Read-only wherever it is shown. */
+  companyType: string
+  /** For a Contact, the company it hangs off; for a Company, its stage. */
+  subtitle: string
+}
+
 let _entryId = 0
 function newEntryId() { return `e${++_entryId}` }
 
-function planItemsToDayData(items: Plan['weekly_plan_items'], weekDays: string[]): DayData {
+function planItemsToDayData(items: PlanItem[], weekDays: string[]): DayData {
   const dd: DayData = {}
   for (const day of weekDays) dd[day] = []
   for (const item of items) {
     if (!dd[item.plan_date]) dd[item.plan_date] = []
     dd[item.plan_date].push({
       id: newEntryId(),
-      place: item.from_place || '',
+      partyId: item.party_id ?? '',
+      partyType: item.party_type === 'company' || item.party_type === 'contact' ? item.party_type : '',
       dist: item.existing_dealers_goal ?? 0,
       dealer: item.new_dealers_goal ?? 0,
-      others: 0,
+      // Was hardcoded to 0 — the data-loss bug. See readOthers above.
+      others: readOthers(item.others_goal, item.notes),
+      expectedOrderValue: item.expected_order_value != null ? String(item.expected_order_value) : '',
+      fromPlace: item.from_place ?? '',
+      toPlace: item.to_place ?? '',
+      modeOfTravel: item.mode_of_travel ?? '',
+      note: carriedNote(item.notes),
     })
   }
   return dd
 }
 
-// Item 9: skip blank rows — never store empty place entries
+/** Item 9: skip blank rows — a line with no party is an empty form row, not data. */
 function dayDataToPlanItems(dayData: DayData) {
-  const items: { plan_date: string; from_place: string; to_place: string | null; new_dealers_goal: number; existing_dealers_goal: number; mode_of_travel: string | null; notes: string }[] = []
+  const items: Record<string, unknown>[] = []
   for (const [date, entries] of Object.entries(dayData)) {
     for (const entry of entries) {
-      if (!entry.place.trim()) continue
+      if (!entry.partyId) continue
       items.push({
         plan_date: date,
-        from_place: entry.place,
-        to_place: null,
+        party_id: entry.partyId,
+        party_type: entry.partyType || null,
+        // '' means the optional field was left blank, which is null — not 0.
+        expected_order_value: entry.expectedOrderValue.trim() === ''
+          ? null
+          : Number(entry.expectedOrderValue),
         new_dealers_goal: entry.dealer,
         existing_dealers_goal: entry.dist,
-        mode_of_travel: null,
-        notes: entry.others > 0 ? String(entry.others) : '',
+        others_goal: entry.others,
+        // Free text only now — a count never goes back into this column.
+        notes: entry.note,
+        from_place: entry.fromPlace || null,
+        to_place: entry.toPlace || null,
+        mode_of_travel: entry.modeOfTravel || null,
       })
     }
   }
   return items
 }
 
-// ---- Item 2: Searchable Place Combobox ----
-function PlaceCombobox({ value, onChange, options, disabled }: {
-  value: string; onChange: (v: string) => void
-  options: { id: string; label: string }[]; disabled: boolean
+function goalsFromPlan(plan: Plan | null): Goal[] {
+  const rows = plan?.weekly_goals ?? []
+  return rows.map(g => ({ key: g.id, id: g.id, text: g.text, is_done: g.is_done }))
+}
+
+let _goalKey = 0
+function blankGoal(): Goal { return { key: `g${++_goalKey}`, id: null, text: '', is_done: false } }
+
+/**
+ * §5.1: "Show 5 blank rows by default, with an 'Add' option below. No upper
+ * limit." Padding on render rather than on load means the five blanks are a
+ * property of the FORM, so they are never saved as five empty goals.
+ */
+const MIN_GOAL_ROWS = 5
+function padGoals(goals: Goal[]): Goal[] {
+  if (goals.length >= MIN_GOAL_ROWS) return goals
+  return [...goals, ...Array.from({ length: MIN_GOAL_ROWS - goals.length }, blankGoal)]
+}
+
+// ---- Searchable Party Combobox (§5.1 — replaces the Place picker) ----
+function PartyCombobox({ value, onChange, options, disabled }: {
+  value: string
+  onChange: (option: PartyOption | null) => void
+  options: PartyOption[]
+  disabled: boolean
 }) {
-  const [query, setQuery] = useState(value)
+  const selected = options.find(o => o.id === value) ?? null
+  const [query, setQuery] = useState(selected?.name ?? '')
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { setQuery(value) }, [value])
+  useEffect(() => { setQuery(selected?.name ?? '') }, [selected?.name])
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
-        setQuery(value)
+        setQuery(selected?.name ?? '')
       }
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [value])
+  }, [selected?.name])
 
-  const filtered = query.trim()
-    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+  const filtered = query.trim() && query !== selected?.name
+    ? options.filter(o => o.name.toLowerCase().includes(query.toLowerCase()))
     : options
 
   return (
-    <div ref={containerRef} className="relative flex-1">
+    <div ref={containerRef} className="relative w-full">
       <input
         type="text" disabled={disabled} value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
-        placeholder="Search place…"
-        className="w-full border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted"
+        placeholder="Search company or contact…"
+        className="w-full border border-border-light rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted"
       />
       {!disabled && open && (
-        <div className="absolute z-30 left-0 right-0 top-full mt-0.5 bg-surface border border-border-light rounded-lg shadow-lg max-h-56 sm:min-h-[216px] sm:max-h-64 overflow-y-auto">
+        <div className="absolute z-30 left-0 right-0 top-full mt-0.5 bg-surface border border-border-light rounded-lg shadow-lg max-h-56 sm:max-h-64 overflow-y-auto">
           {filtered.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-text-muted">No places found</p>
+            <p className="px-3 py-2 text-sm text-text-muted">No parties found</p>
           ) : (
-            filtered.map(o => (
-              <button key={o.id} type="button"
+            filtered.slice(0, 200).map(o => (
+              <button key={`${o.type}:${o.id}`} type="button"
                 onMouseDown={e => e.preventDefault()}
-                onClick={() => { onChange(o.label); setQuery(o.label); setOpen(false) }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-primary-subtle transition ${o.label === value ? 'bg-primary-subtle text-primary font-medium' : 'text-text-secondary'}`}>
-                {o.label}
+                onClick={() => { onChange(o); setQuery(o.name); setOpen(false) }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-primary-subtle transition ${o.id === value ? 'bg-primary-subtle' : ''}`}>
+                <span className="flex items-center gap-2">
+                  <span className={`shrink-0 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                    o.type === 'company' ? 'bg-primary-subtle text-primary' : 'bg-success-bg text-success'
+                  }`}>
+                    {o.type === 'company' ? 'Company' : 'Contact'}
+                  </span>
+                  <span className={`min-w-0 truncate ${o.id === value ? 'text-primary font-medium' : 'text-text-secondary'}`}>
+                    {o.name}
+                  </span>
+                  {o.subtitle && <span className="ml-auto shrink-0 text-xs text-text-muted">{o.subtitle}</span>}
+                </span>
               </button>
             ))
           )}
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * One cell of the entry row. The label is shown only below `sm`, where the row
+ * stacks; on desktop the column headers above the list carry the names, so
+ * repeating them per row would be the same value said twice.
+ */
+function Cell({ label, className = '', children }: { label: string; className?: string; children: React.ReactNode }) {
+  return (
+    <label className={`min-w-0 ${className}`}>
+      <span className="block sm:hidden text-[11px] font-medium text-text-muted mb-1">{label}</span>
+      {children}
+    </label>
   )
 }
 
@@ -163,30 +298,78 @@ function MyPlanTab({ userId }: { userId: string | null }) {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [logsOpen, setLogsOpen] = useState(false)
   const [remarksOpen, setRemarksOpen] = useState(false)
-  const [villages, setVillages] = useState<{ id: string; label: string; name: string }[]>([])
+  const [parties, setParties] = useState<PartyOption[]>([])
   const [undoSecondsLeft, setUndoSecondsLeft] = useState(0)
   const [reopenModal, setReopenModal] = useState(false)
   const [reopenMessage, setReopenMessage] = useState('')
   const [reopening, setReopening] = useState(false)
   const [dayNotes, setDayNotes] = useState<Record<string, string>>({})
-  const [weekGoal, setWeekGoal] = useState('')
+  const [goals, setGoals] = useState<Goal[]>(() => padGoals([]))
   // Item 10: in-memory week cache
   const weekCache  = useRef<Map<string, DayData>>(new Map())
   const notesCache = useRef<Map<string, Record<string, string>>>(new Map())
-  const goalCache  = useRef<Map<string, string>>(new Map())
+  // ⚠️ Holds the CHECKLIST now, not the old free-text string. It is written by
+  // navigateWeek and cleared by loadPlan(true) alongside the other two — a
+  // checklist that missed that invalidation would follow the user into the next
+  // week and be saved onto the wrong plan.
+  const goalCache  = useRef<Map<string, Goal[]>>(new Map())
 
   const weekStart = toDateStr(monday)
   const weekEnd = toDateStr(addDays(monday, 6))
   const weekDays = buildWeekDays(monday)
 
+  /** Index by id so a row can resolve its party's name and locked Company Type. */
+  const partyById = useMemo(() => {
+    const m = new Map<string, PartyOption>()
+    for (const p of parties) m.set(p.id, p)
+    return m
+  }, [parties])
+
+  // §5.1: the dropdown lists Companies AND Contacts — either can be selected.
+  // Both are fetched once; the list is the tenant's party master and does not
+  // change while a week is being planned.
   useEffect(() => {
-    fetch('/api/masters/territory-mapping/places').then(r => r.json()).then(d => {
-      if (Array.isArray(d)) setVillages(d)
-    }).catch(() => toast('Failed to load location data', 'error'))
+    let cancelled = false
+    Promise.all([
+      fetch('/api/companies').then(r => r.ok ? r.json() : []),
+      fetch('/api/contacts').then(r => r.ok ? r.json() : []),
+    ]).then(([companies, contacts]) => {
+      if (cancelled) return
+      const list: PartyOption[] = []
+      if (Array.isArray(companies)) {
+        for (const c of companies) {
+          list.push({
+            id: c.id, type: 'company', name: c.name ?? '',
+            companyType: (c.type ?? '').trim() || PLACEHOLDER_TYPE,
+            subtitle: c.stage ?? '',
+          })
+        }
+      }
+      if (Array.isArray(contacts)) {
+        for (const c of contacts) {
+          // A Contact can belong to MANY companies (§3.4) and the list is
+          // primary-first, so [0] is the one whose type applies.
+          const primary = Array.isArray(c.companies) ? c.companies[0] : null
+          list.push({
+            id: c.id, type: 'contact', name: c.name ?? '',
+            companyType: (primary?.type ?? '').trim() || PLACEHOLDER_TYPE,
+            subtitle: primary?.name ?? '',
+          })
+        }
+      }
+      list.sort((a, b) => a.name.localeCompare(b.name))
+      setParties(list)
+    }).catch(() => toast('Failed to load companies and contacts', 'error'))
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadPlan = useCallback(async (clearCache = false) => {
-    if (clearCache) weekCache.current.delete(weekStart)
+    if (clearCache) {
+      weekCache.current.delete(weekStart)
+      notesCache.current.delete(weekStart)
+      goalCache.current.delete(weekStart)
+    }
     setLoading(true)
     const r = await fetch(`/api/weekly-plans/my?weekStart=${weekStart}`)
     const data = await r.json()
@@ -195,17 +378,17 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     if (cached && !clearCache) {
       setDayData(cached)
       setDayNotes(notesCache.current.get(weekStart) ?? {})
-      setWeekGoal(goalCache.current.get(weekStart) ?? '')
+      setGoals(padGoals(goalCache.current.get(weekStart) ?? goalsFromPlan(data)))
     } else if (data && data.weekly_plan_items) {
       setDayData(planItemsToDayData(data.weekly_plan_items, weekDays))
       setDayNotes(data.day_notes ?? {})
-      setWeekGoal(data.week_goal ?? '')
+      setGoals(padGoals(goalsFromPlan(data)))
     } else {
       const empty: DayData = {}
       for (const d of weekDays) empty[d] = []
       setDayData(empty)
       setDayNotes({})
-      setWeekGoal('')
+      setGoals(padGoals([]))
     }
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,19 +423,26 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     setLogsOpen(true)
   }
 
+  /** Blank rows are form, not data — only goals with text are sent. */
+  function goalsPayload() {
+    return goals
+      .filter(g => g.text.trim())
+      .map((g, i) => ({ id: g.id, text: g.text.trim(), is_done: g.is_done, sort_order: i }))
+  }
+
   async function handleSaveDraft() {
     setSaving(true)
     const items = dayDataToPlanItems(dayData)
     if (!plan) {
       const r = await fetch('/api/weekly-plans', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, week_goal: weekGoal })
+        body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, goals: goalsPayload() })
       })
       if (!r.ok) { toast((await r.json()).error, 'error') } else { toast('Draft created'); loadPlan(true) }
     } else {
       const r = await fetch(`/api/weekly-plans/${plan.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, day_notes: dayNotes, week_goal: weekGoal })
+        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload() })
       })
       if (!r.ok) { toast((await r.json()).error, 'error') } else { toast('Saved'); loadPlan(true) }
     }
@@ -260,18 +450,19 @@ function MyPlanTab({ userId }: { userId: string | null }) {
   }
 
   async function handleSubmit() {
-    // Check for rows where place was not selected
-    const hasBlankPlace = Object.values(dayData).some(entries =>
-      entries.some(e => !e.place.trim())
+    // A row with no party selected is an unfinished line, not an empty one —
+    // the same guard the blank-place check was (Location is gone, the rule is not).
+    const hasBlankParty = Object.values(dayData).some(entries =>
+      entries.some(e => !e.partyId)
     )
-    if (hasBlankPlace) {
-      toast('Place cannot be blank — fill in all Place fields before submitting', 'error')
+    if (hasBlankParty) {
+      toast('Every line needs a party — select one or remove the row before submitting', 'error')
       return
     }
     const items = dayDataToPlanItems(dayData)
     // Item 4: block empty week submission
     if (items.length === 0) {
-      toast('Please add at least one place before submitting', 'error')
+      toast('Please add at least one party before submitting', 'error')
       return
     }
     setSaving(true)
@@ -279,14 +470,14 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     if (!plan) {
       const r = await fetch('/api/weekly-plans', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, week_goal: weekGoal })
+        body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, goals: goalsPayload() })
       })
       if (!r.ok) { toast((await r.json()).error, 'error'); setSaving(false); return }
       planId = (await r.json()).id
     } else if (['Draft', 'Rejected', 'Edited by Manager'].includes(plan.status)) {
       const r = await fetch(`/api/weekly-plans/${plan.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, day_notes: dayNotes, week_goal: weekGoal })
+        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload() })
       })
       if (!r.ok) { toast((await r.json()).error, 'error'); setSaving(false); return }
     }
@@ -325,103 +516,226 @@ function MyPlanTab({ userId }: { userId: string | null }) {
   const isSubmittedAwaitingReview = plan && ['Submitted', 'Resubmitted'].includes(plan.status)
   const canRequestReopen = plan && !canEdit && !plan.reopen_requested && undoSecondsLeft === 0
 
-  function canAddPlace(dateStr: string): boolean {
+  function canAddParty(dateStr: string): boolean {
     const entries = dayData[dateStr] || []
     if (entries.length === 0) return true
-    return entries[entries.length - 1].place !== ''
+    return entries[entries.length - 1].partyId !== ''
   }
 
-  function addPlace(dateStr: string) {
+  function addParty(dateStr: string) {
     setDayData(prev => ({
       ...prev,
-      [dateStr]: [...(prev[dateStr] || []), { id: newEntryId(), place: '', dist: 0, dealer: 0, others: 0 }]
+      [dateStr]: [...(prev[dateStr] || []), {
+        id: newEntryId(), partyId: '', partyType: '', dist: 0, dealer: 0, others: 0,
+        expectedOrderValue: '', fromPlace: '', toPlace: '', modeOfTravel: '', note: '',
+      }]
     }))
   }
 
-  function removePlace(dateStr: string, entryId: string) {
+  function removeParty(dateStr: string, entryId: string) {
     setDayData(prev => ({
       ...prev,
       [dateStr]: (prev[dateStr] || []).filter(e => e.id !== entryId)
     }))
   }
 
-  function updatePlace(dateStr: string, entryId: string, field: keyof PlaceEntry, value: string | number) {
-    // Item 1: duplicate place detection
-    if (field === 'place' && typeof value === 'string' && value.trim() !== '') {
+  /** Item 1: the same day cannot plan the same party twice. */
+  function selectParty(dateStr: string, entryId: string, option: PartyOption | null) {
+    if (option) {
       const entries = dayData[dateStr] || []
-      if (entries.some(e => e.id !== entryId && e.place === value)) {
-        toast(`${value} is already added for this day`, 'error')
+      if (entries.some(e => e.id !== entryId && e.partyId === option.id)) {
+        toast(`${option.name} is already planned for this day`, 'error')
         return
       }
     }
-    const clamped = (field === 'dist' || field === 'dealer' || field === 'others') ? Math.max(0, Number(value) || 0) : value
+    setDayData(prev => ({
+      ...prev,
+      [dateStr]: (prev[dateStr] || []).map(e => e.id === entryId
+        ? { ...e, partyId: option?.id ?? '', partyType: option?.type ?? '' }
+        : e)
+    }))
+  }
+
+  function updateCount(dateStr: string, entryId: string, field: 'dist' | 'dealer' | 'others', value: number) {
+    const clamped = Math.max(0, Number(value) || 0)
     setDayData(prev => ({
       ...prev,
       [dateStr]: (prev[dateStr] || []).map(e => e.id === entryId ? { ...e, [field]: clamped } : e)
     }))
   }
 
+  /**
+   * Held as typed so the field can be genuinely empty. Anything that is not a
+   * non-negative number is rejected at the keystroke rather than silently
+   * becoming 0 on save — §5.1 makes this field optional, so blank must mean
+   * blank.
+   */
+  function updateExpectedValue(dateStr: string, entryId: string, raw: string) {
+    if (raw !== '' && !/^\d*\.?\d{0,2}$/.test(raw)) return
+    setDayData(prev => ({
+      ...prev,
+      [dateStr]: (prev[dateStr] || []).map(e => e.id === entryId ? { ...e, expectedOrderValue: raw } : e)
+    }))
+  }
+
+  // ---- Weekly Goal Checklist (§5.1) ----
+  function updateGoalText(key: string, text: string) {
+    setGoals(prev => prev.map(g => g.key === key ? { ...g, text } : g))
+  }
+
+  /**
+   * ⚠️ Ticking is allowed in EVERY status, unlike every other control here.
+   * §5.1: the points are ticked "during the week", and during the week the plan
+   * is Approved — gating this on `canEdit` would make the checklist untickable
+   * exactly when it is meant to be used. A saved row is persisted immediately so
+   * the tick survives without pressing Save; an unsaved row is local until the
+   * next save, because there is nothing to PATCH yet.
+   */
+  async function toggleGoal(key: string) {
+    const goal = goals.find(g => g.key === key)
+    if (!goal) return
+    const next = !goal.is_done
+    setGoals(prev => prev.map(g => g.key === key ? { ...g, is_done: next } : g))
+    if (!goal.id || !plan) return
+    const r = await fetch(`/api/weekly-plans/${plan.id}/goals/${goal.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_done: next }),
+    })
+    if (!r.ok) {
+      // Put the row back the way it was rather than leaving the screen claiming
+      // something the database does not agree with.
+      setGoals(prev => prev.map(g => g.key === key ? { ...g, is_done: goal.is_done } : g))
+      toast('Could not update that goal', 'error')
+    }
+  }
+
+  function addGoal() { setGoals(prev => [...prev, blankGoal()]) }
+
+  function removeGoal(key: string) {
+    setGoals(prev => padGoals(prev.filter(g => g.key !== key)))
+  }
+
   // Item 10: save to cache before navigating
   function navigateWeek(delta: number) {
     weekCache.current.set(weekStart, dayData)
     notesCache.current.set(weekStart, dayNotes)
-    goalCache.current.set(weekStart, weekGoal)
+    goalCache.current.set(weekStart, goals)
     setMonday(d => addDays(d, delta * 7))
   }
 
   if (!userId) return <div className="text-center py-12 text-text-muted">Please add yourself as a user in Masters first.</div>
 
+  const doneCount = goals.filter(g => g.text.trim() && g.is_done).length
+  const goalCount = goals.filter(g => g.text.trim()).length
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Page title */}
-      <div className="flex items-center gap-3 mb-6">
-        <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-        </svg>
-        <h2 className="text-xl font-medium text-text-primary">Weekly Plan</h2>
-        {plan && <StatusBadge status={plan.status} />}
-        {plan && (
-          <div className="flex items-center gap-3 ml-auto">
-            <button onClick={() => setRemarksOpen(true)}
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-              </svg>
-              Chat
-            </button>
-            <button onClick={loadLogs} className="text-xs text-text-muted hover:underline">Audit Log</button>
-          </div>
-        )}
+    /*
+      No `h-full` and no inner scroller. The shell's content wrapper
+      (`components/shell/app-shell.tsx`) IS the scroll container; a page that
+      pins itself to 100% of it and then scrolls its own day list nests two
+      vertical scrollers, which is what left 2131px of day cards inside a 369px
+      window while the page itself refused to move. The page grows, the shell
+      scrolls, and the header and footer below are sticky against it.
+    */
+    <div className="flex flex-col">
+      {/* Sticky chrome: title, status and week navigator stay reachable while
+          the seven day cards scroll beneath them. The negative margins bleed
+          over the shell's 24px padding so nothing shows through at the edges.
+
+          ⚠️ `-top-6`, not `top-0`. A sticky element is held by its MARGIN box,
+          so the `-mt-6` that bleeds over the shell's padding also drags the
+          sticky threshold 24px down — measured: the header parked 24px low and
+          a strip of the day card behind it stayed visible above it. Offsetting
+          the threshold by the same 24px puts the border box back on the
+          scrollport edge; the element's own `pt-6` supplies the spacing. */}
+      <div className="sticky -top-6 z-20 -mx-6 -mt-6 bg-surface-sunken px-6 pt-6 pb-4">
+        <div className="flex items-center gap-3">
+          <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+          <h2 className="text-xl font-medium text-text-primary">Weekly Plan</h2>
+          {plan && <StatusBadge status={plan.status} />}
+          {plan && (
+            <div className="flex items-center gap-3 ml-auto">
+              <button onClick={() => setRemarksOpen(true)}
+                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+                </svg>
+                Chat
+              </button>
+              <button onClick={loadLogs} className="text-xs text-text-muted hover:underline">Audit Log</button>
+            </div>
+          )}
+        </div>
+
+        {/* Week navigator */}
+        <div className="mt-4 flex items-center justify-between px-2">
+          <button onClick={() => navigateWeek(-1)} aria-label="Previous week" className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+          <span className="text-sm font-medium text-text-primary">{formatWeekRange(monday)}</span>
+          <button onClick={() => navigateWeek(1)} aria-label="Next week" className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Week navigator */}
-      <div className="flex items-center justify-between mb-6 px-2">
-        <button onClick={() => navigateWeek(-1)} className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-        <span className="text-sm font-medium text-text-primary">{formatWeekRange(monday)}</span>
-        <button onClick={() => navigateWeek(1)} className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Week Goal */}
+      {/* Weekly Goal Checklist — §5.1, replaces the single free-text box */}
       <div className="mb-5 rounded-xl border border-border-light bg-surface px-4 sm:px-5 py-4 shadow-sm">
-        <label className="block text-sm font-normal text-text-secondary mb-1.5">
-          Upcoming week I want to Achieve
-        </label>
-        <textarea
-          rows={3}
-          disabled={!canEdit}
-          value={weekGoal}
-          onChange={e => setWeekGoal(e.target.value)}
-          placeholder="Think in terms of Major closures, New Distributor Appointment, The Orders Expected, Sales value expected, New People to meet…"
-          className="w-full border border-border-light rounded-lg px-3 py-2 text-sm text-text-primary resize-none focus:outline-none focus:ring-2 focus:ring-primary-ring focus:border-primary-border bg-surface disabled:bg-surface-sunken disabled:text-text-muted placeholder:text-text-muted"
-        />
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="text-sm font-medium text-text-primary">Upcoming week I want to Achieve</h3>
+          {goalCount > 0 && (
+            <span className="text-xs font-medium text-text-muted">{doneCount}/{goalCount} done</span>
+          )}
+        </div>
+        <div className="space-y-2">
+          {goals.map((goal, i) => (
+            <div key={goal.key} className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                checked={goal.is_done}
+                // Ticking is never gated on status — see toggleGoal. An empty
+                // row has nothing to tick.
+                disabled={!goal.text.trim()}
+                onChange={() => toggleGoal(goal.key)}
+                aria-label={goal.text.trim() ? `Mark "${goal.text.trim()}" done` : 'Goal not written yet'}
+                className="w-[18px] h-[18px] shrink-0 rounded border-border accent-primary disabled:opacity-40 cursor-pointer disabled:cursor-default"
+              />
+              <input
+                type="text"
+                disabled={!canEdit}
+                value={goal.text}
+                onChange={e => updateGoalText(goal.key, e.target.value)}
+                placeholder={i === 0 ? 'e.g. Close the Nashik distributor appointment' : 'Add a point…'}
+                className={`flex-1 min-w-0 border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted placeholder:text-text-muted ${
+                  goal.is_done ? 'line-through text-text-muted' : 'text-text-primary'
+                }`}
+              />
+              {canEdit && (
+                <button onClick={() => removeGoal(goal.key)} aria-label="Remove goal"
+                  className="w-9 h-9 sm:w-8 sm:h-8 shrink-0 flex items-center justify-center text-text-muted hover:text-danger transition rounded-lg">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        {canEdit && (
+          <button onClick={addGoal}
+            className="mt-3 flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary-hover transition">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add
+          </button>
+        )}
       </div>
 
       {/* Status banners */}
@@ -500,8 +814,8 @@ function MyPlanTab({ userId }: { userId: string | null }) {
 
       {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : (
         <>
-          {/* Day cards */}
-          <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+          {/* Day cards — plain flow. The shell scrolls, not this. */}
+          <div className="space-y-4 pb-4">
             {weekDays.map(dateStr => {
               const entries = dayData[dateStr] || []
               const today = isToday(dateStr)
@@ -517,103 +831,117 @@ function MyPlanTab({ userId }: { userId: string | null }) {
                     </div>
                   </div>
 
-                  {/* Column headers — desktop only */}
-                  <div className="hidden sm:block px-5 pb-1">
-                    <div className="flex items-center gap-2 text-xs font-medium text-text-muted">
-                      <span className="flex-1">Place</span>
-                      <span className="w-[72px] text-center">Dist.</span>
-                      <span className="w-[72px] text-center">Dealer</span>
-                      <span className="w-[72px] text-center">Others</span>
-                      <span className="w-8" />
+                  {/* Column headers — desktop only. Widths mirror the row below. */}
+                  {entries.length > 0 && (
+                    <div className="hidden sm:block px-5 pb-1">
+                      <div className="flex items-center gap-2 text-xs font-medium text-text-muted">
+                        <span className="flex-1 min-w-0">Party</span>
+                        <span className="w-36">Company Type</span>
+                        <span className="w-[68px] text-center">Dist.</span>
+                        <span className="w-[68px] text-center">Dealer</span>
+                        <span className="w-[68px] text-center">Others</span>
+                        <span className="w-28 text-center">Expected ₹</span>
+                        <span className="w-8" />
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Entries */}
                   <div className="px-4 sm:px-5 pb-2 space-y-3 sm:space-y-2">
                     {entries.length === 0 ? (
-                      <p className="text-sm text-text-muted text-center py-3">No entries yet</p>
+                      <p className="text-sm text-text-muted text-center py-3">No parties planned yet</p>
                     ) : (
-                      entries.map(entry => (
-                        <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-2 pb-3 sm:pb-0 border-b border-border-light sm:border-0 last:border-0 last:pb-0">
-                          {/* Place — full width on mobile */}
-                          <div className="flex items-center gap-2 sm:contents">
-                            <PlaceCombobox
-                              value={entry.place}
-                              onChange={v => updatePlace(dateStr, entry.id, 'place', v)}
-                              options={villages}
-                              disabled={!canEdit}
-                            />
-                            {canEdit && (
-                              <button onClick={() => removePlace(dateStr, entry.id)} className="sm:hidden w-9 h-9 flex-shrink-0 flex items-center justify-center text-text-muted hover:text-danger transition rounded-lg border border-border-light">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            )}
-                          </div>
-                          {/* Numeric inputs — wrap row on mobile with labels */}
-                          <div className="flex items-center gap-2 sm:contents">
-                            <label className="flex-1 sm:hidden">
-                              <span className="block text-[11px] font-medium text-text-muted mb-1">Dist.</span>
+                      entries.map(entry => {
+                        const party = entry.partyId ? partyById.get(entry.partyId) : undefined
+                        return (
+                          <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center gap-2 pb-3 sm:pb-0 border-b border-border-light sm:border-0 last:border-0 last:pb-0">
+                            <Cell label="Party" className="sm:flex-1">
+                              <PartyCombobox
+                                value={entry.partyId}
+                                onChange={o => selectParty(dateStr, entry.id, o)}
+                                options={parties}
+                                disabled={!canEdit}
+                              />
+                            </Cell>
+
+                            {/*
+                              §5.1: "the Company Type is fetched from the master
+                              and shown locked (read-only). The master value is
+                              final and cannot be changed here." So it is text,
+                              never an input — a disabled input would still read
+                              as a field someone could enable.
+                            */}
+                            <Cell label="Company Type" className="sm:w-36">
+                              <div className="w-full rounded-lg border border-border-light bg-surface-sunken px-3 py-2 text-sm truncate"
+                                title={party ? party.companyType : undefined}>
+                                {party
+                                  ? <span className="text-text-secondary">{party.companyType}</span>
+                                  : <span className="text-text-muted">Select a party</span>}
+                              </div>
+                            </Cell>
+
+                            <Cell label="Dist." className="sm:w-[68px]">
                               <input type="number" min={0} disabled={!canEdit} value={entry.dist}
-                                onChange={e => updatePlace(dateStr, entry.id, 'dist', Number(e.target.value))}
+                                onChange={e => updateCount(dateStr, entry.id, 'dist', Number(e.target.value))}
                                 className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-                            </label>
-                            <input type="number" min={0} disabled={!canEdit} value={entry.dist}
-                              onChange={e => updatePlace(dateStr, entry.id, 'dist', Number(e.target.value))}
-                              className="hidden sm:block w-[72px] border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-
-                            <label className="flex-1 sm:hidden">
-                              <span className="block text-[11px] font-medium text-text-muted mb-1">Dealer</span>
+                            </Cell>
+                            <Cell label="Dealer" className="sm:w-[68px]">
                               <input type="number" min={0} disabled={!canEdit} value={entry.dealer}
-                                onChange={e => updatePlace(dateStr, entry.id, 'dealer', Number(e.target.value))}
+                                onChange={e => updateCount(dateStr, entry.id, 'dealer', Number(e.target.value))}
                                 className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-                            </label>
-                            <input type="number" min={0} disabled={!canEdit} value={entry.dealer}
-                              onChange={e => updatePlace(dateStr, entry.id, 'dealer', Number(e.target.value))}
-                              className="hidden sm:block w-[72px] border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-
-                            <label className="flex-1 sm:hidden">
-                              <span className="block text-[11px] font-medium text-text-muted mb-1">Others</span>
+                            </Cell>
+                            {/* Others now has `others_goal` to itself, so it is
+                                an ordinary field again — it no longer competes
+                                with a free-text note for one text column. */}
+                            <Cell label="Others" className="sm:w-[68px]">
                               <input type="number" min={0} disabled={!canEdit} value={entry.others}
-                                onChange={e => updatePlace(dateStr, entry.id, 'others', Number(e.target.value))}
+                                onChange={e => updateCount(dateStr, entry.id, 'others', Number(e.target.value))}
                                 className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-                            </label>
-                            <input type="number" min={0} disabled={!canEdit} value={entry.others}
-                              onChange={e => updatePlace(dateStr, entry.id, 'others', Number(e.target.value))}
-                              className="hidden sm:block w-[72px] border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
+                            </Cell>
+
+                            {/* §5.1: optional. Blank is a real answer — it is
+                                stored as NULL, not as 0. */}
+                            <Cell label="Expected order value (optional)" className="sm:w-28">
+                              <input type="text" inputMode="decimal" disabled={!canEdit}
+                                value={entry.expectedOrderValue}
+                                onChange={e => updateExpectedValue(dateStr, entry.id, e.target.value)}
+                                placeholder="Optional"
+                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-right text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken placeholder:text-text-muted placeholder:text-xs" />
+                            </Cell>
 
                             {canEdit && (
-                              <button onClick={() => removePlace(dateStr, entry.id)} className="hidden sm:flex w-8 h-8 items-center justify-center text-text-muted hover:text-danger transition">
+                              <button onClick={() => removeParty(dateStr, entry.id)} aria-label="Remove line"
+                                className="h-11 sm:h-8 w-full sm:w-8 shrink-0 flex items-center justify-center gap-1.5 text-text-muted hover:text-danger transition rounded-lg border border-border-light sm:border-0">
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                 </svg>
+                                <span className="sm:hidden text-sm">Remove</span>
                               </button>
                             )}
                           </div>
-                        </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
 
-                  {/* Add Place button */}
+                  {/* Add Party button */}
                   {canEdit && (
-                    canAddPlace(dateStr) ? (
-                      <button onClick={() => addPlace(dateStr)}
+                    canAddParty(dateStr) ? (
+                      <button onClick={() => addParty(dateStr)}
                         className="w-full py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-sunken transition flex items-center justify-center gap-1 border-t border-border-light">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                         </svg>
-                        Add Place
+                        Add Party
                       </button>
                     ) : (
                       <div className="w-full py-2 text-xs text-warning text-center border-t border-border-light bg-warning-bg">
-                        Select a place in the previous row first
+                        Select a party in the previous row first
                       </div>
                     )
                   )}
 
-                  {/* Day Focus / Remarks */}
+                  {/* Day Focus / Remarks — per day, distinct from the week checklist */}
                   <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-border-light">
                     <label className="block text-xs font-normal text-text-secondary uppercase tracking-wide mb-1.5">Day Focus / Remarks</label>
                     <textarea
@@ -630,28 +958,29 @@ function MyPlanTab({ userId }: { userId: string | null }) {
             })}
           </div>
 
-          {/* Footer — stays at bottom of content area, does not overlap sidebar */}
-          <div className="border-t border-border-light bg-surface px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6">
-            <div className="flex-1" />
-            {canEdit && (
-              <>
-                <button onClick={handleSaveDraft} disabled={saving}
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 border border-border rounded-xl text-sm font-medium text-text-secondary hover:bg-surface-sunken disabled:opacity-50 transition sm:min-w-[180px]">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                  </svg>
-                  Save Draft
-                </button>
-                <button onClick={handleSubmit} disabled={saving}
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 bg-primary-pressed hover:bg-primary-hover text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-50 transition sm:min-w-[180px]">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                  </svg>
-                  Submit Plan
-                </button>
-              </>
-            )}
-          </div>
+          {/* Footer — sticky against the shell's scroller, so Save and Submit
+              stay reachable without scrolling back through seven day cards.
+              `-bottom-6` for the same reason the header uses `-top-6`: the
+              `-mb-6` bleed would otherwise hold it 24px clear of the fold. */}
+          {canEdit && (
+            <div className="sticky -bottom-6 z-20 border-t border-border-light bg-surface px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3 -mx-6 -mb-6">
+              <div className="flex-1" />
+              <button onClick={handleSaveDraft} disabled={saving}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 border border-border rounded-xl text-sm font-medium text-text-secondary hover:bg-surface-sunken disabled:opacity-50 transition sm:min-w-[180px]">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                Save Draft
+              </button>
+              <button onClick={handleSubmit} disabled={saving}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 bg-primary-pressed hover:bg-primary-hover text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-50 transition sm:min-w-[180px]">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                </svg>
+                Submit Plan
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -732,9 +1061,7 @@ export default function WeeklyPlanPage() {
     fetch('/api/auth/me').then(r => r.json()).then(d => setMe({ userId: d.userId, hasSubordinates: d.hasSubordinates })).catch(() => toast('Failed to load user settings', 'error'))
   }, [toast])
 
-  return (
-    <div className="flex flex-col h-full">
-      <MyPlanTab userId={me?.userId ?? null} />
-    </div>
-  )
+  // No `h-full` here either — it was what pinned the page to the shell's height
+  // and forced the day list to grow its own scrollbar instead of the page.
+  return <MyPlanTab userId={me?.userId ?? null} />
 }
