@@ -144,9 +144,15 @@ export async function POST(req: NextRequest) {
    * later has to get past this line.
    *
    * `deal` is also deliberately absent: §4.4 asks for notes on a deal, not for
-   * a notification when one is written.
+   * a notification when one is written. `order` joins it for the same reason —
+   * §5.5 asks for a note that is LINKED to an order, and says nothing about
+   * chasing anybody about it.
    */
-  if (isSummaryContext(ctx.contextType) || ctx.contextType === 'deal') {
+  if (
+    isSummaryContext(ctx.contextType) ||
+    ctx.contextType === 'deal' ||
+    ctx.contextType === 'order'
+  ) {
     return NextResponse.json({ ...remark, is_read: false }, { status: 201 })
   }
 

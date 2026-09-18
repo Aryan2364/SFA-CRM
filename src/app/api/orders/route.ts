@@ -162,6 +162,26 @@ export async function GET(req: NextRequest) {
   const dateTo = req.nextUrl.searchParams.get('dateTo')
   const userId = req.nextUrl.searchParams.get('userId')
   const q = req.nextUrl.searchParams.get('q')
+  /*
+   * §5.5's "View All goes to the Orders page with the Company filter applied
+   * automatically" (P3-T9).
+   *
+   * It is a separate parameter from `q` because `q` CANNOT express it. `q`
+   * matches `entity_name`, and the meeting branch of POST below writes neither
+   * `entity_type` nor `entity_id` nor `entity_name` — so every order punched
+   * against a meeting has a NULL party name and is invisible to a name search,
+   * while being one of that company's orders. A name filter would therefore
+   * show a party's direct orders and silently drop the ones taken in front of
+   * them, which is the worse of the two failures because nothing looks wrong.
+   *
+   * So the company is matched the same way the meeting screen matches it: by
+   * id, through BOTH routes an order can reach a party — its own `entity_id`,
+   * or the visit it was taken at. `tenant_id` is repeated inside the relation
+   * filter; it is redundant against the outer predicate and it stays, because
+   * a relation filter reaching another tenant's visit is exactly the mistake
+   * that leaks with nothing crashing.
+   */
+  const entityId = req.nextUrl.searchParams.get('entityId')
   /* §7.2's "Discount Applied (Yes/No)" dimension, as a list filter. The
      column is stored rather than derived precisely so this is an index
      lookup and not a scan over the line items. */
@@ -195,6 +215,14 @@ export async function GET(req: NextRequest) {
             }
           : {}),
         ...(q ? { entity_name: { contains: q, mode: 'insensitive' as const } } : {}),
+        ...(entityId
+          ? {
+              OR: [
+                { entity_id: entityId },
+                { daily_visits: { is: { tenant_id: tid, entity_id: entityId } } },
+              ],
+            }
+          : {}),
       },
       include: {
         // `order_items(count)` -> the _count aggregate.

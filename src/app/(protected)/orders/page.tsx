@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { PlusIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
@@ -973,8 +974,62 @@ function orderColumns(onOpen: (id: string) => void): ListColumn<OrderRow>[] {
   ]
 }
 
-export default function OrdersPage() {
+/**
+ * §5.5's View All — "goes to the Orders page with the **Company filter applied
+ * automatically. Other filters remain available.**" (P3-T9.)
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT IS SEEDED HERE AND NOT IN `templates/list-page.tsx`
+ *
+ * The specification asks for this of ORDERS, not of the ten screens that share
+ * that template. Teaching the template to read `useSearchParams` would change
+ * the URL handling of nine screens that never asked for it, and none of them
+ * could opt out. So the narrowing lives in the one screen that needs it.
+ *
+ * ---------------------------------------------------------------------------
+ * IT IS A PAGE-LEVEL NARROWING, NOT A `ListFilter`
+ *
+ * Exactly the shape `onlyDraft` below already has, and for the same reason: the
+ * template owns its own filter state, and reaching into it from outside —
+ * whether through a new prop or a controlled-value escape hatch — would make
+ * this screen's filter panel behave unlike every other one. Instead the company
+ * rides the query `load()` builds, and the chip says it is on and offers the
+ * way out of it. The declared filters are untouched: date, status, discount and
+ * team member all stay usable and none of them is cleared or locked, which is
+ * the second half of the sentence above.
+ *
+ * ⚠️ IT KEYS ON THE COMPANY ID, NEVER THE NAME. Two parties can share a name,
+ * and more importantly an order punched against a meeting carries NO
+ * `entity_name` at all — see the meeting branch of `POST /api/orders`, which
+ * writes neither `entity_type` nor `entity_id` nor `entity_name`. A name filter
+ * would therefore show a party's direct orders and silently drop the ones taken
+ * in front of them. `?entityId=` on the API matches both routes an order can
+ * reach a party: its own `entity_id`, or the visit it was taken at. The name is
+ * looked up afterwards for the chip's LABEL only and never filters anything.
+ */
+function OrdersPageInner() {
   const { toast } = useToast()
+  const searchParams = useSearchParams()
+
+  /*
+   * Read once, on mount. A lazy initialiser rather than an effect, so the
+   * value is already in the closure when the template runs its first load —
+   * an effect would fire a second, unfiltered request first and the user
+   * would watch the full list appear and then narrow.
+   */
+  const [companyId, setCompanyId] = useState(() => searchParams.get('entityId') ?? '')
+  const [companyName, setCompanyName] = useState('')
+
+  useEffect(() => {
+    if (!companyId) { setCompanyName(''); return }
+    let live = true
+    fetch(`/api/companies/${companyId}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (live && d?.name) setCompanyName(d.name) })
+      .catch(() => { /* the chip falls back to naming no party */ })
+    return () => { live = false }
+  }, [companyId])
+
   const [createOpen, setCreateOpen] = useState(false)
   const [detailOrder, setDetailOrder] = useState<OrderDetail | null>(null)
   const [hasSubordinates, setHasSubordinates] = useState(false)
@@ -1043,6 +1098,10 @@ export default function OrdersPage() {
     else if (onlyDraft) params.set('status', 'Draft')
     if (filters.discounted) params.set('discounted', filters.discounted)
     if (filters.user) params.set('userId', filters.user)
+    /* §5.5's View All. It rides alongside the declared filters rather than
+       replacing any of them, so arriving here narrowed by company still
+       leaves date, status, discount and team member free to use. */
+    if (companyId) params.set('entityId', companyId)
     const query = params.toString()
     const r = await fetch(`/api/orders${query ? `?${query}` : ''}`, { signal })
     if (!r.ok) throw new Error(String(r.status))
@@ -1081,6 +1140,21 @@ export default function OrdersPage() {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
+        {companyId ? (
+          <QuickFilterChip
+            label={
+              companyName
+                ? `Showing orders for ${companyName}`
+                : 'Showing orders for one company'
+            }
+            /* Never a dead end: the narrowing the link applied can be taken
+               off without leaving the page. `refreshKey` is what re-runs the
+               query — `load` is held in a ref by the template and is not an
+               effect dependency there, so changing this state alone would
+               leave the old rows on screen. */
+            onClear={() => { setCompanyId(''); setRefreshKey(k => k + 1) }}
+          />
+        ) : null}
         {onlyDraft ? (
           <QuickFilterChip
             label="Showing Draft orders only"
@@ -1142,5 +1216,21 @@ export default function OrdersPage() {
         />
       )}
     </>
+  )
+}
+
+/**
+ * `useSearchParams` makes this screen depend on the request URL, so Next
+ * requires a Suspense boundary around it — without one the whole route opts
+ * out of static rendering and the build says so. The fallback is deliberately
+ * nothing: the template paints its own skeleton the moment it mounts, and a
+ * second, differently-shaped loading state flashing before it is worse than a
+ * beat of blank.
+ */
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrdersPageInner />
+    </Suspense>
   )
 }

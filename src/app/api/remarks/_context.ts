@@ -40,6 +40,18 @@ export const CONTEXT_TYPES = [
   'weekly_plan_day',
   'weekly_plan',
   'deal',
+  /*
+   * P3-T9, §5.5: "A note written here can be **linked** to a specific Deal or
+   * Order." `deal` was already here; `order` is its other half and arrives the
+   * same way — a context type, not a table — because an order note is the same
+   * threaded, tenant-scoped, timestamped primitive as every other note.
+   *
+   * ⚠️ The production CHECK constraint warning above applies to this value
+   * exactly as it applies to `deal`: production permits four values and this is
+   * not one of them, the local database has no CHECK at all, and a green local
+   * run therefore proves nothing about production.
+   */
+  'order',
   'daily_summary',
   'weekly_summary',
 ] as const
@@ -175,6 +187,16 @@ export async function resolveContextOwner(
         select: { owner_user_id: true },
       })
       return deal?.owner_user_id ?? null
+    }
+    case 'order': {
+      // §5.5. `orders.user_id` is NOT NULL — it is the rep the order belongs
+      // to — so unlike a Deal an Order always has an owner, and the visibility
+      // check below always has somebody to run against.
+      const order = await prisma.orders.findFirst({
+        where: { id: contextId, tenant_id: tenantId },
+        select: { user_id: true },
+      })
+      return order?.user_id ?? null
     }
     case 'daily_summary':
     case 'weekly_summary':

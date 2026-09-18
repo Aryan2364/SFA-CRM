@@ -3,7 +3,217 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { isLocationFlagged } from '@/lib/geo'
+import { checkPermission, forbidden } from '@/lib/permissions'
+import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { getTenantSettings } from '@/lib/settings'
+
+/**
+ * How many Deals and how many past Orders the meeting screen is given.
+ *
+ * §5.5 asks for "open Deals" and "the last few Orders (**not all**)". Both
+ * bounds are in the specification, not a pagination convenience: the point of
+ * the screen is what is live at this party right now, and a rep standing in a
+ * shop does not read a year of order history on a phone. The counts alongside
+ * them are what makes "View All" honest rather than a mystery.
+ */
+const OPEN_DEALS_LIMIT = 8
+const RECENT_ORDERS_LIMIT = 5
+
+/**
+ * `GET /api/daily-activity/[id]` — everything the Inside-a-Meeting screen
+ * (§5.5) shows, in one request.
+ *
+ * It is one endpoint rather than five because every part of it is scoped
+ * against the SAME meeting: if the caller may not reach this visit, there is
+ * no company to look up, no Deals to filter and no Orders to count. Splitting
+ * it would mean repeating that gate four times, and a gate repeated four times
+ * is a gate that will be missing from one of them.
+ *
+ * ⚠️ THREE DIFFERENT SCOPES APPLY, AND THEY ARE NOT INTERCHANGEABLE.
+ *
+ *   meetings  decides whether this visit is reachable at all
+ *   deals     decides which of the company's Deals are listed
+ *   orders    decides which of the company's Orders are listed
+ *
+ * A Sales Executive on Self scope standing in a shop sees the shop's Deals
+ * only if they own them — the Deals another rep owns at the same party are not
+ * theirs to read, and this screen is not a side door into them. That is why
+ * each section runs its own `scopedUserIds()` rather than inheriting the
+ * meeting's, and why each section is omitted entirely (not merely empty) when
+ * the caller lacks `view` on it. `deals_visible` / `orders_visible` say which
+ * happened, so the screen can tell "nothing here" from "not for you".
+ */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await requireUser()
+  if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
+  const tid = getTenantId()
+
+  try {
+    // findFirst with the tenant AND the scope in the where: a visit id from
+    // another tenant, or another rep's visit under Self scope, resolves to
+    // null and gets a plain 404. Telling an unauthorised caller that a row
+    // exists is itself a leak (the same answer `findScopedDeal` gives).
+    const visit = await prisma.daily_visits.findFirst({
+      where: {
+        id: params.id,
+        tenant_id: tid,
+        ...scopeWhere(await scopedUserIds(user, 'meetings')),
+      },
+      include: { users: { select: { id: true, name: true } } },
+    })
+    if (!visit) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const companyId = visit.entity_id
+    const company = companyId
+      ? await prisma.companies.findFirst({
+          where: { id: companyId, tenant_id: tid },
+          select: {
+            id: true, name: true, type: true, stage: true,
+            mobile_1: true, is_complete: true, completeness_missing: true,
+          },
+        })
+      : null
+
+    /*
+     * Which Deals this meeting was about. `deal_meetings` is the join §5.5
+     * asks for — "the user marks which Deals were discussed" — and it is read
+     * for the visit, unfiltered by the Deals scope on purpose: it is a list of
+     * ids, and the ids are only ever rendered against the scoped Deal list
+     * below, so an id the caller cannot see simply matches nothing.
+     */
+    const discussed = await prisma.deal_meetings.findMany({
+      where: { tenant_id: tid, visit_id: visit.id },
+      select: { deal_id: true },
+    })
+
+    const canViewDeals = await checkPermission(user, 'deals', 'view')
+    const canViewOrders = await checkPermission(user, 'orders', 'view')
+
+    /*
+     * OPEN Deals, not every Deal. `closed_at` is written by the close route
+     * (§4.6) and `is_active` is the soft-delete flag; a Deal that is either
+     * closed or inactive is history, and history is not what someone sitting
+     * across a table needs. `open_deal_count` is the unbounded number so the
+     * screen can say "showing 8 of 12" rather than silently truncating.
+     */
+    const dealWhere = {
+      tenant_id: tid,
+      company_id: companyId ?? '',
+      is_active: true,
+      closed_at: null,
+      ...scopeWhere(await scopedUserIds(user, 'deals'), 'owner_user_id'),
+    }
+    const [openDeals, openDealCount] = canViewDeals && companyId
+      ? await Promise.all([
+          prisma.deals.findMany({
+            where: dealWhere,
+            select: {
+              id: true, name: true, expected_value: true, probability: true,
+              expected_close_date: true, stage_entered_at: true, deal_stage_id: true,
+              deal_stages: { select: { id: true, name: true, sort_order: true } },
+              users: { select: { id: true, name: true } },
+            },
+            orderBy: [{ created_at: 'desc' }],
+            take: OPEN_DEALS_LIMIT,
+          }),
+          prisma.deals.count({ where: dealWhere }),
+        ])
+      : [[], 0]
+
+    /*
+     * THE COMPANY'S ORDERS ARE REACHED TWO WAYS, and missing either one loses
+     * half of them.
+     *
+     * A direct order (`/orders` → Create order) carries `entity_id`. An order
+     * punched against a meeting carries `visit_id` and NO `entity_id` at all —
+     * see the meeting branch of `POST /api/orders`, which writes neither
+     * `entity_type` nor `entity_id`. So "this company's orders" is the union
+     * of the two, and the second half is a relation filter through the visit.
+     *
+     * `tenant_id` is repeated inside the relation filter. It is redundant given
+     * the outer predicate, and it stays: a relation filter that reaches another
+     * tenant's visit row is exactly the mistake that leaks with nothing
+     * crashing, and the cost of the extra predicate is an index lookup.
+     */
+    const companyOrderWhere = companyId
+      ? {
+          tenant_id: tid,
+          OR: [
+            { entity_id: companyId },
+            { daily_visits: { is: { tenant_id: tid, entity_id: companyId } } },
+          ],
+          ...scopeWhere(await scopedUserIds(user, 'orders')),
+        }
+      : null
+
+    const orderSelect = {
+      id: true, order_date: true, status: true, entity_name: true,
+      total_amount: true, gross_amount: true, has_discount: true,
+      blocked_reason: true, visit_id: true, order_source: true,
+      users: { select: { id: true, name: true } },
+      _count: { select: { order_items: true } },
+    }
+
+    const [recentOrders, orderCount, draftOrders] =
+      canViewOrders && companyOrderWhere
+        ? await Promise.all([
+            prisma.orders.findMany({
+              where: companyOrderWhere,
+              select: orderSelect,
+              orderBy: [{ order_date: 'desc' }, { created_at: 'desc' }],
+              take: RECENT_ORDERS_LIMIT,
+            }),
+            prisma.orders.count({ where: companyOrderWhere }),
+            /*
+             * §5.5: "If an Order is already drafted for that party and not yet
+             * placed, it is visible here." Draft is §4.10's word for exactly
+             * that state, so this is a status filter over the same union — not
+             * a second concept.
+             */
+            prisma.orders.findMany({
+              where: { ...companyOrderWhere, status: 'Draft' },
+              select: orderSelect,
+              orderBy: [{ order_date: 'desc' }, { created_at: 'desc' }],
+              take: RECENT_ORDERS_LIMIT,
+            }),
+          ])
+        : [[], 0, []]
+
+    /*
+     * The order punched against THIS meeting, with its lines, so the inline
+     * entry grid opens already filled in rather than blank over an order that
+     * exists. `orders.visit_id` is @unique, so there is at most one.
+     */
+    const visitOrder = canViewOrders
+      ? await prisma.orders.findFirst({
+          where: { tenant_id: tid, visit_id: visit.id },
+          include: { order_items: { orderBy: { created_at: 'asc' } } },
+        })
+      : null
+
+    const shape = (rows: unknown) =>
+      (serialize(rows, 'orders') as Record<string, unknown>[]).map(row => {
+        const { _count, ...rest } = row as { _count?: { order_items: number } }
+        return { ...rest, item_count: _count?.order_items ?? 0 }
+      })
+
+    return NextResponse.json({
+      visit: serialize(visit, 'daily_visits'),
+      company: company ? serialize(company, 'companies') : null,
+      discussed_deal_ids: discussed.map(d => d.deal_id),
+      deals_visible: canViewDeals,
+      deals: serialize(openDeals, 'deals'),
+      open_deal_count: openDealCount,
+      orders_visible: canViewOrders,
+      recent_orders: shape(recentOrders),
+      order_count: orderCount,
+      draft_orders: shape(draftOrders),
+      visit_order: visitOrder ? serialize(visitOrder, 'orders') : null,
+    })
+  } catch (err) {
+    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+  }
+}
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()

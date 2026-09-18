@@ -87,6 +87,7 @@ const CONTEXT_SECTION: Record<ContextType, PermSection> = {
   weekly_plan: 'weekly_plan',
   weekly_plan_day: 'weekly_plan',
   deal: 'deals',
+  order: 'orders',
   daily_summary: 'meetings',
   weekly_summary: 'meetings',
 }
