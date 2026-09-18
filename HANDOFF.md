@@ -1,6 +1,6 @@
 # HANDOFF — SFA CRM rebuild, orchestrator session
 
-Written 18 Sep 2026. Branch **`rebuild/phase-1`**, **28 commits** ahead of `main`.
+Written 18 Sep 2026. Branch **`rebuild/phase-1`**, **34 commits** ahead of `main`.
 `main` is untouched at `221f47e`, tagged **`pre-phase1-2026-09-18`**.
 
 Read this, then `08-EXECUTION-SEQUENCE.md` for the task queue and the phase plans for detail.
@@ -60,7 +60,7 @@ rehearsed, targeted reversal to undo — see §7. **Do not repeat it.**
 
 ---
 
-## 3. What is built (28 commits)
+## 3. What is built (34 commits)
 
 **Phase 1 — Parties.** `business_partners` → `companies`, `lead_types` → `company_types`,
 `lead_stages` → `deal_stages`. Contacts + the many-to-many join. Parties page, two tabs, on
@@ -109,56 +109,64 @@ start/stop toggle (P3-T7), inside-a-meeting (P3-T9), past/manual entry (P3-T10),
 
 **Phase 4:** Weekly Review (P4-T4), journaling (P4-T5), manager summary-of-summaries (P4-T6).
 
+**Phase 2 manager comments (§6.5) are DONE** — API and thread, both verified.
+
 **Phase 5:** report UI (P5-T2 — **§30 gate**: no report-table component exists), saved reports,
 the ten presets, header numbers, data-health alerts.
 
 ---
 
-## 5. Agents in flight — UPDATED 18 Sep, late session
+## 5. Agents in flight — NONE. Working tree is clean.
 
-**28 commits. Everything below is COMMITTED except the two agents still running.**
+**34 commits. Every agent has landed and its work is committed.** `git status` shows only
+`overnight-report-2026-09-18.md`, `scripts/backfill-parties.mjs` and
+`scripts/backfill-permission-sections.mjs`, which are one-off scripts already run, not pending work.
 
-Landed since the first draft of this file: Daily Summary (`d6e2ba7`), the Kanban board
-(`d456eb5`), the two-step Company form + **addresses endpoint** (`4243776`).
+Landed last: the Kanban drag (`0956c88`), `dev-local.mjs` + `seed-dev.mjs` + the CLAUDE.md warning
+(`e1b77fb`), the remarks API (`dd44d79`) and the thread mounted on the Daily Summary (`a40258a`).
 
-| Agent | Task | Status |
-|---|---|---|
-| B22-DealsList | **Taking the drag-and-drop the kit just shipped** | RUNNING — uncommitted |
-| B18-Orders | Manager comments (§6.5) | RUNNING — uncommitted |
-| all others | — | idle, work committed |
+### What the last two agents taught, again
+Both B22 and B18 went idle **without a report, twice each**. Verified by hand, B22's work was
+sound but **unverifiable as shipped — there were zero deals in the database, so there was nothing
+to drag**; and B18 had written `remark-thread.tsx` and mounted it on **nothing**, so "manager
+comments" did not exist for a user until it was sent back. **A silent idle has now hidden
+unfinished work three times out of three.** Do not accept one.
 
-**If you are a fresh session: those two agents belong to the previous session and you cannot
-reach them.** Check `git status` first. If `src/components/ui/board.tsx`, `package.json` or
-`src/app/api/remarks/**` are dirty, that is their work — verify it against §7's discipline and
-commit it, or discard and re-dispatch.
+### What is proven about the board, and what is not
+Proven in the browser against the database: the **menu** moved a card Demo Given → Prospect, and
+**Space / ArrowRight / Space** moved it on to Contacted. Each wrote a `deal_stage_logs` row naming
+the acting user and reset `stage_entered_at`. The three-dot menu is intact; `deals/page.tsx` was
+never edited, so §35.6's promise that drag lands on the same `onMove` held.
+
+**NOT proven: the pointer drag itself.** A synthetic drag does not trip the 4px activation
+constraint, so nothing fired — twice. That reads as a limitation of synthetic events rather than a
+defect, but **no one has yet seen a card dragged by a pointer. One human drag closes it.**
+
+### Test data left in the local database
+**11 deals named "Pipeline deal N" / "Verification deal N"** and one live comment thread on Amit
+Kulkarni's 17 Sept summary. They exist because the board and the thread had no data at all. Wipe
+the deals before P2-T4 migrates real funnel companies, or it will migrate alongside junk.
+
+### `/api/remarks` — two things to know
+GET reads **camelCase from the query** (`?contextType=&userId=&date=`), POST reads **snake_case
+from the body**. Sending the wrong key returns `"contextType is required and must be a known
+remark context"`, which reads as a bad *value*. Cost three failed calls to diagnose.
+
+The one-comment-one-reply rule is **check-then-insert**: two concurrent POSTs both count zero and
+both succeed. A partial unique index would close it, but `contextual_remarks` is shared with Deal
+notes and Minutes, which are NOT one-comment-one-reply, so a blanket index would break them. Open.
+
+### Outstanding question, still unanswered
+`/api/review/daily-activity` gates on `canView()`, which **ignores `data_scope` entirely** and has
+no self rows — so it denies a user their own tab while letting a Self-scoped manager read
+downward. The Daily Summary route deliberately uses `scopedUserIds` + `intersectScope` instead.
+**Two routes on the same page disagree about self-view.** Someone should reconcile it.
 
 **`list-page.tsx` has ONE authorised addition**: `renderData?: (rows) => ReactNode`, 30 insertions
 / 0 deletions, replacing the `<Table>` branch only with the four empty states left ahead of it.
 AGENTS.md §35 requires the board to occupy zone 3 of the same list page and the template predates
 §35. **Ten screens consume `list-page` and none passes the prop.** Do not extend it further
 without the same test: does the spec require it, or is a screen being made special?
-
-### The drag upgrade, mid-flight
-The kit shipped drag-and-drop in `board.tsx` at 16:07 on 18 Sep, *after* it was first copied here
-at 15:51. It needs **`@dnd-kit/core ^6.3.1`** (AGENTS.md §35.6 pre-approves `@dnd-kit/core` and
-`@dnd-kit/sortable` "for it and for nothing else" — nothing else). §35.6 promises the drag lands
-on the same `onMove` so **call sites do not change**; if `deals/page.tsx` needed an edit, the
-kit's contract moved and that is a finding. **The three-dot menu is the permanent baseline and is
-never removed** — a drag that replaced it is a regression, not an upgrade. Keyboard operation is
-named in §35.6 too.
-
-### Outstanding question put to B18, unanswered
-`/api/review/daily-activity` gates on `canView()`, which **ignores `data_scope` entirely** and has
-no self rows — so it denies a user their own tab while letting a Self-scoped manager read
-downward. The Daily Summary route deliberately uses `scopedUserIds` + `intersectScope` instead.
-**Two routes on the same page now disagree about self-view.** Someone should reconcile it.
-
-### A known inconsistency in `/api/remarks`
-GET reads **camelCase from the query** (`?contextType=`), POST reads **snake_case from the body**
-(`{"context_type":…}`). Sending the wrong key returns `"contextType is required and must be a
-known remark context"`, which reads as a bad *value*. Cost three failed calls to diagnose.
-
----
 
 ## 6. Decisions waiting on Aryan
 
