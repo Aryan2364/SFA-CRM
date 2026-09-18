@@ -166,3 +166,38 @@ to Prisma, and `dbErrorMessage()` evidently returns nothing for that error class
 
 A bad id is a 400 with a sentence, not a 500 with silence. Likely the same in every route that
 accepts an id in a body. Low severity, wide surface — worth one sweep rather than one fix.
+
+## R-15 — two review routes deny a user their own data
+
+Found 18 Sep by the orchestrator session, while the build fleet was down. Reproduced against
+`sfacrm_local` on :3010 as **Amit Kulkarni** (`9000000102`, role *Sales Executive*, scope `own`),
+asking for **his own** `userId` on `2026-09-17`:
+
+| Route | Gate | Result |
+|---|---|---|
+| `GET /api/review/daily-activity` | `canView()` | **403** |
+| `GET /api/review/expenses` | `canView()` | **403** |
+| `GET /api/review/daily-summary` | `scopedUserIds` + `intersectScope` | **200** |
+
+**Root cause, confirmed in the database:** `user_visibility` holds **8 rows and zero self rows**
+(`select count(*) where viewer_user_id = target_user_id` → `0`). `canView()` is a bare existence
+check on that table, so `canView(me, me)` is **false for every user in the system**. Any route
+gating on it denies a user their own data unless the caller remembers an `ownerId === user.userId`
+special case — and neither of these two routes does.
+
+`canView()` also ignores `role_permissions.data_scope` entirely, so it is wrong in the other
+direction too: a Self-scoped role sitting above someone in the hierarchy still reads downward.
+Both failure modes are already written up in `src/app/api/remarks/_access.ts`, which chose
+`scopedUserIds` + `intersectScope` for exactly these reasons, as did `daily-summary`.
+
+**`expenses` is new.** The handoff flagged `daily-activity` versus `daily-summary` as "two routes
+on the same page disagreeing". It is three routes, and `expenses` was not previously reported.
+
+**Not fixed here, deliberately.** P3-T5 reworks Daily Activity (1685 lines) and owns these files;
+a blind swap of the gate would collide with that task and change who can read what on a screen
+nobody is currently looking at. The decision belongs with whoever takes P3-T5, and it should be
+made deliberately rather than inherited from whichever helper the route happens to call.
+
+⚠️ Do **not** "fix" this by adding self rows to `user_visibility`. That table is the manager
+closure; seeding it with self rows would silently widen every other `canView()` caller, including
+the nine weekly-plan routes that gate transitions on it.

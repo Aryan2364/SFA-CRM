@@ -161,7 +161,7 @@ rows for every query.
 | 16 | ‖ P1-T15 Contact detail page | M | T11 |
 | 17 | P1-T16 Two-step Company form | **L** | T14 |
 | 18 | P1-T17 Quick Create | M | T16 |
-| 19 | P1-T19 **Eliminate the word "Lead"** | M | T13-T18 — **do this last** |
+| 19 | P1-T19 **Eliminate the word "Lead"** | M | ⛔ **ON HOLD — DO NOT RUN.** See note below |
 
 ### Phase 2 — Deals
 
@@ -282,3 +282,24 @@ It also confirms `list-page.tsx`, `globals.css`, `shell/*` and `(protected)/layo
    `09-OPEN-QUESTIONS.md`, not a blank to fill.
 10. **Behaviour is preserved.** A plan that drops something the software does today is wrong.
 11. After each phase, **leave working, testable software.**
+
+
+> ### ⛔ P1-T19 IS ON HOLD — 18 Sep 2026
+>
+> **Do not run this task. Do not dispatch an agent for it.**
+>
+> Aryan's business partner has asked to **keep the word "Lead"** and change
+> "Party" instead — the reverse of what `REBUILD-PLAN.md` §2 and §12 record as a
+> closed decision. Aryan is reviewing it himself and has not decided.
+>
+> Until he does, the terminology is **frozen as-is**. The code currently holds
+> both: ~285 occurrences of "Lead" across 55 files and ~205 of "Party". That is
+> mid-transition and it is fine — it is cheaper to stay here than to sweep twice.
+>
+> **Whoever picks this up next: ask Aryan before touching either word.** A sweep
+> run under the wrong assumption costs a second sweep to undo.
+>
+> Still true whichever way he decides: **do NOT rename master _values_**
+> (`Prospect`, `Existing`, `Dealer`). They are join keys in `orders.entity_type`
+> and `daily_visits.visit_type` with no foreign key behind them, so a rename
+> silently breaks the join rather than failing loudly.
