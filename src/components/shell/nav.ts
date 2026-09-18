@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   CalendarDays,
   ClipboardList,
   Database,
@@ -40,6 +41,7 @@ import type { Me } from '@/hooks/useMe'
  *   | Deals          | handshake           |
  *   | Review         | user-round-check    |
  *   | Conversations  | message-square      |
+ *   | Reports        | bar-chart-3         |
  *   | Masters        | database            |
  *   | Settings       | settings            |  from 23.2's own table
  *
@@ -55,10 +57,14 @@ import type { Me } from '@/hooks/useMe'
  * 26 is what brings it under seven: whole areas a user has no access to
  * are hidden, not disabled.
  *
- * Ten entries are declared. A field rep sees seven; a manager sees
- * eight; an administrator sees all ten, which is the one role the cap
+ * Eleven entries are declared. A field rep sees eight; a manager sees
+ * nine; an administrator sees all eleven, which is the one role the cap
  * does not hold for and the one role that is not scanning for a
  * destination it has never used.
+ *
+ * Reports is the eleventh (P5-T2) and it is the one that pushes a field
+ * rep to eight. It is not droppable: §7.1 makes the builder the ONLY
+ * report surface in the product, so there is no second route to it.
  *
  * Deals is the tenth (P2-T7). It is NOT a tab on Parties: section 33.1's
  * test is whether the views are siblings of ONE section, and a Deal is a
@@ -124,6 +130,22 @@ function canView(me: Me, section: string): boolean {
 export function canReachAccessControl(me: Me): boolean {
   return me.role === 'Administrator'
 }
+
+/**
+ * Every permission section a report can be built from — the `section` of each
+ * entry in `src/lib/reports/sources.ts`. Kept here as a literal rather than
+ * imported, because that module reaches `@/lib/db` and this one is pulled into
+ * a client component.
+ */
+const REPORT_SECTIONS = [
+  'orders',
+  'meetings',
+  'expenses',
+  'deals',
+  'companies',
+  'contacts',
+  'weekly_plan',
+] as const
 
 export const NAV_ITEMS: NavItem[] = [
   {
@@ -197,6 +219,27 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/conversations',
     icon: MessageSquare,
     visible: () => true,
+  },
+  {
+    /*
+     * REBUILD-PLAN.md §7.1 and §10: Reports is a TOP-LEVEL destination,
+     * not a tab on Dashboard. §33.1's test is whether the views are
+     * siblings of one section — the Dashboard answers "how am I doing
+     * today", the report builder answers an arbitrary question about
+     * any section, and they share no records.
+     *
+     * Gated on the data rather than on a role, because there is no
+     * `reports` row in role_permissions: the builder is assembled from
+     * the sections the user can view, and `/api/reports/meta` returns an
+     * empty measure list to someone who can view none of them. The
+     * predicate below is the client-side statement of that same fact, so
+     * the entry appears exactly when the page would have something in
+     * it. The list is the sections `src/lib/reports/sources.ts` declares.
+     */
+    label: 'Reports',
+    href: '/reports',
+    icon: BarChart3,
+    visible: me => REPORT_SECTIONS.some(section => canView(me, section)),
   },
   {
     label: 'Masters',

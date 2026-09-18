@@ -33,6 +33,19 @@ const WEEKLY_PLAN_NAV = {
   ),
 }
 
+/**
+ * §5.2's approval queue. A sibling of Weekly Plan rather than a tab inside it:
+ * the Weekly Plan screen is the caller's OWN plan, and this is other people's.
+ */
+const PLAN_APPROVAL_NAV = {
+  label: 'Plan Approvals', href: '/weekly-plan/approval',
+  icon: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.746 3.746 0 0121 12z" />
+    </svg>
+  ),
+}
+
 const ORDERS_NAV = {
   label: 'Orders', href: '/orders',
   icon: (
@@ -159,6 +172,9 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
     if (href === '/masters') return pathname === '/masters'
+    // Exact, like '/masters' above: '/weekly-plan' is a prefix of
+    // '/weekly-plan/approval', so a prefix test lights both entries at once.
+    if (href === '/weekly-plan') return pathname === '/weekly-plan'
     return pathname.startsWith(href)
   }
 
@@ -172,6 +188,9 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     DASHBOARD_NAV,
     ...(showDailyActivity ? [DAILY_ACTIVITY_NAV] : []),
     ...(showWeeklyPlan ? [WEEKLY_PLAN_NAV] : []),
+    // The section's view permission AND somebody to review. A manager with no
+    // reports would get a queue that is empty by construction.
+    ...(showWeeklyPlan && me?.hasSubordinates ? [PLAN_APPROVAL_NAV] : []),
     ...(showOrders ? [ORDERS_NAV] : []),
     ...(showParties ? [PARTIES_NAV] : []),
     ...(showDeals ? [DEALS_NAV] : []),
