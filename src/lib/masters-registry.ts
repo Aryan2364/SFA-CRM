@@ -275,6 +275,45 @@ export const MASTERS = [
       { name: 'Textiles & Apparel',          sort_order: 18 },
     ],
   },
+  /**
+   * Reason for Loss (P2-T3, REBUILD-PLAN.md §4.9).
+   *
+   * Read by the close-a-Deal dialog: `POST /api/deals/[id]/close` refuses a
+   * `lost` outcome that names no reason, so this master is the only source of
+   * the answer to "why do we lose deals".
+   *
+   * `group: 'lead_config'` for the same reason `contact_types` and `industries`
+   * use it — `MasterGroup` is a closed union of five ids and the two screens
+   * that consume it each map the id to their own heading, so a sixth group
+   * would need both of those screens edited. Appended, never inserted: the
+   * array order is the order the Access Control matrix renders in and the order
+   * seeded permission rows come out in.
+   *
+   * ⚠️ Adding the key here is HALF the change — see OPERATION_SECTIONS's
+   * warning below. `GET /api/settings/role-permissions` reports `false` for a
+   * section with no row, so the rows must be backfilled from each role's
+   * existing `lead_stages` grant or every non-Administrator silently loses it.
+   *
+   * The Deal Stage master is NOT added here: it already exists as the
+   * `lead_stages` entry above, whose `role_permissions.section` value is
+   * load-bearing and immutable (see this file's header). `deal_stages` is the
+   * renamed TABLE; renaming the permission KEY is a later task.
+   */
+  {
+    key: 'reason_for_loss', label: 'Reason for Loss',
+    href: '/masters/reason-for-loss', api: '/api/masters/reason-for-loss',
+    model: 'reason_for_loss', group: 'lead_config', icon: 'circle-x',
+    /** A general starting list, editable from the screen. Nothing reads these
+     *  by name — unlike `lead_stages`, none is is_fixed. */
+    seeded: [
+      { name: 'Price',       sort_order: 1 },
+      { name: 'Competitor',  sort_order: 2 },
+      { name: 'No Budget',   sort_order: 3 },
+      { name: 'Timing',      sort_order: 4 },
+      { name: 'No Response', sort_order: 5 },
+      { name: 'Product Fit', sort_order: 6 },
+    ],
+  },
 ] as const satisfies readonly MasterDef[]
 
 /**
@@ -326,10 +365,22 @@ export const SEEDED_MASTERS: readonly MasterDef[] =
  * two was backfilled from the tenant's existing `leads` grants by
  * `scripts/backfill-permission-sections.mjs`; a database that has not run it
  * shows Companies and Contacts as denied to every role but Administrator.
+ *
+ * ---------------------------------------------------------------------------
+ * `deals` (P2-T5)
+ *
+ * An ENTITY section like `companies`: rows a user owns, with a Self/Team/
+ * Company scope applied on `owner_user_id`. The two masters that configure it
+ * are `lead_stages` (the renamed `deal_stages` table) and `reason_for_loss`,
+ * and both are up in MASTERS where a master belongs.
+ *
+ * Its rows are backfilled from each role's existing `leads` grant — the Deals
+ * pipeline is what the Leads screen was being used as — so "whatever you could
+ * do to Leads" is the right starting point, `data_scope` included.
  */
 export const OPERATION_SECTIONS = [
   'meetings', 'expenses', 'weekly_plan', 'orders', 'leads', 'users',
-  'companies', 'contacts',
+  'companies', 'contacts', 'deals',
 ] as const
 
 /**
