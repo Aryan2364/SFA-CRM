@@ -1,4 +1,62 @@
-# HANDOFF — SFA CRM rebuild, orchestrator session
+# HANDOFF — SFA CRM rebuild
+
+> ## ⚠️ UPDATE — 18 Sep 2026, evening session. READ THIS FIRST.
+>
+> **Everything below this box was written earlier in the day and is now partly stale.**
+> The environment rules and traps in §1 and §2 are still correct and still matter.
+> The task status in §3–§5 is superseded by this box.
+>
+> ### State
+> Branch `rebuild/phase-1`, **56 commits ahead of `main`** (was 35 this morning).
+> `main` is at `e02e0b5` and **has been deployed to production** — see Decision A below.
+> Working tree clean apart from two already-run backfill scripts and last night's report.
+>
+> ### Closed this session — 16 tasks
+> P2-T4 funnel migration · P2-T9 follow-ups · P2-T11 attachments · P3-T4 approval screen ·
+> P3-T5 Daily Activity rework · P3-T7 meeting toggle · P3-T9 inside-a-meeting ·
+> P3-T10 manual entry · P3-T11 cross-links · P3-T12 expenses (no change needed) ·
+> P4-T4 Weekly Review · P4-T5 journaling · P4-T6 manager summary · P5-T2 report builder ·
+> P5-T3 saved reports · P5-T4/T5 ten presets + header · P5-T7 data-health alerts.
+>
+> **Phases 2, 3, 4 and 5 are complete.** The buildable queue is empty.
+>
+> ### What is left, and none of it is a build task
+> 1. **P1-T19 — ON HOLD, DO NOT RUN.** Aryan's partner asked to keep "Lead" and change
+>    "Party", reversing REBUILD-PLAN.md §2 and §12. Aryan is deciding. The code holds both
+>    words (~285 "Lead", ~205 "Party") and staying mid-transition is cheaper than sweeping
+>    twice. See the hold note in `08-EXECUTION-SEQUENCE.md`.
+> 2. **Decision A — still open, and now live.** Production CHECK constraints on
+>    `role_permissions.section` and `contextual_remarks.context_type` must be widened or
+>    dropped. `context_type` now needs `deal` AND `order` — P3-T9 added `order`. Local has no
+>    CHECK constraints, so this passes every local test and fails at runtime on live.
+>    Nobody has ever read the real constraint bodies; Supabase is off limits and Prisma drops
+>    them on introspection. Target is the new empty RDS, so the cheap fix is to set the schema
+>    correctly there rather than migrate. **Recommendation: drop them rather than widen them**
+>    — they live in no file, so they will drift again.
+> 3. **A visual pass.** Most agents had no browser driver. The data-health banners on
+>    `/parties`, `/orders`, `/deals` were verified server-side only and have never been seen.
+>
+> ### Open defects recorded, not fixed
+> `07-REVISIT-QUEUE.md` R-14 (malformed id → bare 500, wider than one route),
+> R-15 (**RESOLVED** by P3-T5), R-16 (orders punched at a meeting are invisible to the
+> Orders search, because `q` matches `entity_name` and they have none).
+>
+> ### Things this session learned the hard way
+> - **`../rgb-kit/AGENTS.md` is a nine-line stub.** The real 2,619-line file is
+>   **`D:\RGB_Softwaregb-kit-v2\AGENTS.md`**, as REBUILD-PLAN.md §0.1 says. Five briefs
+>   were sent with the wrong path. Both "§30 gates" in the phase plans were false: §30 reads
+>   "Nothing outstanding" and lists report tables as already agreed into §34.
+> - **Effective role is `roles.name` via `role_id`, NOT the `users.profile` column**, which
+>   reads `Standard` for everyone. A join on `profile` makes it look like no user has
+>   permissions.
+> - A verification query that omits `tenant_id` will "find" a bug that is the tenant filter
+>   working. Happened twice.
+> - Agents hit an org spend limit twice and died mid-edit, once leaving the tree broken.
+>   Check `tsc` and `git status` before trusting a silent agent.
+
+---
+
+## (Earlier, morning session — superseded above)
 
 Written 18 Sep 2026. Branch **`rebuild/phase-1`**, **34 commits** ahead of `main`.
 `main` is untouched at `221f47e`, tagged **`pre-phase1-2026-09-18`**.
