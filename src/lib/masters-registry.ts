@@ -112,12 +112,6 @@ export const MASTERS = [
     href: '/masters/villages', api: '/api/masters/villages',
     model: 'villages', group: 'locations', icon: 'home',
   },
-  {
-    key: 'territory_mapping', label: 'Territory Mapping',
-    href: '/masters/territory-mapping', api: '/api/masters/territory-mapping',
-    model: 'user_territory_mappings', group: 'locations', icon: 'globe',
-  },
-
   // ── Business partners ────────────────────────────────────────────────────
   // All three are rows of `business_partners`, separated by its `type` column,
   // and each has its own permission key and its own API. Only `dealers` has a

@@ -152,31 +152,6 @@ export async function run() {
     t.ok('next_follow_up_date is date-only or null', instBody.every(x => x.next_follow_up_date === null || /^\d{4}-\d{2}-\d{2}$/.test(x.next_follow_up_date)))
   }
 
-  t.section('territory-mapping')
-  const tm = await get('/api/masters/territory-mapping')
-  const tmBody = await tm.json()
-  const activeCount = await prisma.users.count({ where: { tenant_id: tid, status: 'Active' } })
-  t.ok('GET /territory-mapping -> 200', tm.status === 200, tm.status)
-  t.ok(`one row per ACTIVE user (${activeCount})`, Array.isArray(tmBody) && tmBody.length === activeCount, Array.isArray(tmBody) ? tmBody.length : tmBody)
-  t.ok('each row carries district_summary and has_mapping', tmBody.every(r => 'district_summary' in r && typeof r.has_mapping === 'boolean'))
-
-  const mapped = await prisma.user_territory_mappings.findFirst({ where: { tenant_id: tid }, select: { user_id: true, district_ids: true } })
-  if (mapped) {
-    const one = await get(`/api/masters/territory-mapping/${mapped.user_id}`)
-    const oneBody = await one.json()
-    t.ok('GET /territory-mapping/[userId] -> 200', one.status === 200, one.status)
-    t.ok('user is an object, not an array', oneBody.user && !Array.isArray(oneBody.user))
-    t.ok('district_ids matches the mapping row', JSON.stringify(oneBody.district_ids) === JSON.stringify(mapped.district_ids), { got: oneBody.district_ids?.length, real: mapped.district_ids?.length })
-    t.ok('all four id arrays are arrays', ['state_ids', 'district_ids', 'taluka_ids', 'village_ids'].every(k => Array.isArray(oneBody[k])))
-  } else t.skip('territory-mapping/[userId]', 'no mapping rows in this tenant')
-
-  const unmappedUser = await get(`/api/masters/territory-mapping/${'00000000-0000-4000-8000-0000000000ff'}`)
-  const unmappedBody = await unmappedUser.json()
-  t.ok('unknown userId -> 200 with user:null and empty arrays', unmappedUser.status === 200 && unmappedBody.user === null && unmappedBody.state_ids.length === 0, unmappedBody)
-
-  const places = await get('/api/masters/territory-mapping/places')
-  t.ok('GET /territory-mapping/places -> 200 with an array', places.status === 200 && Array.isArray(await places.json()), places.status)
-
   t.section('audit-log: dead capability still answers 500 (PLAN.md 13.1)')
   const al = await get('/api/masters/users/audit-log')
   t.ok('GET /users/audit-log -> 500, as before', al.status === 500, al.status)

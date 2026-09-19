@@ -312,7 +312,7 @@ them.
 
 > "contact tab doesn't even have create contact button"
 
-### F23 · Remove location masters and territory mapping · OPEN · ⚠️ **TWO READINGS, ONE IS DESTRUCTIVE — ASK BEFORE TOUCHING**
+### F23 · Remove location masters and territory mapping · **FIXED (planning half)** · ⚠️ **TWO READINGS, ONE IS DESTRUCTIVE — ASK BEFORE TOUCHING**
 
 > "In masters we don't need this section of location and that territory mapping so we can delete
 > its entire logic as we were using it for weekly planning where we used to say in x location i
@@ -361,3 +361,27 @@ _(empty)_
 ## Closed
 
 _(empty)_
+
+---
+
+## Closed detail
+
+### F23 — fixed 19 Sep, as the narrow reading
+
+Territory mapping removed from UI, API and the masters registry. The address hierarchy was left
+entirely alone, which was the point of scoping it this way.
+
+Verified after the change: `/api/masters/territory-mapping` 404s, `states` and `districts` still
+return 200, and company completeness is unchanged at **13 complete of 20** with all 20 still
+carrying a `state_id`. That last number is the regression that mattered — completeness is what
+holds an order against an incomplete party in Draft.
+
+**Still outstanding, for Aryan:** the table itself was not dropped, because an agent may not run
+DDL. Nothing in the app reads it now.
+
+```sql
+DROP TABLE user_territory_mappings;
+```
+
+Self-contained: no other table has a foreign key into it. Two seed scripts still write rows to it,
+harmlessly, and would need a line removed when the table goes.
