@@ -503,6 +503,36 @@ reason that was measured in a browser: without them the total row left the scree
 after whatever change is made — at 1440 wide AND at 390.
 
 
+### F34 · Reports: collapse the two-panel model into one · OPEN · **architecture, and Aryan is right**
+
+> "reports page is still not working fine 'Order Amount by Sales Person · 21 Aug 2026 to 19 Sep
+> 2026' now this section is not opening I don't understand why do we have two section like setup
+> rather than having one big section having both in it"
+
+Two complaints, and the second explains the first.
+
+The result box is `shrink-0 grow basis-40 sm:basis-56` — a 160px floor. With the controls panel
+open on a short window it is squeezed to about that, which reads as "not opening". F33 moved the
+squeeze around rather than removing it.
+
+**The architecture is the fault.** The page holds two independently-sized regions inside a fixed
+frame: a controls panel capped at 45vh with its own scrollbar, and a result box that is the only
+thing allowed to scroll. Every row of chrome added since — the four headline tiles, Ready-made,
+Saved — comes out of the same fixed budget, so each addition squeezes the other region. It has
+broken twice in two days for the same reason, which is a design telling us something.
+
+**His suggestion is the right one: one region, one scroll.**
+
+⚠️ The reason it was built this way is genuine and must not simply be discarded. §34.1 requires
+the total row to stay visible while the result scrolls, and the total is a sticky `tfoot`; a
+sticky footer only sticks inside a box that clips it, so a freely-scrolling page put the total
+below the fold. That failure was measured, not imagined.
+
+**But "the total must stay visible" does not require a nested scroller.** Putting the totals in
+the result panel's own sticky HEADER satisfies the requirement and removes the constraint that
+keeps breaking the page. That is the direction to take unless something concrete rules it out.
+
+
 ---
 
 ## Triaged
