@@ -42,7 +42,7 @@ import type {
   ReportResult,
   ReportSpec,
 } from '@/components/reports/types'
-import { fmtNumber } from '@/lib/format'
+import { fmtDate, fmtNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
@@ -814,7 +814,7 @@ export default function ReportsPage() {
                 rows={result.rows}
                 total={result.total}
                 truncated={result.truncated}
-                scopeLabel={scopeLabel(result)}
+                scopeLabel={scopeLabel(result, measure)}
               />
             ) : (
               <>
@@ -824,7 +824,7 @@ export default function ReportsPage() {
                   rows={result.rows}
                 />
                 <p className="shrink-0 border-t border-border-light px-4 py-2 text-meta text-text-muted">
-                  {scopeLabel(result)}
+                  {scopeLabel(result, measure)}
                 </p>
               </>
             )}
@@ -842,8 +842,22 @@ export default function ReportsPage() {
  * than as a claim about the viewer's role, which this page does not know and
  * must not guess.
  */
-function scopeLabel(result: ReportResult): string {
-  return `${fmtNumber(result.rows.length)} rows from ${fmtNumber(result.scanned)} records you can see, ${result.dateFrom} to ${result.dateTo}.`
+function scopeLabel(result: ReportResult, measure: MetaMeasure | null): string {
+  const rows = result.rows.length
+  const lines = `${fmtNumber(rows)} ${rows === 1 ? 'line' : 'lines'}`
+
+  // Name what was counted. "34 records" makes the reader do the work of
+  // remembering which measure they picked; "34 orders" does not. The registry
+  // knows, so the caption should say.
+  const source = measure?.sourceLabel?.toLowerCase() ?? 'records'
+  const scanned = `${fmtNumber(result.scanned)} ${source}`
+
+  // §18's dd MMM yyyy, not the ISO the engine returns. The date-range control
+  // directly above this prints "1 Apr 2026 to 31 Mar 2027"; a caption reading
+  // "2026-04-01 to 2027-03-31" underneath it looks like a different date.
+  const period = `${fmtDate(result.dateFrom)} to ${fmtDate(result.dateTo)}`
+
+  return `${lines}, from ${scanned} visible to you, ${period}.`
 }
 
 function PageHeader({ action }: { action?: React.ReactNode }) {
