@@ -585,9 +585,38 @@ function SummarySection({ title, children }: { title: string; children: React.Re
  *
  * "Non-Meeting Time" is the required wording. Never "Idle Time".
  */
-function SummaryTab({ userId }: { userId: string }) {
-  const [selectedDate, setSelectedDate] = useState(toDateStr(new Date()))
-  const [weekOffset, setWeekOffset] = useState(0)
+/**
+ * How many whole weeks separate the Monday of `day` from the Monday of today.
+ * Negative for a past week, 0 when there is no deep link. Both Mondays are
+ * computed the same way `getWeekStart` does, so the two cannot disagree.
+ */
+function weekOffsetOf(day?: string | null): number {
+  if (!day) return 0
+  const mondayOf = (d: Date) => {
+    const wd = d.getDay()
+    const m = new Date(d)
+    m.setDate(d.getDate() + (wd === 0 ? -6 : 1 - wd))
+    m.setHours(0, 0, 0, 0)
+    return m
+  }
+  const target = new Date(`${day}T00:00:00`)
+  if (Number.isNaN(target.getTime())) return 0
+  const diffMs = mondayOf(target).getTime() - mondayOf(new Date()).getTime()
+  return Math.round(diffMs / (7 * 86_400_000))
+}
+
+function SummaryTab({ userId, initialDate }: { userId: string; initialDate?: string | null }) {
+  /*
+   * `initialDate` is the day a deep link asked for — Conversations' Source
+   * link on a Daily Summary comment carries one. Without it the tab always
+   * opened on today, so a link to a comment on the 17th landed on a sheet
+   * with nothing on it (F32). Today remains the default when no link says
+   * otherwise, and the WeekStrip still owns the date after the first render.
+   */
+  const [selectedDate, setSelectedDate] = useState(initialDate || toDateStr(new Date()))
+  /* The strip has to open on the week the deep-linked day is IN, or the day
+     the sheet is showing is not one of the days the strip offers. */
+  const [weekOffset, setWeekOffset] = useState(() => weekOffsetOf(initialDate))
   const [summary, setSummary] = useState<DailySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -962,6 +991,8 @@ function ReviewUserInner() {
 
   // Deep link: auto-open remarks from URL
   const initialRemarks = searchParams.get('remarks')
+  /* `?date=` — which day a deep link into the Summary tab means. */
+  const initialDate = searchParams.get('date')
   useEffect(() => {
     if (initialRemarks) {
       const ctxType = tab === 'expenses' ? 'expense' : 'meeting'
@@ -1013,7 +1044,7 @@ function ReviewUserInner() {
         <>
           {tab === 'plans' && <WeeklyPlansTab userId={userId} onOpenRemarks={setRemarksPanel} />}
           {tab === 'activity' && <DailyActivityTab userId={userId} onOpenRemarks={setRemarksPanel} />}
-          {tab === 'summary' && <SummaryTab userId={userId} />}
+          {tab === 'summary' && <SummaryTab userId={userId} initialDate={initialDate} />}
           {tab === 'expenses' && <ExpensesTab userId={userId} onOpenRemarks={setRemarksPanel} />}
         </>
       )}

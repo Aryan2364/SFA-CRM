@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { isSummaryContext } from '../remarks/_context'
+import { contextLabel } from './_labels'
+import { resolveSummaryAddresses, groupKey } from './_summary-address'
 
 export const dynamic = 'force-dynamic'
 
@@ -120,11 +123,35 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  let conversations = Object.values(groups).map(g => ({
-    ...g,
-    unread_count: unreadByContext[`${g.context_type}::${g.context_id}`] ?? 0,
-    context_user_id: ownerMap[g.context_id] ?? null,
-  }))
+  /*
+   * F32. A summary conversation's `context_id` is derived from (kind, owner,
+   * period) and cannot be reversed, and `/api/remarks` refuses a raw id for
+   * those types — correctly, see `../remarks/_access.ts`. So the row has to
+   * carry the owner and the period instead, or the thread it points at can
+   * never be opened and the Source link can never land anywhere. Everything
+   * else on the row is unchanged.
+   */
+  const summaryAddresses = await resolveSummaryAddresses(
+    tenantId,
+    Object.values(groups).filter(g => isSummaryContext(g.context_type))
+  )
+
+  let conversations = Object.values(groups).map(g => {
+    const key = groupKey(g.context_type, g.context_id)
+    const address = summaryAddresses.get(key) ?? null
+    return {
+      ...g,
+      // F29. The human label is decided in ONE place and travels with the row,
+      // so no screen has to know what a context key looks like.
+      context_label: contextLabel(g.context_type),
+      unread_count: unreadByContext[key] ?? 0,
+      context_user_id: address?.userId ?? ownerMap[g.context_id] ?? null,
+      /* Both null for every non-summary context — those are addressed by id,
+         and a client that sees a period knows it must address by person. */
+      context_user_name: address?.userName ?? null,
+      context_period: address?.period ?? null,
+    }
+  })
 
   // Filter by status
   if (status === 'unread') conversations = conversations.filter(c => c.unread_count > 0)
@@ -135,7 +162,8 @@ export async function GET(req: NextRequest) {
     const sectionMap: Record<string, string[]> = {
       meeting: ['meeting'],
       expense: ['expense'],
-      weekly_plan: ['weekly_plan_day'],
+      weekly_plan: ['weekly_plan_day', 'weekly_plan'],
+      summary: ['daily_summary', 'weekly_summary'],
     }
     const types = sectionMap[section] ?? [section]
     conversations = conversations.filter(c => types.includes(c.context_type))
