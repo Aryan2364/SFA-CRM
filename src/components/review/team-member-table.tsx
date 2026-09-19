@@ -1,19 +1,21 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ArrowDownIcon, ArrowUpIcon, ChevronRightIcon } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowDownIcon, ArrowUpIcon } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
 import { fmtAmount, fmtNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
  * The per-person rows of the Team Summary (§6.4).
  *
- * Every row is a LINK INTO THE PERSON'S OWN SCREEN, which is the whole reason
- * the page exists: a manager reads the table to find who to look at, then opens
- * that one person. The per-person screens are unchanged — this table navigates
- * to `/review/<userId>`, it does not re-render their content.
+ * The person's NAME is the link into their own screen, which is the whole
+ * reason the page exists: a manager reads the table to find who to look at,
+ * then opens that one person. The per-person screens are unchanged — the
+ * name links to `/review/<userId>`, it does not re-render their content.
+ * There is exactly one way in — no separate "Open" column/button, and the
+ * row itself is not clickable (it may carry its own controls later).
  *
  * Sorting is local because the row set is capped server-side at 120 people; a
  * sort that round-tripped would flash the whole table to reorder ten rows.
@@ -53,11 +55,9 @@ const COLUMNS: { key: SortKey; header: string; numeric: boolean; render: (r: Tea
 export function TeamMemberTable({
   rows,
   showManager,
-  onOpen,
 }: {
   rows: TeamMemberRow[]
   showManager: boolean
-  onOpen: (userId: string) => void
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('meetings')
   const [asc, setAsc] = useState(false)
@@ -101,38 +101,31 @@ export function TeamMemberTable({
               </th>
             ))}
             {showManager && <th className="py-2 pr-3">Reports to</th>}
-            <th className="py-2 pr-3 text-right">Detail</th>
           </tr>
         </thead>
         <tbody>
           {sorted.map(r => (
-            <tr
-              key={r.userId}
-              onClick={() => onOpen(r.userId)}
-              className="cursor-pointer border-b border-border-light last:border-0 hover:bg-surface-control"
-            >
-              {COLUMNS.map(c => (
-                <td
-                  key={c.key}
-                  className={cn('py-3 pr-3', c.numeric && 'text-right tabular-nums', c.key === 'name' && 'font-medium text-text-primary')}
-                >
-                  {c.render(r)}
-                </td>
-              ))}
+            <tr key={r.userId} className="border-b border-border-light last:border-0">
+              {COLUMNS.map(c =>
+                c.key === 'name' ? (
+                  <td key={c.key} className="py-1 pr-3">
+                    <Link
+                      href={`/review/${r.userId}?tab=summary`}
+                      className="inline-flex min-h-[44px] items-center py-3 font-medium text-text-primary hover:text-primary hover:underline"
+                    >
+                      {r.name}
+                    </Link>
+                  </td>
+                ) : (
+                  <td
+                    key={c.key}
+                    className={cn('py-3 pr-3', c.numeric && 'text-right tabular-nums')}
+                  >
+                    {c.render(r)}
+                  </td>
+                )
+              )}
               {showManager && <td className="py-3 pr-3 text-text-secondary">{r.managerName ?? '—'}</td>}
-              <td className="py-3 pr-3 text-right">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={e => {
-                    e.stopPropagation()
-                    onOpen(r.userId)
-                  }}
-                  aria-label={`Open ${r.name}'s review`}
-                >
-                  Open <ChevronRightIcon className="h-4 w-4" />
-                </Button>
-              </td>
             </tr>
           ))}
         </tbody>

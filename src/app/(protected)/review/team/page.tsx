@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 
@@ -67,10 +67,10 @@ function fmtRange(start: string, end: string): string {
 /** Same tile as the individual Weekly Review, so the two pages read as one system. */
 function StatTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl border border-border-light bg-surface px-4 py-3">
-      <span className="text-caption text-text-secondary">{label}</span>
-      <span className="text-2xl font-semibold text-text-primary">{value}</span>
-      {sub && <span className="text-caption text-text-secondary">{sub}</span>}
+    <div className="flex min-w-0 flex-col gap-1 rounded-xl border border-border-light bg-surface px-4 py-3">
+      <span className="truncate text-caption text-text-secondary">{label}</span>
+      <span className="break-words text-2xl font-semibold leading-tight text-text-primary">{value}</span>
+      {sub && <span className="truncate text-caption text-text-secondary">{sub}</span>}
     </div>
   )
 }
@@ -106,12 +106,6 @@ export default function TeamSummaryPage() {
       })
       .finally(() => setLoading(false))
   }, [weekStart, tier, showToast])
-
-  // Drill-down: the person's own existing review screen, opened on the summary
-  // tab. That screen carries its own Back control, so this is not a dead end.
-  const openPerson = useCallback((userId: string) => {
-    router.push(`/review/${userId}?tab=summary`)
-  }, [router])
 
   return (
     <div className="flex h-full flex-col">
@@ -187,7 +181,7 @@ export default function TeamSummaryPage() {
                 {data.members.length === 0 ? (
                   <p className="py-4 text-body text-text-secondary">Nobody is visible to you for this week.</p>
                 ) : (
-                  <TeamMemberTable rows={data.members} showManager={data.tier === 'company'} onOpen={openPerson} />
+                  <TeamMemberTable rows={data.members} showManager={data.tier === 'company'} />
                 )}
               </CardContent>
             </Card>
