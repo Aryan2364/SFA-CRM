@@ -206,8 +206,18 @@ export const NAV_ITEMS: NavItem[] = [
      * Visible on EITHER permission. The page hides the tab the user
      * cannot view, so someone granted contacts and not companies still
      * has a way in; testing only `companies` would strand them.
+     *
+     * ⚠️ The LABEL reads "Leads" while the route stays `/parties`, and
+     * the comments above still say Party because they quote
+     * REBUILD-PLAN.md and the kit's own section 23.2 table, which do.
+     * That is deliberate, not drift: Aryan's partner reversed the
+     * terminology on 19 Sep, and the rename is being applied to
+     * user-facing text only until P1-T19 decides whether the routes,
+     * files and ~285 code occurrences follow. Do NOT rename the route
+     * to keep them matching — a URL change breaks every saved link for
+     * a word that may yet move again.
      */
-    label: 'Parties',
+    label: 'Leads',
     href: '/parties',
     icon: UserRoundSearch,
     visible: me => canView(me, 'companies') || canView(me, 'contacts'),
