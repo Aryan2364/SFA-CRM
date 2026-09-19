@@ -479,6 +479,30 @@ The fix belongs in Conversations: carry the **owner and the period** for summary
 derived id. The same applies to the Source link, which he also reports landing nowhere useful.
 
 
+### F33 · Reports page clips its own content · OPEN · **layout regression**
+
+> "there is a bug in page scoll has ended early so the section below Order Amount by Company · 13
+> Sep 2026 to 19 Sep 2026 / Measure / Dimension is hidden"
+
+The page scroll ends before the content does, so the result panel's header and the controls under
+it are cut off with no way to reach them.
+
+*Diagnosis, unverified:* a stacking regression, not a new mistake. `reports/page.tsx` is built
+`flex h-full min-h-0 flex-col` with `overflow-hidden` on the result wrapper, deliberately — the
+comment in the file says the result is meant to be the ONLY scrolling region, and the controls
+panel was capped at `max-h-[45vh]` with its own scroll to fix a real §34.1 failure where the page
+pushed past the shell's content box and the sticky total stopped being sticky.
+
+That layout assumed a certain amount of vertical space. Since then the four headline tiles
+(P5-T5) and the Ready-made and Saved controls (P5-T4, P5-T3) were added above it. Everything still
+claims `h-full` of a box that now has more in it, so the surplus is clipped rather than scrolled.
+
+⚠️ **Do not fix this by deleting the `overflow-hidden` or the 45vh cap.** Both exist for a
+reason that was measured in a browser: without them the total row left the screen entirely at
+420x900, which is the failure §34.1 is written about. Re-verify that the total stays on screen
+after whatever change is made — at 1440 wide AND at 390.
+
+
 ---
 
 ## Triaged
