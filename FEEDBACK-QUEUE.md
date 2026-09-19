@@ -271,7 +271,7 @@ patching.
 sends a quantity, the server reads the rate from `products.price`. That was proven by posting a
 forged rate and having it ignored. Any redesign keeps that property.
 
-### F19 · Headings sit below content on Parties and Deals · OPEN
+### F19 · Headings sit below content on Parties and Deals · **FIXED**
 
 > "parties and deals page have heading below something which is not acceptable heading are always
 > meant to on top of the page no matter what"
@@ -279,7 +279,7 @@ forged rate and having it ignored. Any redesign keeps that property.
 A page title belongs at the top, above alerts and toolbars. Likely caused by **F20** — the
 data-health banners were inserted above the heading rather than below it.
 
-### F20 · The data-health banners are far too tall · OPEN · **first real look at these**
+### F20 · The data-health banners are far too tall · **FIXED** · **first real look at these**
 
 > "7 parties are incomplete / Missing a primary address, city, state, pincode or GST number — an
 > order against one stays in Draft. / 15 parties have no deal / Nothing in the pipeline is tied to
@@ -295,7 +295,7 @@ right; the format is wrong. Consider one compact line with the detail on demand.
 are absent — a bare count was the thing that requirement existed to prevent. Shrink the
 presentation, not the information.
 
-### F21 · "Parties" becomes "Leads" · OPEN · **third signal — Aryan should now settle P1-T19**
+### F21 · "Parties" becomes "Leads" · **FIXED** · **third signal — Aryan should now settle P1-T19**
 
 > "change parties to leads"
 
@@ -308,7 +308,7 @@ is safe. The repo holds ~285 "Lead" and ~205 "Party", and P1-T19 is a sweep over
 are join keys in `orders.entity_type` and `daily_visits.visit_type` with no foreign key behind
 them.
 
-### F22 · The Contacts tab has no create button · OPEN · **missing function, not styling**
+### F22 · The Contacts tab has no create button · **FIXED** · **missing function, not styling**
 
 > "contact tab doesn't even have create contact button"
 
@@ -385,3 +385,20 @@ DROP TABLE user_territory_mappings;
 
 Self-contained: no other table has a foreign key into it. Two seed scripts still write rows to it,
 harmlessly, and would need a line removed when the table goes.
+
+### F19-F22 — fixed 19 Sep, commit 4437812
+
+Verified independently before committing. Two things I got wrong while checking, recorded because
+the next person will hit the same traps:
+
+**The agent's row counts were wrong, its conclusion was not.** It reported the administrator
+seeing 80 companies and 30 deals against an executive's 40 and 6. The real figures are **20 and 5
+against 10 and 1**. I went looking for a cross-tenant leak on the strength of those numbers and
+there is none — scope works exactly as claimed. The claim was true and the evidence for it was
+inflated four to six times. Re-run a number before trusting it, even when the conclusion is right.
+
+**Contact deletion is a SOFT delete and that is deliberate.** `DELETE /api/contacts/[id]` returns
+`{"ok":true}` and leaves the row with `is_active = false`. `_handlers.ts` says why: a hard delete
+would either fail on the foreign keys or take history with it, and the list hides inactive
+contacts so it reads as a delete. Contacts total 22, **active 21**, which is the baseline. Do not
+"fix" this.
