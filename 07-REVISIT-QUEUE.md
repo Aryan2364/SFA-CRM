@@ -296,3 +296,20 @@ cannot open this" still discloses that the record exists and that someone commen
 Sent for fix the same day. Recorded because the class of bug matters more than the instance: the
 useful question is *"is this one route, or the family?"* — which is how the weekly-plan holes were
 found.
+
+## R-19 — the shell's top bar overflows 39px at phone width
+
+Found 19 Sep while measuring the reports page at 390x844, and confirmed identical before and after
+that change, so it is pre-existing and belongs to nobody's current task.
+
+The document scrolls 39px horizontally at 390px wide. The cause is the shell's own top bar — the
+bell and user buttons in `src/components/shell/` — not any individual page. The body itself does
+not scroll, so it reads as a slightly draggable page rather than an obviously broken one, which is
+why nobody has reported it.
+
+It affects **every screen**, since it is the shell. That makes it cheap to fix once and worth more
+than its size suggests: the global rule is that a page body never scrolls sideways, and right now
+none of them honour it on a phone.
+
+Not fixed when found because the agent that measured it was scoped to the reports page, and a
+shell change touches every screen in the app — that is a deliberate dispatch, not a drive-by.
