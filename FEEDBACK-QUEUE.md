@@ -147,7 +147,7 @@ than a component to invent — **which is exactly what he is telling us to do: a
 
 A structural rework, not corrections. Aryan is redesigning the screen.
 
-### F9 · The plan becomes a seven-column board, Mon to Sun · OPEN · **the core change**
+### F9 · The plan becomes a seven-column board, Mon to Sun · **FIXED** · **the core change**
 
 > "I need a 7 column table with heading mon, tue, till sun and in that there will cards where I
 > can plan"
@@ -187,11 +187,11 @@ Directly related to **F8**, where a native `<input type="time">` was used becaus
 specified. He made the same point there: *"if you didn't got component you should have asked me."*
 Twice in two rounds. Treat it as standing.
 
-### F11 · Remove "Day Focus / Remarks" from each day · OPEN
+### F11 · Remove "Day Focus / Remarks" from each day · **FIXED**
 
 > "we don't want this Day Focus / Remarks on each day"
 
-### F12 · Remove the Dist / Dealer / Others counts from each line · OPEN · **closes an open decision**
+### F12 · Remove the Dist / Dealer / Others counts from each line · **FIXED** · **closes an open decision**
 
 > "we don't need this \"Dist. Dealer Others\" in each line item"
 
@@ -200,7 +200,7 @@ Twice in two rounds. Treat it as standing.
 choice open."* They are retired. Record the decision as closed by Aryan on 19 Sep, and check
 whether anything downstream reads those counts before deleting them.
 
-### F13 · Card contents, and the add-party form · OPEN
+### F13 · Card contents, and the add-party form · **FIXED**
 
 > "card can have firm name and in next line type and next to it might be expected or agenda of the
 > meet (for this we can make add party thing as form only with selection of party name and agenda
@@ -217,7 +217,7 @@ lights up several numbers elsewhere.
 
 Agenda is a new field — check whether `weekly_plan_items` has a column for it before assuming one.
 
-### F14 · Where does "Upcoming week I want to Achieve" go · OPEN · **he is undecided, needs a proposal**
+### F14 · Where does "Upcoming week I want to Achieve" go · **FIXED** · **he is undecided, needs a proposal**
 
 > "Now I am confused where will we put this section Upcoming week I want to Achieve we might put
 > this in end small vertical space with full width and internal scrolling can be thought."
@@ -416,7 +416,7 @@ bursts on a real one has not been fixed.
 
 ## Round 5 — Conversations, 19 Sep
 
-### F29 · Raw `daily_summary` shown to users · OPEN
+### F29 · Raw `daily_summary` shown to users · **FIXED**
 
 > "in conversation it says daily_summary why _ for users it should not look mechanical or
 > technical"
@@ -425,7 +425,7 @@ Right. `daily_summary`, `weekly_summary`, `weekly_plan_day` and the rest are int
 keys. Users see "Daily Summary". Map every context type to a human label in one place, so a new
 type cannot leak its key to the screen.
 
-### F30 · A replacement character in a stored remark · OPEN · **corrupt DATA, not rendering**
+### F30 · A replacement character in a stored remark · **FIXED** · **corrupt DATA, not rendering**
 
 > "in latest message Added � order placed. there is this � symbol why? it should not be there."
 
@@ -442,7 +442,7 @@ So the fix is to delete the fixture, not to sanitise text on the way out. **But 
 whether any write path can produce U+FFFD** — if an agent's shell did it, fine; if the app can, that
 is a real encoding bug and matters far more than one bad row.
 
-### F31 · Drop the Open button, click the row · OPEN · **same as F27**
+### F31 · Drop the Open button, click the row · **FIXED** · **same as F27**
 
 > "i don't need open button as clicking the line item only should work same as open button"
 
@@ -450,7 +450,7 @@ Same treatment and the same trap as the Team Summary change: the clickable thing
 clickable, keep a 44px target, stay a real link, and the whole row should not become one big click
 surface.
 
-### F32 · A conversation that cannot be opened · OPEN · **CONFIRMED BUG, this is the real one**
+### F32 · A conversation that cannot be opened · **FIXED** · **CONFIRMED BUG, this is the real one**
 
 > "when i clicked openend this line entry ... there it says no remark yet so what is this line
 > entry I don't understand like what is the purpose ... source takes to the page there also I
@@ -611,3 +611,35 @@ report three times today. Each time the agent reported COMPLETE without mentioni
 which reads as "not done" — and twice it was already done. Prefer queueing a late item for a fresh
 agent unless the file is genuinely contended, and when routing to a running one, check the working
 tree before believing either the report or the reminder.
+
+### Status roll-up — end of 19 Sep
+
+**29 of 34 closed.** Every dispatched agent is idle and nothing is stranded.
+
+| Items | Commit |
+|---|---|
+| F1 F2 F3 F4 F5 F6 F8 F26 — Daily Activity | `d0cad5f` |
+| F16 F17 F18 — order entry | `71d00fd` |
+| F19 F20 F21 F22 — Leads, Deals, contacts | `4437812` |
+| F23 — territory mapping retired | `fc07054` |
+| F25 — alerts behind an icon | `283e08e` |
+| F27 F28 — Team Summary | `fcba2f0` |
+| F29 F30 F31 F32 — Conversations | `1e2f815` |
+| F33 F34 — Reports, one region | `36bf779` |
+| F9 F11 F12 F13 F14 — Weekly Plan board | `8e90f7f` |
+| menu order, Leads label | `b10fb72`, `722241e` |
+
+**Still open, all needing Aryan:**
+- **F7** — how far the Leads rename goes. Menu and Leads screens say Leads; routes and ~285 code
+  occurrences still say Party. P1-T19 remains on hold.
+- **F15 / F24** — the Weekly Plan data model and its ripple. The board ships as a view; retiring
+  `from_place`, `to_place`, `mode_of_travel` and the goal counts touches roughly thirty files
+  across Daily Activity, the approval diff, Weekly Review, Team Summary, Daily Summary and the
+  report engine.
+- **F10** — standing process rule, not a task. If the kit lacks a component, ask him.
+- **Decision A** — two read-only production queries only he can run.
+
+**Defects found while fixing his list, recorded in `07-REVISIT-QUEUE.md`:** R-18 (conversations
+had no authorisation — fixed same day), R-19 (shell top bar overflows 39px on a phone, affects
+every screen, unfixed). Plus one found by the board agent and fixed in place: saving a weekly plan
+has always silently discarded lines with no party.
