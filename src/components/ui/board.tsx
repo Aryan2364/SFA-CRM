@@ -116,6 +116,22 @@ type BoardColumn = {
    * rendered. Section 35.4: a column showing 25 of 48 says so.
    */
   total: number
+  /**
+   * One control belonging to THIS column, rendered in its header beside
+   * the total - an add button on a board whose columns are days, say.
+   *
+   * It lives here rather than above the board because the board is the
+   * horizontal scroll container: anything rendered as a sibling stays
+   * put while the columns slide under it, so a per-column control
+   * outside would drift away from the column it belongs to on the first
+   * sideways scroll.
+   *
+   * Optional, and omitting it renders exactly what this component
+   * rendered before the prop existed. Keep it to ONE small control:
+   * the header is 44px of a 280px column and it already carries the
+   * label and the count.
+   */
+  action?: React.ReactNode
 }
 
 type BoardCard = {
@@ -571,13 +587,21 @@ function BoardColumnView({
         the scrolling box cannot scroll away at all.
       */}
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-light px-3 py-3">
-        <p className="min-w-0 text-body font-medium text-text-primary">
+        {/*
+          `flex-1` so the label takes the slack and the count stays hard
+          against the right edge once a third child joins it. With two
+          children `justify-between` did that on its own; with three it
+          would have stranded the action in the middle of the header.
+          A column with no action renders exactly as before.
+        */}
+        <p className="min-w-0 flex-1 text-body font-medium text-text-primary">
           <Truncate>{column.label}</Truncate>
         </p>
         {/* The true total, never the rendered count (35.4). */}
         <p className="shrink-0 text-meta text-text-muted tabular-nums">
           {column.total}
         </p>
+        {column.action}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">

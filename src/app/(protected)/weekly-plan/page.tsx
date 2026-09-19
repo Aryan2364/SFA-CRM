@@ -1,10 +1,26 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { ChevronLeftIcon, ChevronRightIcon, MessageSquareIcon } from 'lucide-react'
+
 import StatusBadge from '@/components/ui/StatusBadge'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { useToast } from '@/contexts/ToastContext'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { ManagerChanges, changeCountLabel } from '@/components/weekly-plan/manager-changes'
+import { PlanBoard, PlanDayList, type PlanBoardLine } from '@/components/weekly-plan/plan-board'
+import { PlanLineDialog, DayPicker, type PlanLineDraft } from '@/components/weekly-plan/plan-line-dialog'
+import { WeeklyPriorities } from '@/components/weekly-plan/weekly-priorities'
 import type { ItemsDiff } from '@/lib/weekly-plan-diff'
 
 // ---- helpers ----
@@ -24,14 +40,19 @@ function toDateStr(d: Date) {
 }
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r }
 function buildWeekDays(monday: Date) { return Array.from({ length: 7 }, (_, i) => toDateStr(addDays(monday, i))) }
-function isToday(dateStr: string) { return dateStr === toDateStr(new Date()) }
 
-function formatDayHeader(dateStr: string) {
+/** The column heading: "Mon 15 Sep". Short, because the column is 280px. */
+function formatDayColumn(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00')
-  const weekday = d.toLocaleDateString('en-IN', { weekday: 'long' })
-  const day = String(d.getDate()).padStart(2, '0')
+  const weekday = d.toLocaleDateString('en-IN', { weekday: 'short' })
   const month = d.toLocaleDateString('en-IN', { month: 'short' })
-  return `${weekday}, ${day} ${month}`
+  return `${weekday} ${d.getDate()} ${month}`
+}
+
+/** The dialog's subtitle, where there is room for the long form. */
+function formatDayLong(dateStr: string) {
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' })
 }
 
 function formatWeekRange(monday: Date) {
@@ -59,6 +80,11 @@ function formatCountdown(secs: number) {
  *
  * The regex stays strict: it is the one place a note is reread as a number, and
  * a looser match would eat 'Collection focus'.
+ *
+ * ⚠️ F12 took Dist/Dealer/Others off the SCREEN. It did not take them out of
+ * the database, and this pair of readers is exactly why they cannot simply be
+ * dropped from the row type either: a legacy note still has to be told apart
+ * from a legacy count, or the board would print "6" as a line's agenda.
  */
 const BARE_NUMBER = /^\s*\d+(\.\d+)?\s*$/
 function readOthers(othersGoal: number | null | undefined, notes: string | null | undefined): number {
@@ -73,26 +99,7 @@ function carriedNote(notes: string | null | undefined): string {
 const PLACEHOLDER_TYPE = '—'
 
 /** One planned line. §5.1: a line is a PARTY, not a place. */
-type PlanEntry = {
-  id: string
-  partyId: string
-  partyType: 'company' | 'contact' | ''
-  dist: number
-  dealer: number
-  others: number
-  /** Kept as a string so an empty field stays distinguishable from a typed 0. */
-  expectedOrderValue: string
-  /**
-   * Location is off the screen (§5.1) but its columns live on for a release, so
-   * whatever an older place-based row carried is round-tripped invisibly. Without
-   * this, the first re-save of an existing plan would blank its places.
-   */
-  fromPlace: string
-  toPlace: string
-  modeOfTravel: string
-  /** Free text already in `notes` — preserved, never shown, see above. */
-  note: string
-}
+type PlanEntry = PlanLineDraft
 type DayData = { [dateStr: string]: PlanEntry[] }
 
 /** A checklist row. `id` is null until it has been saved. */
@@ -143,6 +150,13 @@ type PartyOption = {
 let _entryId = 0
 function newEntryId() { return `e${++_entryId}` }
 
+function blankEntry(): PlanEntry {
+  return {
+    id: newEntryId(), partyId: '', partyType: '', dist: 0, dealer: 0, others: 0,
+    expectedOrderValue: '', fromPlace: '', toPlace: '', modeOfTravel: '', note: '',
+  }
+}
+
 function planItemsToDayData(items: PlanItem[], weekDays: string[]): DayData {
   const dd: DayData = {}
   for (const day of weekDays) dd[day] = []
@@ -166,7 +180,16 @@ function planItemsToDayData(items: PlanItem[], weekDays: string[]): DayData {
   return dd
 }
 
-/** Item 9: skip blank rows — a line with no party is an empty form row, not data. */
+/**
+ * Item 9: skip blank rows — a line with no party is an empty form row, not data.
+ *
+ * ⚠️ Every field the board stopped SHOWING is still written from the draft it
+ * was read into. F12 retired Dist/Dealer/Others from the face of the plan and
+ * explicitly not from the database, so a line saved through the new dialog
+ * carries the counts, the places, the travel mode and the note it arrived
+ * with. The manager's diff compares these fields, so a board that quietly
+ * blanked them would have shown every re-saved plan as a change.
+ */
 function dayDataToPlanItems(dayData: DayData) {
   const items: Record<string, unknown>[] = []
   for (const [date, entries] of Object.entries(dayData)) {
@@ -245,14 +268,15 @@ function PartyCombobox({ value, onChange, options, disabled }: {
   return (
     <div ref={containerRef} className="relative w-full">
       <input
+        id="plan-line-party"
         type="text" disabled={disabled} value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
         placeholder="Search company or contact…"
-        className="w-full border border-border-light rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted"
+        className="w-full border border-border-light rounded-lg px-3 py-2 text-[16px] sm:text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted"
       />
       {!disabled && open && (
-        <div className="absolute z-30 left-0 right-0 top-full mt-0.5 bg-surface border border-border-light rounded-lg shadow-lg max-h-56 sm:max-h-64 overflow-y-auto">
+        <div className="absolute z-30 left-0 right-0 top-full mt-0.5 bg-surface border border-border-light rounded-lg shadow-lg max-h-56 overflow-y-auto">
           {filtered.length === 0 ? (
             <p className="px-3 py-2 text-sm text-text-muted">No parties found</p>
           ) : (
@@ -281,18 +305,11 @@ function PartyCombobox({ value, onChange, options, disabled }: {
   )
 }
 
-/**
- * One cell of the entry row. The label is shown only below `sm`, where the row
- * stacks; on desktop the column headers above the list carry the names, so
- * repeating them per row would be the same value said twice.
- */
-function Cell({ label, className = '', children }: { label: string; className?: string; children: React.ReactNode }) {
-  return (
-    <label className={`min-w-0 ${className}`}>
-      <span className="block sm:hidden text-[11px] font-medium text-text-muted mb-1">{label}</span>
-      {children}
-    </label>
-  )
+/** What the dialog is currently editing. `entry` is a working copy. */
+type LineEdit = {
+  mode: 'add' | 'edit'
+  date: string
+  entry: PlanEntry
 }
 
 // ---- My Plan Tab ----
@@ -311,20 +328,33 @@ function MyPlanTab({ userId }: { userId: string | null }) {
   const [reopenModal, setReopenModal] = useState(false)
   const [reopenMessage, setReopenMessage] = useState('')
   const [reopening, setReopening] = useState(false)
+  /*
+   * F11 took Day Focus / Remarks off the screen. `day_notes` is still loaded
+   * and still sent back exactly as it arrived, so an existing plan's notes are
+   * not wiped by the first save through the new screen — the same discipline
+   * F12 asks for on the three goal counts.
+   */
   const [dayNotes, setDayNotes] = useState<Record<string, string>>({})
   const [goals, setGoals] = useState<Goal[]>(() => padGoals([]))
+  const [editing, setEditing] = useState<LineEdit | null>(null)
+  const [prioritiesOpen, setPrioritiesOpen] = useState(true)
+  const [confirmDrop, setConfirmDrop] = useState(false)
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
   // Item 10: in-memory week cache
   const weekCache  = useRef<Map<string, DayData>>(new Map())
   const notesCache = useRef<Map<string, Record<string, string>>>(new Map())
-  // ⚠️ Holds the CHECKLIST now, not the old free-text string. It is written by
-  // navigateWeek and cleared by loadPlan(true) alongside the other two — a
-  // checklist that missed that invalidation would follow the user into the next
-  // week and be saved onto the wrong plan.
   const goalCache  = useRef<Map<string, Goal[]>>(new Map())
 
   const weekStart = toDateStr(monday)
   const weekEnd = toDateStr(addDays(monday, 6))
-  const weekDays = buildWeekDays(monday)
+  const weekDays = useMemo(() => buildWeekDays(monday), [monday])
+
+  /*
+   * "Today" is read once per render from the client clock. It is only ever
+   * used to choose which day the phone view opens on, so there is nothing for
+   * a timezone skew to corrupt.
+   */
+  const todayStr = toDateStr(new Date())
 
   /** Index by id so a row can resolve its party's name and locked Company Type. */
   const partyById = useMemo(() => {
@@ -334,8 +364,6 @@ function MyPlanTab({ userId }: { userId: string | null }) {
   }, [parties])
 
   // §5.1: the dropdown lists Companies AND Contacts — either can be selected.
-  // Both are fetched once; the list is the tenant's party master and does not
-  // change while a week is being planned.
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -404,6 +432,11 @@ function MyPlanTab({ userId }: { userId: string | null }) {
 
   useEffect(() => { loadPlan() }, [loadPlan])
 
+  /* The phone view opens on today when the week contains it, else on Monday. */
+  useEffect(() => {
+    setSelectedDay(weekDays.includes(todayStr) ? todayStr : weekDays[0])
+  }, [weekDays, todayStr])
+
   // Undo countdown — Items 5 & 6
   useEffect(() => {
     if (!plan || !plan.submitted_at || !['Submitted', 'Resubmitted'].includes(plan.status)) {
@@ -424,13 +457,6 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     return () => clearInterval(interval)
   }, [plan])
 
-  /**
-   * Split from `loadLogs` so the trail can be fetched WITHOUT opening the
-   * modal. §5.2's banner renders the manager's before/after inline, and that
-   * payload lives on the audit row — so the plan screen needs the log as data
-   * whenever the plan comes back edited, not only when somebody asks for the
-   * history.
-   */
   const fetchLogs = useCallback(async (planId: string) => {
     const r = await fetch(`/api/weekly-plans/${planId}/logs`)
     if (!r.ok) return
@@ -444,25 +470,10 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     setLogsOpen(true)
   }
 
-  /*
-    The trail is loaded eagerly for exactly one status. 'Edited by Manager' is
-    the only state whose banner has something to render from it, so every other
-    plan costs no extra request.
-  */
   useEffect(() => {
     if (plan && plan.status === 'Edited by Manager') void fetchLogs(plan.id)
   }, [plan, fetchLogs])
 
-  /**
-   * The change the banner shows: the most recent manager edit that actually
-   * recorded a before/after.
-   *
-   * `logs` arrives newest-first from the API, so the first match is the latest.
-   * Matched on the ACTION 'EditByManager' — not on the status — because a plan
-   * can be edited twice and only the last edit is the one still unreviewed.
-   * Pre-release rows carry `changes: null` and are skipped rather than shown
-   * as an empty change list.
-   */
   const latestManagerEdit = useMemo(
     () => logs.find(l => l.action_type === 'EditByManager' && l.changes)?.changes ?? null,
     [logs],
@@ -475,7 +486,33 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       .map((g, i) => ({ id: g.id, text: g.text.trim(), is_done: g.is_done, sort_order: i }))
   }
 
+  /**
+   * ⚠️ Lines with no party are DISCARDED by a save, and always have been —
+   * `dayDataToPlanItems` skips them, on this screen and on the one before it.
+   *
+   * On the old grid that was survivable: a party-less line was a visibly
+   * unfinished form row with an empty picker in it. On the board it is a
+   * finished-looking card showing its journey, and 51 of the 55 rows in the
+   * database are exactly that. Pressing Save Draft would delete six of
+   * somebody's cards with a "Saved" toast.
+   *
+   * So the save asks first. The write path is untouched — this is the screen
+   * refusing to trigger it silently.
+   */
+  const partylessCount = useMemo(
+    () => Object.values(dayData).reduce((n, entries) => n + entries.filter(e => !e.partyId).length, 0),
+    [dayData],
+  )
+
   async function handleSaveDraft() {
+    if (partylessCount > 0) {
+      setConfirmDrop(true)
+      return
+    }
+    await saveDraft()
+  }
+
+  async function saveDraft() {
     setSaving(true)
     const items = dayDataToPlanItems(dayData)
     if (!plan) {
@@ -495,17 +532,19 @@ function MyPlanTab({ userId }: { userId: string | null }) {
   }
 
   async function handleSubmit() {
-    // A row with no party selected is an unfinished line, not an empty one —
-    // the same guard the blank-place check was (Location is gone, the rule is not).
+    /*
+     * A line without a party can no longer be created — the dialog will not
+     * save one. The guard stays because a plan loaded from an older draft can
+     * still contain one, and submitting it would silently drop the line.
+     */
     const hasBlankParty = Object.values(dayData).some(entries =>
       entries.some(e => !e.partyId)
     )
     if (hasBlankParty) {
-      toast('Every line needs a party — select one or remove the row before submitting', 'error')
+      toast('Every line needs a party — open the line and select one, or remove it', 'error')
       return
     }
     const items = dayDataToPlanItems(dayData)
-    // Item 4: block empty week submission
     if (items.length === 0) {
       toast('Please add at least one party before submitting', 'error')
       return
@@ -531,7 +570,6 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     setSaving(false)
   }
 
-  // Item 5 & 6: undo submit
   async function handleUndo() {
     if (!plan) return
     setSaving(true)
@@ -540,7 +578,6 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     setSaving(false)
   }
 
-  // Item 7: request reopen
   async function handleRequestReopen() {
     if (!plan || !reopenMessage.trim()) return
     setReopening(true)
@@ -561,52 +598,112 @@ function MyPlanTab({ userId }: { userId: string | null }) {
   const isSubmittedAwaitingReview = plan && ['Submitted', 'Resubmitted'].includes(plan.status)
   const canRequestReopen = plan && !canEdit && !plan.reopen_requested && undoSecondsLeft === 0
 
-  function canAddParty(dateStr: string): boolean {
-    const entries = dayData[dateStr] || []
-    if (entries.length === 0) return true
-    return entries[entries.length - 1].partyId !== ''
+  // ---- the board's data ----
+
+  /**
+   * F13's card. Firm name leads; the type and the agenda sit under it.
+   *
+   * `party_id` is NULL on 51 of the 55 rows that exist today, so the fallback
+   * is not an edge case — it is most of the board. It states the journey the
+   * row actually carries rather than inventing a firm name, and it says "No
+   * party yet" where the type would be, so the card is honest about being
+   * incomplete instead of looking finished.
+   */
+  const lines: PlanBoardLine[] = useMemo(() => {
+    const out: PlanBoardLine[] = []
+    for (const day of weekDays) {
+      for (const entry of dayData[day] ?? []) {
+        const party = entry.partyId ? partyById.get(entry.partyId) : undefined
+        const journey = [entry.fromPlace, entry.toPlace].filter(Boolean).join(' → ')
+        const hasParty = Boolean(entry.partyId)
+        out.push({
+          id: entry.id,
+          date: day,
+          title: party?.name || (hasParty ? 'Party not in your list' : journey || 'Untitled line'),
+          type: party?.companyType && party.companyType !== PLACEHOLDER_TYPE ? party.companyType : '',
+          agenda: entry.note,
+          expected: entry.expectedOrderValue.trim()
+            ? `₹${Number(entry.expectedOrderValue).toLocaleString('en-IN')}`
+            : '',
+          isFallback: !hasParty,
+        })
+      }
+    }
+    return out
+  }, [weekDays, dayData, partyById])
+
+  const countsByDay = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const day of weekDays) m[day] = (dayData[day] ?? []).length
+    return m
+  }, [weekDays, dayData])
+
+  const entryIndex = useMemo(() => {
+    const m = new Map<string, { date: string; entry: PlanEntry }>()
+    for (const [date, entries] of Object.entries(dayData)) {
+      for (const entry of entries) m.set(entry.id, { date, entry })
+    }
+    return m
+  }, [dayData])
+
+  // ---- line editing ----
+
+  const dayOptions = useMemo(
+    () => weekDays.map(d => [d, formatDayLong(d)] as [string, string]),
+    [weekDays],
+  )
+
+  /*
+   * Stable, because it is a dependency of the board's column memo. A fresh
+   * function each render would rebuild all seven columns — and with them the
+   * seven plus buttons — on every keystroke anywhere on the page.
+   */
+  const openAdd = useCallback((date: string) => {
+    setEditing({ mode: 'add', date, entry: blankEntry() })
+  }, [])
+
+  /**
+   * Re-dating a line from the dialog. On an EDIT this is the same operation
+   * the drag is, so it goes through the same duplicate guard: moving a line
+   * onto a day that already plans that party is refused, with the reason, and
+   * the field stays where it was.
+   */
+  function changeLineDay(date: string) {
+    setEditing(prev => {
+      if (!prev || prev.date === date) return prev
+      if (prev.entry.partyId && duplicateOn(date, prev.entry.partyId, prev.entry.id)) {
+        toast('That party is already planned for that day', 'error')
+        return prev
+      }
+      return { ...prev, date }
+    })
   }
 
-  function addParty(dateStr: string) {
-    setDayData(prev => ({
-      ...prev,
-      [dateStr]: [...(prev[dateStr] || []), {
-        id: newEntryId(), partyId: '', partyType: '', dist: 0, dealer: 0, others: 0,
-        expectedOrderValue: '', fromPlace: '', toPlace: '', modeOfTravel: '', note: '',
-      }]
-    }))
-  }
-
-  function removeParty(dateStr: string, entryId: string) {
-    setDayData(prev => ({
-      ...prev,
-      [dateStr]: (prev[dateStr] || []).filter(e => e.id !== entryId)
-    }))
+  function openEdit(lineId: string) {
+    const found = entryIndex.get(lineId)
+    if (!found) return
+    // A working COPY. Cancel has to leave the plan exactly as it was, and it
+    // cannot if the dialog is mutating the row in place.
+    setEditing({ mode: 'edit', date: found.date, entry: { ...found.entry } })
   }
 
   /** Item 1: the same day cannot plan the same party twice. */
-  function selectParty(dateStr: string, entryId: string, option: PartyOption | null) {
-    if (option) {
-      const entries = dayData[dateStr] || []
-      if (entries.some(e => e.id !== entryId && e.partyId === option.id)) {
-        toast(`${option.name} is already planned for this day`, 'error')
-        return
-      }
-    }
-    setDayData(prev => ({
-      ...prev,
-      [dateStr]: (prev[dateStr] || []).map(e => e.id === entryId
-        ? { ...e, partyId: option?.id ?? '', partyType: option?.type ?? '' }
-        : e)
-    }))
+  function duplicateOn(date: string, partyId: string, exceptEntryId: string) {
+    return (dayData[date] ?? []).some(e => e.id !== exceptEntryId && e.partyId === partyId)
   }
 
-  function updateCount(dateStr: string, entryId: string, field: 'dist' | 'dealer' | 'others', value: number) {
-    const clamped = Math.max(0, Number(value) || 0)
-    setDayData(prev => ({
-      ...prev,
-      [dateStr]: (prev[dateStr] || []).map(e => e.id === entryId ? { ...e, [field]: clamped } : e)
-    }))
+  function selectPartyInDialog(option: PartyOption | null) {
+    setEditing(prev => {
+      if (!prev) return prev
+      if (option && duplicateOn(prev.date, option.id, prev.entry.id)) {
+        toast(`${option.name} is already planned for this day`, 'error')
+        return prev
+      }
+      return {
+        ...prev,
+        entry: { ...prev.entry, partyId: option?.id ?? '', partyType: option?.type ?? '' },
+      }
+    })
   }
 
   /**
@@ -615,13 +712,74 @@ function MyPlanTab({ userId }: { userId: string | null }) {
    * becoming 0 on save — §5.1 makes this field optional, so blank must mean
    * blank.
    */
-  function updateExpectedValue(dateStr: string, entryId: string, raw: string) {
+  function updateExpectedInDialog(raw: string) {
     if (raw !== '' && !/^\d*\.?\d{0,2}$/.test(raw)) return
+    setEditing(prev => prev ? { ...prev, entry: { ...prev.entry, expectedOrderValue: raw } } : prev)
+  }
+
+  function saveLine() {
+    if (!editing || !editing.entry.partyId) return
+    const { mode, date, entry } = editing
+    setDayData(prev => {
+      const next = { ...prev }
+      /*
+       * Pulled out of EVERY day before being put back, not mapped in place.
+       * The Day field can move a line while it is being edited, and a
+       * map over the target day would simply not find it — leaving the old
+       * copy where it was and silently discarding the edit.
+       */
+      if (mode === 'edit') {
+        for (const day of Object.keys(next)) {
+          next[day] = next[day].filter(e => e.id !== entry.id)
+        }
+      }
+      next[date] = [...(next[date] ?? []), entry]
+      return next
+    })
+    setEditing(null)
+    toast(mode === 'add' ? 'Line added — remember to save the plan' : 'Line updated')
+  }
+
+  function removeLine() {
+    if (!editing) return
+    const { entry } = editing
+    // Across every day, for the same reason saveLine is: the Day field may
+    // have moved the line since the dialog opened.
+    setDayData(prev => {
+      const next: DayData = {}
+      for (const [day, entries] of Object.entries(prev)) {
+        next[day] = entries.filter(e => e.id !== entry.id)
+      }
+      return next
+    })
+    setEditing(null)
+    toast('Line removed — remember to save the plan')
+  }
+
+  /**
+   * A card dragged to another column is re-dated. Local to the draft; the
+   * existing write path keys items by date, so nothing downstream changes.
+   *
+   * Throwing is how the board is told to put the card back — see its
+   * optimistic layer. A silent return would leave the card in a day the plan
+   * does not agree with.
+   */
+  const moveLine = useCallback(async (lineId: string, toDay: string) => {
+    if (!canEdit) throw new Error('locked')
+    const found = entryIndex.get(lineId)
+    if (!found) throw new Error('missing')
+    if (found.date === toDay) return
+    if (found.entry.partyId && duplicateOn(toDay, found.entry.partyId, lineId)) {
+      toast('That party is already planned for that day', 'error')
+      throw new Error('duplicate')
+    }
     setDayData(prev => ({
       ...prev,
-      [dateStr]: (prev[dateStr] || []).map(e => e.id === entryId ? { ...e, expectedOrderValue: raw } : e)
+      [found.date]: (prev[found.date] ?? []).filter(e => e.id !== lineId),
+      [toDay]: [...(prev[toDay] ?? []), found.entry],
     }))
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, entryIndex, dayData, toast])
 
   // ---- Weekly Goal Checklist (§5.1) ----
   function updateGoalText(key: string, text: string) {
@@ -632,9 +790,7 @@ function MyPlanTab({ userId }: { userId: string | null }) {
    * ⚠️ Ticking is allowed in EVERY status, unlike every other control here.
    * §5.1: the points are ticked "during the week", and during the week the plan
    * is Approved — gating this on `canEdit` would make the checklist untickable
-   * exactly when it is meant to be used. A saved row is persisted immediately so
-   * the tick survives without pressing Save; an unsaved row is local until the
-   * next save, because there is nothing to PATCH yet.
+   * exactly when it is meant to be used.
    */
   async function toggleGoal(key: string) {
     const goal = goals.find(g => g.key === key)
@@ -647,8 +803,6 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       body: JSON.stringify({ is_done: next }),
     })
     if (!r.ok) {
-      // Put the row back the way it was rather than leaving the screen claiming
-      // something the database does not agree with.
       setGoals(prev => prev.map(g => g.key === key ? { ...g, is_done: goal.is_done } : g))
       toast('Could not update that goal', 'error')
     }
@@ -668,163 +822,89 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     setMonday(d => addDays(d, delta * 7))
   }
 
-  if (!userId) return <div className="text-center py-12 text-text-muted">Please add yourself as a user in Masters first.</div>
+  if (!userId) return <div className="py-12 text-center text-text-muted">Please add yourself as a user in Masters first.</div>
 
-  const doneCount = goals.filter(g => g.text.trim() && g.is_done).length
-  const goalCount = goals.filter(g => g.text.trim()).length
+  const dialogParty = editing?.entry.partyId ? partyById.get(editing.entry.partyId) : undefined
+  const mobileDay = selectedDay && weekDays.includes(selectedDay) ? selectedDay : weekDays[0]
 
   return (
     /*
-      No `h-full` and no inner scroller. The shell's content wrapper
-      (`components/shell/app-shell.tsx`) IS the scroll container; a page that
-      pins itself to 100% of it and then scrolls its own day list nests two
-      vertical scrollers, which is what left 2131px of day cards inside a 369px
-      window while the page itself refused to move. The page grows, the shell
-      scrolls, and the header and footer below are sticky against it.
+      A fixed-height column, unlike the old page. The board is the one view on
+      this screen that cannot live in normal flow: each of its seven columns
+      scrolls vertically inside a host that must have a definite height, and it
+      renders one screen tall with its columns cut off in anything that will
+      not give it one. The shell's content wrapper is `h-full ... p-6` against
+      an `h-dvh` root, so `h-full` here resolves to a real number and the
+      shell's own scrollbar never appears.
     */
-    <div className="flex flex-col">
-      {/* Sticky chrome: title, status and week navigator stay reachable while
-          the seven day cards scroll beneath them. The negative margins bleed
-          over the shell's 24px padding so nothing shows through at the edges.
-
-          ⚠️ `-top-6`, not `top-0`. A sticky element is held by its MARGIN box,
-          so the `-mt-6` that bleeds over the shell's padding also drags the
-          sticky threshold 24px down — measured: the header parked 24px low and
-          a strip of the day card behind it stayed visible above it. Offsetting
-          the threshold by the same 24px puts the border box back on the
-          scrollport edge; the element's own `pt-6` supplies the spacing. */}
-      <div className="sticky -top-6 z-20 -mx-6 -mt-6 bg-surface-sunken px-6 pt-6 pb-4">
-        <div className="flex items-center gap-3">
-          <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-          </svg>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Pinned chrome: title, status, week changer. Only the columns scroll. */}
+      <div className="shrink-0 pb-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-xl font-medium text-text-primary">Weekly Plan</h2>
           {plan && <StatusBadge status={plan.status} />}
+          {/*
+            No add button here. Adding a line is a per-DAY action and it lives
+            on the day's own column heading, next to the count of what is
+            already there. Below 768px, where there are no columns, the day
+            list carries its own.
+          */}
           {plan && (
-            <div className="flex items-center gap-3 ml-auto">
-              <button onClick={() => setRemarksOpen(true)}
-                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-                </svg>
+            <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:flex-nowrap">
+              <Button variant="ghost" size="sm" onClick={() => setRemarksOpen(true)}>
+                <MessageSquareIcon />
                 Chat
-              </button>
-              <button onClick={loadLogs} className="text-xs text-text-muted hover:underline">Audit Log</button>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={loadLogs}>Audit Log</Button>
             </div>
           )}
         </div>
 
-        {/* Week navigator */}
-        <div className="mt-4 flex items-center justify-between px-2">
-          <button onClick={() => navigateWeek(-1)} aria-label="Previous week" className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-          </button>
-          <span className="text-sm font-medium text-text-primary">{formatWeekRange(monday)}</span>
-          <button onClick={() => navigateWeek(1)} aria-label="Next week" className="p-2 rounded-lg hover:bg-surface-control text-text-muted transition">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
+        {/* Week changer, above the day row exactly as F9 asks. */}
+        <div className="mt-3 flex items-center gap-2">
+          <Button variant="secondary" size="icon" onClick={() => navigateWeek(-1)} aria-label="Previous week">
+            <ChevronLeftIcon />
+          </Button>
+          <span className="text-body font-medium text-text-primary tabular-nums">
+            {formatWeekRange(monday)}
+          </span>
+          <Button variant="secondary" size="icon" onClick={() => navigateWeek(1)} aria-label="Next week">
+            <ChevronRightIcon />
+          </Button>
         </div>
-      </div>
-
-      {/* Weekly Goal Checklist — §5.1, replaces the single free-text box */}
-      <div className="mb-5 rounded-xl border border-border-light bg-surface px-4 sm:px-5 py-4 shadow-sm">
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-sm font-medium text-text-primary">Upcoming week I want to Achieve</h3>
-          {goalCount > 0 && (
-            <span className="text-xs font-medium text-text-muted">{doneCount}/{goalCount} done</span>
-          )}
-        </div>
-        <div className="space-y-2">
-          {goals.map((goal, i) => (
-            <div key={goal.key} className="flex items-center gap-2.5">
-              <input
-                type="checkbox"
-                checked={goal.is_done}
-                // Ticking is never gated on status — see toggleGoal. An empty
-                // row has nothing to tick.
-                disabled={!goal.text.trim()}
-                onChange={() => toggleGoal(goal.key)}
-                aria-label={goal.text.trim() ? `Mark "${goal.text.trim()}" done` : 'Goal not written yet'}
-                className="w-[18px] h-[18px] shrink-0 rounded border-border accent-primary disabled:opacity-40 cursor-pointer disabled:cursor-default"
-              />
-              <input
-                type="text"
-                disabled={!canEdit}
-                value={goal.text}
-                onChange={e => updateGoalText(goal.key, e.target.value)}
-                placeholder={i === 0 ? 'e.g. Close the Nashik distributor appointment' : 'Add a point…'}
-                className={`flex-1 min-w-0 border border-border-light rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted placeholder:text-text-muted ${
-                  goal.is_done ? 'line-through text-text-muted' : 'text-text-primary'
-                }`}
-              />
-              {canEdit && (
-                <button onClick={() => removeGoal(goal.key)} aria-label="Remove goal"
-                  className="w-9 h-9 sm:w-8 sm:h-8 shrink-0 flex items-center justify-center text-text-muted hover:text-danger transition rounded-lg">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        {canEdit && (
-          <button onClick={addGoal}
-            className="mt-3 flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary-hover transition">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Add
-          </button>
-        )}
       </div>
 
       {/* Status banners */}
       {plan && plan.status === 'Approved' && (
-        <div className="mb-4 bg-success-bg border border-success-border rounded-xl px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-medium text-success">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              Plan Approved
-            </div>
+        <div className="mb-3 shrink-0 rounded-xl border border-success-border bg-success-bg px-4 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-label font-medium text-success">Plan Approved</span>
             {canRequestReopen && (
-              <button onClick={() => setReopenModal(true)} className="text-xs text-green-700 underline hover:text-green-800">Request Reopen</button>
+              <button onClick={() => setReopenModal(true)} className="text-meta text-success underline">Request Reopen</button>
             )}
           </div>
-          {plan.manager_comment && <p className="text-sm text-success mt-1 ml-7">{plan.manager_comment}</p>}
-          {plan.reopen_requested && <p className="text-xs text-success mt-1 ml-7 italic">Reopen request sent — awaiting manager response</p>}
+          {plan.manager_comment && <p className="mt-1 text-label text-success">{plan.manager_comment}</p>}
+          {plan.reopen_requested && <p className="mt-1 text-meta text-success italic">Reopen request sent — awaiting manager response</p>}
         </div>
       )}
       {plan && plan.status === 'Rejected' && (
-        <div className="mb-4 bg-danger-bg border border-danger-border rounded-xl px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-danger">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            Plan Rejected — Please revise and resubmit
-          </div>
-          {plan.manager_comment && <p className="text-sm text-danger mt-1 ml-7">{plan.manager_comment}</p>}
+        <div className="mb-3 shrink-0 rounded-xl border border-danger-border bg-danger-bg px-4 py-2.5">
+          <span className="text-label font-medium text-danger">Plan Rejected — please revise and resubmit</span>
+          {plan.manager_comment && <p className="mt-1 text-label text-danger">{plan.manager_comment}</p>}
         </div>
       )}
       {plan && plan.status === 'Edited by Manager' && (
-        <div className="mb-4 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-purple-700">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-            Plan Edited by Manager — Review changes and resubmit
-          </div>
-          {plan.manager_comment && <p className="text-sm text-purple-600 mt-1 ml-7">{plan.manager_comment}</p>}
+        <div className="mb-3 max-h-40 shrink-0 overflow-y-auto rounded-xl border border-primary-border bg-primary-subtle px-4 py-2.5">
+          <span className="text-label font-medium text-primary">Plan Edited by Manager — review the changes and resubmit</span>
+          {plan.manager_comment && <p className="mt-1 text-label text-primary">{plan.manager_comment}</p>}
           {/*
             §5.2: "The User must be able to see what changes his Manager made."
-            The banner said to review the changes without ever showing them, so
-            the owner had to compare the grid against their own memory of it.
-            This is the frozen before/after from the audit row — see
+            The frozen before/after from the audit row — see
             src/lib/weekly-plan-diff.ts for why it is recorded at write time.
           */}
           {latestManagerEdit && (
-            <div className="mt-2 ml-7">
-              <p className="text-xs font-medium text-purple-700">
+            <div className="mt-2">
+              <p className="text-meta font-medium text-primary">
                 {changeCountLabel(latestManagerEdit)} to your plan
               </p>
               <ManagerChanges changes={latestManagerEdit} className="mt-1" />
@@ -833,241 +913,181 @@ function MyPlanTab({ userId }: { userId: string | null }) {
         </div>
       )}
       {plan && plan.status === 'On Hold' && (
-        <div className="mb-4 bg-warning-bg border border-warning-border rounded-xl px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-medium text-warning">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-              Plan On Hold
-            </div>
+        <div className="mb-3 shrink-0 rounded-xl border border-warning-border bg-warning-bg px-4 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-label font-medium text-warning">Plan On Hold</span>
             {canRequestReopen && (
-              <button onClick={() => setReopenModal(true)} className="text-xs text-yellow-700 underline hover:text-yellow-800">Request Reopen</button>
+              <button onClick={() => setReopenModal(true)} className="text-meta text-warning underline">Request Reopen</button>
             )}
           </div>
-          {plan.manager_comment && <p className="text-sm text-warning mt-1 ml-7">{plan.manager_comment}</p>}
-          {plan.reopen_requested && <p className="text-xs text-warning mt-1 ml-7 italic">Reopen request sent — awaiting manager response</p>}
+          {plan.manager_comment && <p className="mt-1 text-label text-warning">{plan.manager_comment}</p>}
+          {plan.reopen_requested && <p className="mt-1 text-meta text-warning italic">Reopen request sent — awaiting manager response</p>}
         </div>
       )}
       {isSubmittedAwaitingReview && (
-        <div className="mb-4 bg-primary-subtle border border-primary-border rounded-xl px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-medium text-primary">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              Awaiting manager review
-            </div>
-            {/* Item 5 & 6: undo button with countdown */}
+        <div className="mb-3 shrink-0 rounded-xl border border-primary-border bg-primary-subtle px-4 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-label font-medium text-primary">Awaiting manager review</span>
             {undoSecondsLeft > 0 ? (
-              <button onClick={handleUndo} disabled={saving}
-                className="flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg transition disabled:opacity-50">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
-                </svg>
+              <Button variant="secondary" size="sm" onClick={handleUndo} disabled={saving}>
                 Undo ({formatCountdown(undoSecondsLeft)})
-              </button>
+              </Button>
             ) : canRequestReopen ? (
-              <button onClick={() => setReopenModal(true)} className="text-xs text-blue-700 underline hover:text-blue-800">Request Reopen</button>
+              <button onClick={() => setReopenModal(true)} className="text-meta text-primary underline">Request Reopen</button>
             ) : plan?.reopen_requested ? (
-              <span className="text-xs text-primary italic">Reopen request sent</span>
+              <span className="text-meta text-primary italic">Reopen request sent</span>
             ) : null}
           </div>
         </div>
       )}
 
-      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : (
+      {loading ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center text-text-muted">Loading…</div>
+      ) : (
         <>
-          {/* Day cards — plain flow. The shell scrolls, not this. */}
-          <div className="space-y-4 pb-4">
-            {weekDays.map(dateStr => {
-              const entries = dayData[dateStr] || []
-              const today = isToday(dateStr)
-              return (
-                <div key={dateStr} className={`rounded-xl border bg-surface ${today ? 'border-primary-border ring-1 ring-primary-ring' : 'border-border-light'}`}>
-                  {/* Day header */}
-                  <div className="px-4 sm:px-5 pt-4 pb-2">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-medium text-text-primary">{formatDayHeader(dateStr)}</h3>
-                      {today && (
-                        <span className="text-[11px] font-medium bg-primary text-primary-foreground px-2 py-0.5 rounded-md">Today</span>
-                      )}
-                    </div>
-                  </div>
+          {/*
+            The board, at 768px and up. Below that it is not offered at all
+            (section 35.3): seven 280px columns need about 2,000px and a phone
+            has 390, so squeezing them would cost the week-at-a-glance
+            comparison that is the whole point and give nothing back.
 
-                  {/* Column headers — desktop only. Widths mirror the row below. */}
-                  {entries.length > 0 && (
-                    <div className="hidden sm:block px-5 pb-1">
-                      <div className="flex items-center gap-2 text-xs font-medium text-text-muted">
-                        <span className="flex-1 min-w-0">Party</span>
-                        <span className="w-36">Company Type</span>
-                        <span className="w-[68px] text-center">Dist.</span>
-                        <span className="w-[68px] text-center">Dealer</span>
-                        <span className="w-[68px] text-center">Others</span>
-                        <span className="w-28 text-center">Expected ₹</span>
-                        <span className="w-8" />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Entries */}
-                  <div className="px-4 sm:px-5 pb-2 space-y-3 sm:space-y-2">
-                    {entries.length === 0 ? (
-                      <p className="text-sm text-text-muted text-center py-3">No parties planned yet</p>
-                    ) : (
-                      entries.map(entry => {
-                        const party = entry.partyId ? partyById.get(entry.partyId) : undefined
-                        return (
-                          <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center gap-2 pb-3 sm:pb-0 border-b border-border-light sm:border-0 last:border-0 last:pb-0">
-                            <Cell label="Party" className="sm:flex-1">
-                              <PartyCombobox
-                                value={entry.partyId}
-                                onChange={o => selectParty(dateStr, entry.id, o)}
-                                options={parties}
-                                disabled={!canEdit}
-                              />
-                            </Cell>
-
-                            {/*
-                              §5.1: "the Company Type is fetched from the master
-                              and shown locked (read-only). The master value is
-                              final and cannot be changed here." So it is text,
-                              never an input — a disabled input would still read
-                              as a field someone could enable.
-                            */}
-                            <Cell label="Company Type" className="sm:w-36">
-                              <div className="w-full rounded-lg border border-border-light bg-surface-sunken px-3 py-2 text-sm truncate"
-                                title={party ? party.companyType : undefined}>
-                                {party
-                                  ? <span className="text-text-secondary">{party.companyType}</span>
-                                  : <span className="text-text-muted">Select a party</span>}
-                              </div>
-                            </Cell>
-
-                            <Cell label="Dist." className="sm:w-[68px]">
-                              <input type="number" min={0} disabled={!canEdit} value={entry.dist}
-                                onChange={e => updateCount(dateStr, entry.id, 'dist', Number(e.target.value))}
-                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-                            </Cell>
-                            <Cell label="Dealer" className="sm:w-[68px]">
-                              <input type="number" min={0} disabled={!canEdit} value={entry.dealer}
-                                onChange={e => updateCount(dateStr, entry.id, 'dealer', Number(e.target.value))}
-                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-                            </Cell>
-                            {/* Others now has `others_goal` to itself, so it is
-                                an ordinary field again — it no longer competes
-                                with a free-text note for one text column. */}
-                            <Cell label="Others" className="sm:w-[68px]">
-                              <input type="number" min={0} disabled={!canEdit} value={entry.others}
-                                onChange={e => updateCount(dateStr, entry.id, 'others', Number(e.target.value))}
-                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-center text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken" />
-                            </Cell>
-
-                            {/* §5.1: optional. Blank is a real answer — it is
-                                stored as NULL, not as 0. */}
-                            <Cell label="Expected order value (optional)" className="sm:w-28">
-                              <input type="text" inputMode="decimal" disabled={!canEdit}
-                                value={entry.expectedOrderValue}
-                                onChange={e => updateExpectedValue(dateStr, entry.id, e.target.value)}
-                                placeholder="Optional"
-                                className="w-full border border-border-light rounded-lg px-2 py-2 text-sm text-right text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken placeholder:text-text-muted placeholder:text-xs" />
-                            </Cell>
-
-                            {canEdit && (
-                              <button onClick={() => removeParty(dateStr, entry.id)} aria-label="Remove line"
-                                className="h-11 sm:h-8 w-full sm:w-8 shrink-0 flex items-center justify-center gap-1.5 text-text-muted hover:text-danger transition rounded-lg border border-border-light sm:border-0">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                                <span className="sm:hidden text-sm">Remove</span>
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })
-                    )}
-                  </div>
-
-                  {/* Add Party button */}
-                  {canEdit && (
-                    canAddParty(dateStr) ? (
-                      <button onClick={() => addParty(dateStr)}
-                        className="w-full py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-sunken transition flex items-center justify-center gap-1 border-t border-border-light">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                        </svg>
-                        Add Party
-                      </button>
-                    ) : (
-                      <div className="w-full py-2 text-xs text-warning text-center border-t border-border-light bg-warning-bg">
-                        Select a party in the previous row first
-                      </div>
-                    )
-                  )}
-
-                  {/* Day Focus / Remarks — per day, distinct from the week checklist */}
-                  <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-border-light">
-                    <label className="block text-xs font-normal text-text-secondary uppercase tracking-wide mb-1.5">Day Focus / Remarks</label>
-                    <textarea
-                      rows={2}
-                      disabled={!canEdit}
-                      value={dayNotes[dateStr] ?? ''}
-                      onChange={e => setDayNotes(prev => ({ ...prev, [dateStr]: e.target.value }))}
-                      placeholder="Add your focus or notes for the day…"
-                      className="w-full border border-border-light rounded-lg px-3 py-2 text-sm text-text-primary resize-none focus:outline-none focus:ring-2 focus:ring-success disabled:bg-surface-sunken disabled:text-text-muted placeholder:text-text-muted"
-                    />
-                  </div>
-                </div>
-              )
-            })}
+            Both views are in the markup and chosen by a media query rather
+            than by `useBoardAvailable`, which reports false until the first
+            effect runs — on a laptop that is a frame of the phone layout
+            before the board appears.
+          */}
+          <div className="hidden min-h-0 flex-1 md:flex md:flex-col">
+            <PlanBoard
+              days={weekDays}
+              lines={lines}
+              dayLabel={formatDayColumn}
+              canEdit={canEdit}
+              onOpenLine={openEdit}
+              onMoveLine={moveLine}
+              onAddToDay={openAdd}
+            />
           </div>
 
-          {/* Footer — sticky against the shell's scroller, so Save and Submit
-              stay reachable without scrolling back through seven day cards.
-              `-bottom-6` for the same reason the header uses `-top-6`: the
-              `-mb-6` bleed would otherwise hold it 24px clear of the fold. */}
+          {/* One day at a time, below 768px. */}
+          <div className="flex min-h-0 flex-1 flex-col gap-3 md:hidden">
+            <DayPicker
+              days={weekDays}
+              counts={countsByDay}
+              selected={mobileDay}
+              today={weekDays.includes(todayStr) ? todayStr : null}
+              onSelect={setSelectedDay}
+            />
+            <PlanDayList
+              day={mobileDay}
+              lines={lines}
+              canEdit={canEdit}
+              onOpenLine={openEdit}
+              onAdd={() => openAdd(mobileDay)}
+            />
+          </div>
+
+          {/* F14 — the weekly priorities, full width, its own scroll. */}
+          <div className="mt-3 shrink-0">
+            <WeeklyPriorities
+              rows={goals}
+              canEdit={canEdit}
+              open={prioritiesOpen}
+              onToggleOpen={() => setPrioritiesOpen(o => !o)}
+              onChangeText={updateGoalText}
+              onToggleDone={toggleGoal}
+              onAdd={addGoal}
+              onRemove={removeGoal}
+            />
+          </div>
+
           {canEdit && (
-            <div className="sticky -bottom-6 z-20 border-t border-border-light bg-surface px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3 -mx-6 -mb-6">
-              <div className="flex-1" />
-              <button onClick={handleSaveDraft} disabled={saving}
-                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 border border-border rounded-xl text-sm font-medium text-text-secondary hover:bg-surface-sunken disabled:opacity-50 transition sm:min-w-[180px]">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                </svg>
+            <div className="mt-3 flex shrink-0 items-center justify-end gap-2">
+              <Button variant="secondary" onClick={handleSaveDraft} disabled={saving} className="min-h-11 flex-1 sm:flex-initial">
                 Save Draft
-              </button>
-              <button onClick={handleSubmit} disabled={saving}
-                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-8 py-3 bg-primary-pressed hover:bg-primary-hover text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-50 transition sm:min-w-[180px]">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                </svg>
+              </Button>
+              <Button onClick={handleSubmit} disabled={saving} className="min-h-11 flex-1 sm:flex-initial">
                 Submit Plan
-              </button>
+              </Button>
             </div>
           )}
         </>
       )}
 
+      {/* Add / edit one line */}
+      <PlanLineDialog
+        open={editing !== null}
+        mode={editing?.mode ?? 'add'}
+        dateLabel={editing ? formatDayLong(editing.date) : ''}
+        date={editing?.date ?? weekDays[0]}
+        dayOptions={dayOptions}
+        onDateChange={changeLineDay}
+        draft={editing?.entry ?? null}
+        companyType={dialogParty?.companyType ?? null}
+        canRemove={canEdit}
+        partyField={
+          <PartyCombobox
+            value={editing?.entry.partyId ?? ''}
+            onChange={selectPartyInDialog}
+            options={parties}
+            disabled={!canEdit}
+          />
+        }
+        onExpectedValueChange={updateExpectedInDialog}
+        onSave={saveLine}
+        onRemove={removeLine}
+        onClose={() => setEditing(null)}
+      />
+
+      {/* Saving would delete lines that have no party — say so first. */}
+      <AlertDialog open={confirmDrop} onOpenChange={v => { if (!v) setConfirmDrop(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {partylessCount === 1
+                ? 'One line has no party'
+                : `${partylessCount} lines have no party`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              A planned line is stored against a party, so saving removes{' '}
+              {partylessCount === 1 ? 'it' : 'them'} from the plan. Open{' '}
+              {partylessCount === 1 ? 'the card' : 'each card'} and choose a
+              party to keep {partylessCount === 1 ? 'it' : 'them'}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { setConfirmDrop(false); void saveDraft() }}
+            >
+              Save without {partylessCount === 1 ? 'it' : 'them'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Audit Log Modal */}
       {logsOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
           <div className="absolute inset-0 bg-(--backdrop)" onClick={() => setLogsOpen(false)} />
-          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[70vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
+          <div className="relative flex max-h-[70vh] w-full max-w-lg flex-col rounded-2xl bg-surface shadow-xl">
+            <div className="flex items-center justify-between border-b border-border-light px-6 py-4">
               <h3 className="font-medium text-text-primary">Audit Log</h3>
-              <button onClick={() => setLogsOpen(false)} className="text-text-muted hover:text-text-secondary text-xl">&times;</button>
+              <button onClick={() => setLogsOpen(false)} className="text-xl text-text-muted hover:text-text-secondary">&times;</button>
             </div>
-            <div className="overflow-y-auto px-6 py-4 space-y-3">
+            <div className="space-y-3 overflow-y-auto px-6 py-4">
               {logs.map(log => (
                 <div key={log.id} className="flex gap-3 text-sm">
-                  <div className="w-1 bg-primary-subtle rounded-full shrink-0" />
+                  <div className="w-1 shrink-0 rounded-full bg-primary-subtle" />
                   <div>
-                    <p className="font-medium text-text-primary">{log.action_type} <span className="text-text-muted font-normal text-xs">by {log.users?.name ?? log.actor_role}</span></p>
+                    <p className="font-medium text-text-primary">{log.action_type} <span className="text-xs font-normal text-text-muted">by {log.users?.name ?? log.actor_role}</span></p>
                     {(log.previous_status || log.new_status) && <p className="text-xs text-text-secondary">{log.previous_status} → {log.new_status}</p>}
-                    {log.comment && <p className="text-xs text-warning bg-warning-bg rounded px-2 py-0.5 mt-0.5">&ldquo;{log.comment}&rdquo;</p>}
-                    {/* Every manager edit in the history, not just the last one. */}
+                    {log.comment && <p className="mt-0.5 rounded bg-warning-bg px-2 py-0.5 text-xs text-warning">&ldquo;{log.comment}&rdquo;</p>}
                     {log.changes && <ManagerChanges changes={log.changes} className="mt-1" />}
                     <p className="text-xs text-text-secondary">{new Date(log.timestamp).toLocaleString('en-IN')}</p>
                   </div>
                 </div>
               ))}
-              {logs.length === 0 && <p className="text-text-muted text-sm">No log entries yet.</p>}
+              {logs.length === 0 && <p className="text-sm text-text-muted">No log entries yet.</p>}
             </div>
           </div>
         </div>
@@ -1075,26 +1095,22 @@ function MyPlanTab({ userId }: { userId: string | null }) {
 
       {/* Item 7: Request Reopen Modal */}
       {reopenModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
           <div className="absolute inset-0 bg-(--backdrop)" onClick={() => { setReopenModal(false); setReopenMessage('') }} />
-          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h3 className="font-medium text-text-primary mb-1">Request Plan Reopen</h3>
-            <p className="text-xs text-text-muted mb-4">Explain why you need to edit this plan. Your manager will be notified.</p>
+          <div className="relative w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl">
+            <h3 className="mb-1 font-medium text-text-primary">Request Plan Reopen</h3>
+            <p className="mb-4 text-xs text-text-muted">Explain why you need to edit this plan. Your manager will be notified.</p>
             <textarea
               value={reopenMessage}
               onChange={e => setReopenMessage(e.target.value)}
               rows={4} placeholder="Reason for reopen request…"
-              className="w-full border border-border-light rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-ring mb-4"
+              className="mb-4 w-full resize-none rounded-xl border border-border-light px-3 py-2 text-sm focus:ring-2 focus:ring-primary-ring focus:outline-none"
             />
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => { setReopenModal(false); setReopenMessage('') }}
-                className="px-4 py-2 text-sm text-text-secondary border border-border-light rounded-lg hover:bg-surface-sunken transition">
-                Cancel
-              </button>
-              <button onClick={handleRequestReopen} disabled={reopening || !reopenMessage.trim()}
-                className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary-hover rounded-lg disabled:opacity-50 transition">
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => { setReopenModal(false); setReopenMessage('') }}>Cancel</Button>
+              <Button onClick={handleRequestReopen} disabled={reopening || !reopenMessage.trim()}>
                 {reopening ? 'Sending…' : 'Send Request'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1123,7 +1139,10 @@ export default function WeeklyPlanPage() {
     fetch('/api/auth/me').then(r => r.json()).then(d => setMe({ userId: d.userId, hasSubordinates: d.hasSubordinates })).catch(() => toast('Failed to load user settings', 'error'))
   }, [toast])
 
-  // No `h-full` here either — it was what pinned the page to the shell's height
-  // and forced the day list to grow its own scrollbar instead of the page.
-  return <MyPlanTab userId={me?.userId ?? null} />
+  // `h-full` so the board inside gets a definite height to fill.
+  return (
+    <div className="h-full min-h-0">
+      <MyPlanTab userId={me?.userId ?? null} />
+    </div>
+  )
 }
