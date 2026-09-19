@@ -22,7 +22,7 @@ all password `dev1234`.
 Aryan's overall verdict on this page: **"overall good work on this page."** The items below are
 corrections within something that basically works.
 
-### F1 · Elapsed time showed a NEGATIVE duration · OPEN · **bug, highest priority in this round**
+### F1 · Elapsed time showed a NEGATIVE duration · **FIXED** · **bug, highest priority in this round**
 
 > "-1h -1m as soon as I pressed check-in it show me this after In 11:44 pm in same line I don't
 > know why then now it show this 0h 2m so far"
@@ -41,7 +41,7 @@ value.
 ⚠️ Do not "fix" the machine-wide IST/UTC skew as part of this. That is explicitly out of bounds
 in feature code.
 
-### F2 · Show an address, not raw coordinates · OPEN · **small, the plumbing already exists**
+### F2 · Show an address, not raw coordinates · **FIXED** · **small, the plumbing already exists**
 
 > "26.2404, 72.9848 these cordinates are useful but for system people only understand place like
 > these might be area let me know if you can put what address is this(if its too much work please
@@ -56,7 +56,7 @@ Keep the coordinates available somewhere (they are the evidence), but lead with 
 Must degrade honestly: when the lookup returns null, show the coordinates rather than a blank or
 a guess.
 
-### F3 · A future date is reported as "Absent" · OPEN · **wrong, and easy**
+### F3 · A future date is reported as "Absent" · **FIXED** · **wrong, and easy**
 
 > "future date says this Absent / No attendance was recorded on this day. where as how can it be
 > absent."
@@ -65,7 +65,7 @@ Correct — absence is a statement about the past. A day that has not happened c
 attendance recorded. Needs a third state alongside Present and Absent for "not yet", and the
 distinction should hold anywhere attendance is summarised, not only on this card.
 
-### F4 · The attendance block eats the top of the screen · OPEN · **layout, his main complaint**
+### F4 · The attendance block eats the top of the screen · **FIXED** · **layout, his main complaint**
 
 > "this section is taking lot of space on the top where as it can be a button somewhere so that
 > lot of space is saved on screen and this sections \[the Mon 14 / Tue 15 … day strip] can come on
@@ -87,7 +87,7 @@ I know why it here and its ok nothing wrong just change now."*
 and must survive in some form. It exists because §12 closed the decision that **check-out locks
 nothing**, and users assume the opposite.
 
-### F5 · One button for both kinds of meeting · OPEN
+### F5 · One button for both kinds of meeting · **FIXED**
 
 > "log a past meeting and log a meeting can both be one button and when clicked a form on top can
 > have main fomr of log a meeting but inside there can be toggle log a past meet so same form
@@ -101,7 +101,7 @@ where he wants check-in/check-out to live — so F4 and F5 are one layout change
 still write `is_manual_entry = true` with **null coordinates**. The provenance rule matters more
 than the form: a typed time must never be able to pass as a captured one.
 
-### F6 · Drop the entity-type selector from the meeting forms · OPEN
+### F6 · Drop the entity-type selector from the meeting forms · **FIXED**
 
 > "in new meeting form we won't need existing , lead or new remove that section and rather than
 > that dealer drop down will only come and with a button +create new lead. the heading dealer will
@@ -128,7 +128,7 @@ the code currently holds both words (~285 "Lead", ~205 "Party"). Relabelling two
 safe and local; a repo-wide sweep is not, and is still his call. Worth asking him whether F6 means
 "Lead" everywhere now, or just on these two forms for the moment.
 
-### F8 · Date and time inputs are raw OS controls · OPEN · **my miss, and he is right about it**
+### F8 · Date and time inputs are raw OS controls · **FIXED** · **my miss, and he is right about it**
 
 > "start time and end time don't have components its not right it uses raw os design which is not
 > acceptable. change that. if you didn't got component you should have asked me."
@@ -241,7 +241,7 @@ does not quietly break the manager's view of it. The two were written to share t
 
 ## Round 3 — Orders, Parties, Deals, Masters, 19 Sep
 
-### F16 · Create Order uses a raw OS dropdown · OPEN · **same fault as F8**
+### F16 · Create Order uses a raw OS dropdown · **FIXED** · **same fault as F8**
 
 > "Order page crate order page is again having raw os for drop-down which is not acceptable. based
 > on the rgb-kit fix it. previous screens are not having this issue in with drop-down list."
@@ -250,7 +250,7 @@ He is right that this is isolated — the other screens use the kit's `Select` /
 Third time in three rounds that a raw control has been used where a kit component exists. Per
 **F10**, if something is genuinely missing, ask him.
 
-### F17 · Drop "record type" on the order form · OPEN · **same shape as F6**
+### F17 · Drop "record type" on the order form · **FIXED** · **same shape as F6**
 
 > "record type is not need rather than that simple heading with drop down and create new lead
 > button"
@@ -258,7 +258,7 @@ Third time in three rounds that a raw control has been used where a kit componen
 Identical treatment to F6, and the same warning applies: **check what that selector writes before
 removing it.** `orders.entity_type` is a join key with no foreign key behind it.
 
-### F18 · The order line-item row is badly built · OPEN
+### F18 · The order line-item row is badly built · **FIXED**
 
 > "Product / Qty / Rate / Discount / Total / Select product... / Or type name... / 1 / 0 / None /
 > rupee / rupee 0.00 -- this section is poorly made its design has be working again"
@@ -375,7 +375,7 @@ follow now or later — **note F19 was never fixed on Orders** (the agent was ba
 to avoid a collision), so Orders still renders the banner above its heading. If the alerts move
 behind an icon there too, that fixes itself.
 
-### F26 · The search field is narrower than the rest of the form · OPEN · **routed to FX-daily**
+### F26 · The search field is narrower than the rest of the form · **FIXED** · **routed to FX-daily**
 
 > "while log a meet search by name has shorter width as compared to form and where other elements
 > on the right end. it should be at same space from right as other element"
@@ -387,7 +387,7 @@ Sent to FX-daily rather than queued, because that agent is rebuilding this exact
 second agent in the file would collide.
 
 
-### F27 · Team Summary: drop the Open column, click the name · OPEN
+### F27 · Team Summary: drop the Open column, click the name · **FIXED**
 
 > "team view we don't need open > button we can click on the line items person name to open it in
 > team summary remove that column"
@@ -400,7 +400,7 @@ a phone, and to stay a `next/link` so middle-click and open-in-new-tab still wor
 should NOT become clickable: rows carry other information and may later carry their own controls.
 
 
-### F28 · Figures overflow their tiles on Team Summary · OPEN · **routed to FX-team**
+### F28 · Figures overflow their tiles on Team Summary · **FIXED** · **routed to FX-team**
 
 > "Total spent ₹11,809.50 / Order value ₹97,810.00 are getting out of the box in team summary only"
 
@@ -466,3 +466,29 @@ inflated four to six times. Re-run a number before trusting it, even when the co
 would either fail on the foreign keys or take history with it, and the list hides inactive
 contacts so it reads as a delete. Contacts total 22, **active 21**, which is the baseline. Do not
 "fix" this.
+
+### Status roll-up — 19 Sep
+
+| Items | State | Commit |
+|---|---|---|
+| F1 F2 F3 F4 F5 F6 F8 F26 | fixed | `d0cad5f` |
+| F16 F17 F18 | fixed | `71d00fd` |
+| F19 F20 F21 F22 | fixed | `4437812` |
+| F23 (planning half) | fixed | `fc07054` |
+| F27 F28 | fixed | `fcba2f0` |
+| menu order + Leads label | fixed | `b10fb72`, `722241e` |
+| **F25** | in progress | alerts behind an icon |
+| **F7** | needs Aryan | how far the Lead rename goes |
+| **F9-F15, F24** | held by Aryan | the Weekly Plan board |
+
+**Two commit messages under-describe what they contain.** `d0cad5f` also carries F26, and the
+F27 commit also carried F28. Both happened the same way: an agent finished an extra item while I
+was staging, so the change was already in the working tree when the commit went in. The F27 one
+was amended because it was still HEAD; `d0cad5f` was not, because rewriting a commit mid-branch to
+correct a message is a worse trade than recording it here.
+
+**A process note worth keeping.** Routing a late item to a still-running agent crossed with its
+report three times today. Each time the agent reported COMPLETE without mentioning the new item,
+which reads as "not done" — and twice it was already done. Prefer queueing a late item for a fresh
+agent unless the file is genuinely contended, and when routing to a running one, check the working
+tree before believing either the report or the reminder.
