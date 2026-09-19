@@ -400,6 +400,20 @@ a phone, and to stay a `next/link` so middle-click and open-in-new-tab still wor
 should NOT become clickable: rows carry other information and may later carry their own controls.
 
 
+### F28 · Figures overflow their tiles on Team Summary · OPEN · **routed to FX-team**
+
+> "Total spent ₹11,809.50 / Order value ₹97,810.00 are getting out of the box in team summary only"
+
+The word **only** is the diagnostic: the same amounts render correctly on other screens, so this is
+not `fmtAmount` and not the values. It is this page's tile sizing — a fixed width, a missing
+`min-w-0` on a flex child, or a `whitespace-nowrap` in a container measured against a shorter
+string.
+
+⚠️ Size it for a number that does not exist in the seed. These are five digits; a seven-digit
+order value with commas is ordinary for a real tenant. A tile that fits today's demo data and
+bursts on a real one has not been fixed.
+
+
 ---
 
 ## Triaged
