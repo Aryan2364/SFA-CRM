@@ -387,6 +387,19 @@ Sent to FX-daily rather than queued, because that agent is rebuilding this exact
 second agent in the file would collide.
 
 
+### F27 · Team Summary: drop the Open column, click the name · OPEN
+
+> "team view we don't need open > button we can click on the line items person name to open it in
+> team summary remove that column"
+
+One way in rather than two, and the table gets the width back.
+
+⚠️ The risk in this change is making the name navigate without looking like it navigates — that
+is the same fault as the Open button, inverted. It needs a real link affordance, a 44px target on
+a phone, and to stay a `next/link` so middle-click and open-in-new-tab still work. The whole row
+should NOT become clickable: rows carry other information and may later carry their own controls.
+
+
 ---
 
 ## Triaged
