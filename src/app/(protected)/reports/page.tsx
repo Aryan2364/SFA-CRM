@@ -558,7 +558,10 @@ export default function ReportsPage() {
           cannot both be on screen, and the result is what the person came
           for. Animated rather than snapped: 200ms on the grid rows, which is
           the one property that can animate a height that is not known. */}
-      <section className="mt-4 shrink-0 rounded-xl border border-border-light bg-surface">
+      {/* NOT `shrink-0`. This is the one box on the page that gives up height,
+          and it is what keeps F33 fixed without re-breaking §34.1. See the
+          note on the scroller inside it. */}
+      <section className="mt-4 flex min-h-0 flex-col rounded-xl border border-border-light bg-surface">
         <button
           type="button"
           aria-expanded={controlsOpen}
@@ -585,11 +588,15 @@ export default function ReportsPage() {
 
         <div
           className={cn(
-            'grid transition-[grid-template-rows] duration-200 ease-out',
-            controlsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+            'grid min-h-0 transition-[grid-template-rows] duration-200 ease-out',
+            // `flex-1` only while open: it hands the row whatever height the
+            // section was given, so `1fr` resolves against a real number and
+            // the panel below can fill it. Closed, the row must be free to
+            // collapse to 0fr, so the section is only as tall as its button.
+            controlsOpen ? 'min-h-0 flex-1 grid-rows-[1fr]' : 'grid-rows-[0fr]'
           )}
         >
-          <div className="overflow-hidden">
+          <div className="min-h-0 overflow-hidden">
             {/*
               THE CONTROLS SCROLL INSIDE THEMSELVES, and this cap is what makes
               the §34.1 pinned total actually pinned.
@@ -606,8 +613,20 @@ export default function ReportsPage() {
               tall as the frame, so the result box owns the only vertical
               scroll and the total stays on screen. On a desktop the panel
               never reaches this height and nothing changes.
+
+              F33: 45vh alone stopped being enough. The four headline tiles and
+              the Ready-made / Saved row were added above this panel, and at
+              390x844 the pinned stack then came to 842 in a 744 frame — the
+              shell scrolled 98px, the total landed at y=941 in an 844 window,
+              and the panel's own header and first fields were cut off. So the
+              cap is now the SMALLER of two things: 45vh, and whatever height
+              the section is actually left with. The section is a shrinking
+              flex item (no `shrink-0`), the result below it reserves a floor
+              through `basis-40 sm:basis-56`, and this scroller takes `h-full`
+              of the row it is given. 45vh stays as the upper bound so a tall
+              desktop does not hand the panel half the screen for no reason.
             */}
-            <div className="flex max-h-[45vh] flex-col gap-4 overflow-y-auto border-t border-border-light p-4">
+            <div className="flex h-full max-h-[45vh] flex-col gap-4 overflow-y-auto border-t border-border-light p-4">
               {/* Measure and the one or two dimensions, side by side on a
                   desktop and stacked on a phone. */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -702,7 +721,7 @@ export default function ReportsPage() {
       {/* ── RESULT ───────────────────────────────────────────────────────
           The only scrolling region on the page. `overflow-hidden` here is what
           clips the table's own scroller to this box. */}
-      <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border-light bg-surface">
+      <div className="mt-4 flex min-h-0 shrink-0 grow basis-40 flex-col overflow-hidden rounded-xl border border-border-light bg-surface sm:basis-56">
         {!rangeValid ? (
           <div className="flex flex-1 items-center justify-center">
             <EmptyState
@@ -798,7 +817,12 @@ function PageHeader({ action }: { action?: React.ReactNode }) {
     <header className="flex shrink-0 flex-wrap items-start justify-between gap-x-4 gap-y-3">
       <div className="min-w-0">
         <h1 className="text-page-title font-medium text-text-primary">Reports</h1>
-        <p className="mt-1 text-meta text-text-muted">
+        {/* F33. The one line on this page that is explanation rather than
+            data or control, so it is the first thing to go when the frame is
+            short. At 390 it wrapped to three lines and cost the header 60px
+            of the 744 the page has — height the controls panel needed more
+            than the sentence did. Nothing actionable is hidden with it. */}
+        <p className="mt-1 hidden text-meta text-text-muted sm:block">
           Pick what to measure, what to break it down by, and over what period.
         </p>
       </div>
