@@ -10,7 +10,8 @@ import {
   type ListFilter,
   type ListPageProps,
 } from '@/components/templates/list-page'
-import { DataHealthAlert, QuickFilterChip } from '@/components/alerts/data-health-alert'
+import { QuickFilterChip } from '@/components/alerts/data-health-alert'
+import { DataHealthAlerts, type DataHealthAlertItem } from '@/components/alerts/data-health-popover'
 import { Badge } from '@/components/ui/badge'
 import {
   Board,
@@ -736,6 +737,18 @@ function DealsScreen() {
     },
   ]
 
+  const healthAlerts: DataHealthAlertItem[] = [
+    {
+      id: 'no-follow-up',
+      count: totals?.noFollowUp ?? 0,
+      title: `${totals?.noFollowUp ?? 0} ${(totals?.noFollowUp ?? 0) === 1 ? 'deal has' : 'deals have'} no open follow-up`,
+      detail: 'Missing a next follow-up date — nothing is scheduled to move these forward.',
+      actionLabel: 'View deals with no follow-up',
+      active: onlyNoFollowUp,
+      onAction: () => { setOnlyNoFollowUp(true); setRefreshKey(k => k + 1) },
+    },
+  ]
+
   return (
     /*
      * The strip has no zone in section 11.1 — the template has four and zone
@@ -769,17 +782,14 @@ function DealsScreen() {
                 label="Showing Deals without a follow-up only"
                 onClear={() => { setOnlyNoFollowUp(false); setRefreshKey(k => k + 1) }}
               />
-            ) : (
-              <DataHealthAlert
-                count={totals?.noFollowUp ?? 0}
-                title={`${totals?.noFollowUp ?? 0} ${(totals?.noFollowUp ?? 0) === 1 ? 'deal has' : 'deals have'} no open follow-up`}
-                description="Nothing is scheduled to move these forward."
-                actionLabel="View"
-                onAction={() => { setOnlyNoFollowUp(true); setRefreshKey(k => k + 1) }}
-              />
-            )}
+            ) : null}
           </>
         }
+        /* F25: the data-health alert is no longer a strip above the table
+           — it is behind the header's alert icon, grouped with the other
+           header controls. Only the applied-filter chip stays in zone 1a,
+           and only while a filter is applied. */
+        action={<DataHealthAlerts alerts={healthAlerts} label="Deal data health" />}
         toolbarExtra={
           boardOffered ? (
             <ViewSwitcher view={view} onChange={setView} />

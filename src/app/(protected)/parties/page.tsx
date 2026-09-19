@@ -55,7 +55,8 @@ import { useMe, type Me } from '@/hooks/useMe'
 import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/BusinessPartnerForm'
 import { useToast } from '@/contexts/ToastContext'
 import { RECORD_COMPLETENESS, StatusBadge } from '@/components/status-badge'
-import { DataHealthAlert, QuickFilterChip } from '@/components/alerts/data-health-alert'
+import { QuickFilterChip } from '@/components/alerts/data-health-alert'
+import { DataHealthAlerts, type DataHealthAlertItem } from '@/components/alerts/data-health-popover'
 import {
   ListPage,
   type ListColumn,
@@ -791,47 +792,72 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
   ]
 
   /*
-   * F19 + F20: the banners used to sit in a `div` ABOVE this whole `ListPage`
-   * — above its own `<h1>` title, which is exactly the "heading below
-   * something" complaint. `list-page.tsx` renders zone 1a (`sectionTabs`)
-   * directly under zone 1's title and above the toolbar, so composing the
-   * tab bar and the banners into ONE node for that slot puts them where
-   * section 33 already allows something to sit — below the heading, above
-   * the toolbar — without adding a prop to the template.
+   * F25: the two alerts are no longer in the page flow at all. They live
+   * behind the header's alert icon (see `alerts/data-health-popover.tsx`)
+   * so the table owns the top of the screen, which is what he actually
+   * asked for — F19/F20 only moved and shrank the strip.
    *
-   * F20: each banner is now the compact one-line `DataHealthAlert` — see
-   * that file for how the fuller explanation moved from a wrapped second
-   * line into an on-demand tooltip. The count and the immediate cause stay
-   * in the line itself; only the sentence-length elaboration moved.
+   * §7.7 still holds: the incomplete alert names WHICH fields are absent.
+   * `completeness_missing` is the stored, per-company list of them, so
+   * the popover reports the real fields this tenant is actually short of,
+   * commonest first, instead of the generic sentence the banner carried.
+   */
+  const missingFieldSummary = (() => {
+    const tally = new Map<string, number>()
+    for (const c of allCompanies ?? []) {
+      if (c.is_complete || !c.completeness_missing) continue
+      for (const raw of c.completeness_missing.split(',')) {
+        const field = raw.trim()
+        if (field) tally.set(field, (tally.get(field) ?? 0) + 1)
+      }
+    }
+    return [...tally.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([field, n]) => `${field} (${n})`)
+      .join(', ')
+  })()
+
+  const healthAlerts: DataHealthAlertItem[] = [
+    {
+      id: 'incomplete',
+      count: incompleteCount,
+      title: `${incompleteCount} ${incompleteCount === 1 ? 'lead is' : 'leads are'} incomplete`,
+      detail: missingFieldSummary
+        ? `Missing ${missingFieldSummary}. An order against one of these stays in Draft.`
+        : 'An order against one of these stays in Draft.',
+      actionLabel: 'View incomplete leads',
+      active: onlyIncomplete,
+      onAction: () => { setOnlyIncomplete(true); setRefreshKey(k => k + 1) },
+    },
+    {
+      id: 'no-deal',
+      count: noDealCount,
+      title: `${noDealCount} ${noDealCount === 1 ? 'lead has' : 'leads have'} no deal`,
+      detail: 'Nothing in the pipeline is tied to these leads yet.',
+      actionLabel: 'View leads with no deal',
+      active: onlyNoDeal,
+      onAction: () => { setOnlyNoDeal(true); setRefreshKey(k => k + 1) },
+    },
+  ]
+
+  /*
+   * Only the applied-filter chip stays in zone 1a, and only while a filter
+   * IS applied: it is the user's own transient state and its own clear
+   * affordance, not standing page furniture. Nothing renders here in the
+   * ordinary case, so the tab bar sits directly on the table.
    */
   const banners = (
     <>
-      {onlyIncomplete ? (
+      {onlyIncomplete && (
         <QuickFilterChip
-          label="Showing incomplete parties only"
+          label="Showing incomplete leads only"
           onClear={() => { setOnlyIncomplete(false); setRefreshKey(k => k + 1) }}
         />
-      ) : (
-        <DataHealthAlert
-          count={incompleteCount}
-          title={`${incompleteCount} ${incompleteCount === 1 ? 'lead is' : 'leads are'} incomplete`}
-          description="Missing a primary address, city, state, pincode or GST number — an order against one stays in Draft."
-          actionLabel="View incomplete leads"
-          onAction={() => { setOnlyIncomplete(true); setRefreshKey(k => k + 1) }}
-        />
       )}
-      {onlyNoDeal ? (
+      {onlyNoDeal && (
         <QuickFilterChip
-          label="Showing parties without a deal"
+          label="Showing leads without a deal"
           onClear={() => { setOnlyNoDeal(false); setRefreshKey(k => k + 1) }}
-        />
-      ) : (
-        <DataHealthAlert
-          count={noDealCount}
-          title={`${noDealCount} ${noDealCount === 1 ? 'lead has' : 'leads have'} no deal`}
-          description="Nothing in the pipeline is tied to these parties yet."
-          actionLabel="View"
-          onAction={() => { setOnlyNoDeal(true); setRefreshKey(k => k + 1) }}
         />
       )}
     </>
@@ -869,9 +895,15 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
          * path and stays primary; Quick create and Bulk Upload are the same act
          * with less detail and with more rows, and both are secondary.
          */
+        /* F25: the alert trigger is a header control, grouped with the
+           other header controls rather than stranded — and it renders for
+           everyone who can read the list, including a user with no edit
+           rights, since looking at the alerts is not an edit. */
         action={
-          canEdit ? (
             <div className="flex items-center gap-2">
+              <DataHealthAlerts alerts={healthAlerts} label="Lead data health" />
+              {canEdit ? (
+            <>
               <Button variant="secondary" onClick={() => setBulkOpen(true)}>
                 <UploadIcon />
                 Bulk Upload
@@ -896,8 +928,9 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
                 <PlusIcon />
                 Add company
               </Button>
+            </>
+              ) : null}
             </div>
-          ) : undefined
         }
         columns={companyColumns({
           canEdit,
@@ -1243,22 +1276,27 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
     },
   ]
 
-  // F19/F20 — see the Companies tab's `banners` for why this is composed
-  // into the `sectionTabs` slot rather than rendered above the `ListPage`.
+  /* F25 — same move as the Companies tab: the alert is behind the header
+     icon, and only the applied-filter chip is ever in the page flow. The
+     two tabs are peers and must behave identically. */
+  const healthAlerts: DataHealthAlertItem[] = [
+    {
+      id: 'unlinked',
+      count: unlinkedCount,
+      title: `${unlinkedCount} ${unlinkedCount === 1 ? 'contact is' : 'contacts are'} not linked to any company`,
+      detail: "Missing a company link — a contact belongs to no lead until it is linked from a company's own page.",
+      actionLabel: 'View unlinked contacts',
+      active: onlyUnlinked,
+      onAction: () => { setOnlyUnlinked(true); setRefreshKey(k => k + 1) },
+    },
+  ]
+
   const banners = onlyUnlinked ? (
     <QuickFilterChip
       label="Showing contacts without a company"
       onClear={() => { setOnlyUnlinked(false); setRefreshKey(k => k + 1) }}
     />
-  ) : (
-    <DataHealthAlert
-      count={unlinkedCount}
-      title={`${unlinkedCount} ${unlinkedCount === 1 ? 'contact is' : 'contacts are'} not linked to any company`}
-      description="A contact belongs to no lead until it is linked from a company's own page."
-      actionLabel="View"
-      onAction={() => { setOnlyUnlinked(true); setRefreshKey(k => k + 1) }}
-    />
-  )
+  ) : null
 
   return (
     <>
@@ -1277,12 +1315,15 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
          * second create path.
          */
         action={
-          canCreate ? (
-            <Button onClick={() => setCreateOpen(true)}>
-              <PlusIcon />
-              Add contact
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            <DataHealthAlerts alerts={healthAlerts} label="Contact data health" />
+            {canCreate ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <PlusIcon />
+                Add contact
+              </Button>
+            ) : null}
+          </div>
         }
         columns={contactColumns({ canDelete, onDelete: setDeleting })}
         rowKey={row => row.id}

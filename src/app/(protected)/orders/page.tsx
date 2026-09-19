@@ -6,7 +6,8 @@ import { useSearchParams } from 'next/navigation'
 import { PlusIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
-import { DataHealthAlert, QuickFilterChip } from '@/components/alerts/data-health-alert'
+import { QuickFilterChip } from '@/components/alerts/data-health-alert'
+import { DataHealthAlerts, type DataHealthAlertItem } from '@/components/alerts/data-health-popover'
 import { DISCOUNT_FLAG, ORDER_STATUS, SpecBadge, StatusBadge } from '@/components/status-badge'
 import {
   ListPage,
@@ -663,53 +664,78 @@ function OrdersPageInner() {
     ...new Set((draftOrders ?? []).map(o => o.blocked_reason).filter((r): r is string => Boolean(r))),
   ]
 
+  /* §7.7: a stuck order has to say WHY it is stuck, not just that it is.
+     `blocked_reason` is the server's own sentence for each Draft order, so
+     the distinct reasons go into the alert verbatim. */
+  const healthAlerts: DataHealthAlertItem[] = [
+    {
+      id: 'draft',
+      count: draftCount,
+      title: `${draftCount} ${draftCount === 1 ? 'order is' : 'orders are'} stuck in Draft`,
+      detail:
+        draftReasons.length > 0
+          ? `Reasons on these orders: ${draftReasons.join('; ')}.`
+          : 'A Draft order stays there until its party record is complete.',
+      actionLabel: 'View Draft orders',
+      active: onlyDraft,
+      onAction: () => { setOnlyDraft(true); setRefreshKey(k => k + 1) },
+    },
+  ]
+
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
-        {companyId ? (
-          <QuickFilterChip
-            label={
-              companyName
-                ? `Showing orders for ${companyName}`
-                : 'Showing orders for one company'
-            }
-            /* Never a dead end: the narrowing the link applied can be taken
-               off without leaving the page. `refreshKey` is what re-runs the
-               query — `load` is held in a ref by the template and is not an
-               effect dependency there, so changing this state alone would
-               leave the old rows on screen. */
-            onClear={() => { setCompanyId(''); setRefreshKey(k => k + 1) }}
-          />
-        ) : null}
-        {onlyDraft ? (
-          <QuickFilterChip
-            label="Showing Draft orders only"
-            onClear={() => { setOnlyDraft(false); setRefreshKey(k => k + 1) }}
-          />
-        ) : (
-          <DataHealthAlert
-            count={draftCount}
-            title={`${draftCount} ${draftCount === 1 ? 'order is' : 'orders are'} stuck in Draft`}
-            description={
-              draftReasons.length > 0
-                ? `Reasons on these orders: ${draftReasons.join('; ')}.`
-                : 'A Draft order stays there until its party record is complete.'
-            }
-            actionLabel="View Draft orders"
-            onAction={() => { setOnlyDraft(true); setRefreshKey(k => k + 1) }}
-          />
-        )}
       <ListPage<OrderRow>
         className="h-auto min-h-0 flex-1"
         title="Orders"
         noun={{ one: 'order', many: 'orders' }}
-        action={
-          canCreateOrder ? (
-            <Button onClick={() => setCreateOpen(true)}>
-              <PlusIcon />
-              Create order
-            </Button>
+        /*
+         * F25 (and F19, which Orders never got): the Draft banner used to
+         * render in this wrapper ABOVE the whole `ListPage` — above its
+         * own `<h1>`. It is now behind the header's alert icon, so the
+         * heading is the first thing on the page and the table owns the
+         * top of the screen. The applied-filter chip moves into zone 1a
+         * (`sectionTabs`), which sits UNDER the title, for the same
+         * reason.
+         */
+        sectionTabs={
+          companyId || onlyDraft ? (
+            <>
+              {companyId ? (
+                <QuickFilterChip
+                  label={
+                    companyName
+                      ? `Showing orders for ${companyName}`
+                      : 'Showing orders for one company'
+                  }
+                  /* Never a dead end: the narrowing the link applied can be
+                     taken off without leaving the page. `refreshKey` is what
+                     re-runs the query — `load` is held in a ref by the
+                     template and is not an effect dependency there, so
+                     changing this state alone would leave the old rows on
+                     screen. */
+                  onClear={() => { setCompanyId(''); setRefreshKey(k => k + 1) }}
+                />
+              ) : null}
+              {onlyDraft ? (
+                <QuickFilterChip
+                  label="Showing Draft orders only"
+                  onClear={() => { setOnlyDraft(false); setRefreshKey(k => k + 1) }}
+                />
+              ) : null}
+            </>
           ) : undefined
+        }
+        action={
+          <div className="flex items-center gap-2">
+            <DataHealthAlerts alerts={healthAlerts} label="Order data health" />
+            {canCreateOrder ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <PlusIcon />
+                Create order
+              </Button>
+            ) : null}
+          </div>
         }
         columns={orderColumns(openDetail)}
         rowKey={order => order.id}
