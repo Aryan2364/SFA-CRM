@@ -1,6 +1,7 @@
 import {
   BarChart3,
   CalendarDays,
+  CalendarCheck,
   ClipboardList,
   Database,
   Handshake,
@@ -156,22 +157,42 @@ export const NAV_ITEMS: NavItem[] = [
     visible: () => true,
   },
   {
-    label: 'Daily Activity',
-    href: '/daily-activity',
-    icon: CalendarDays,
-    visible: me => canView(me, 'meetings'),
-  },
-  {
     label: 'Weekly Plan',
     href: '/weekly-plan',
     icon: ClipboardList,
     visible: me => canView(me, 'weekly_plan'),
   },
   {
-    label: 'Orders',
-    href: '/orders',
-    icon: ShoppingCart,
-    visible: me => canView(me, 'orders'),
+    /*
+     * The approval queue for weekly plans. Placed immediately after Weekly
+     * Plan, the screen it belongs to. Gated the way the screen gates
+     * itself: `GET /api/weekly-plans/approval` requires `weekly_plan` view
+     * AND scopes its query to the caller's subordinates — a user with
+     * nobody under them gets an empty queue, so this mirrors Review and
+     * Team Summary rather than duplicating a role check.
+     */
+    label: 'Plan Approval',
+    href: '/weekly-plan/approval',
+    icon: CalendarCheck,
+    visible: me => canView(me, 'weekly_plan') && me.hasSubordinates,
+  },
+  {
+    label: 'Daily Activity',
+    href: '/daily-activity',
+    icon: CalendarDays,
+    visible: me => canView(me, 'meetings'),
+  },
+  {
+    /*
+     * REBUILD-PLAN.md §4. Gated on the `deals` section of
+     * role_permissions — the same table `checkPermission(user,'deals',…)`
+     * reads on the server, so the entry appears exactly when
+     * `GET /api/deals` would answer rather than 403.
+     */
+    label: 'Deals',
+    href: '/deals',
+    icon: Handshake,
+    visible: me => canView(me, 'deals'),
   },
   {
     /*
@@ -190,18 +211,6 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/parties',
     icon: UserRoundSearch,
     visible: me => canView(me, 'companies') || canView(me, 'contacts'),
-  },
-  {
-    /*
-     * REBUILD-PLAN.md §4. Gated on the `deals` section of
-     * role_permissions — the same table `checkPermission(user,'deals',…)`
-     * reads on the server, so the entry appears exactly when
-     * `GET /api/deals` would answer rather than 403.
-     */
-    label: 'Deals',
-    href: '/deals',
-    icon: Handshake,
-    visible: me => canView(me, 'deals'),
   },
   {
     /*
@@ -228,6 +237,12 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/review/team',
     icon: UsersRound,
     visible: me => me.hasSubordinates,
+  },
+  {
+    label: 'Orders',
+    href: '/orders',
+    icon: ShoppingCart,
+    visible: me => canView(me, 'orders'),
   },
   {
     label: 'Conversations',
