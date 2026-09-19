@@ -414,6 +414,71 @@ order value with commas is ordinary for a real tenant. A tile that fits today's 
 bursts on a real one has not been fixed.
 
 
+## Round 5 — Conversations, 19 Sep
+
+### F29 · Raw `daily_summary` shown to users · OPEN
+
+> "in conversation it says daily_summary why _ for users it should not look mechanical or
+> technical"
+
+Right. `daily_summary`, `weekly_summary`, `weekly_plan_day` and the rest are internal context
+keys. Users see "Daily Summary". Map every context type to a human label in one place, so a new
+type cannot leak its key to the screen.
+
+### F30 · A replacement character in a stored remark · OPEN · **corrupt DATA, not rendering**
+
+> "in latest message Added � order placed. there is this � symbol why? it should not be there."
+
+Checked the codepoints: the stored body is literally `Added � order placed.` — **U+FFFD, the
+Unicode replacement character, is IN THE DATABASE.** Nothing is wrong with the rendering; the row
+was written with a mangled byte, almost certainly an em-dash typed through a shell with the wrong
+encoding.
+
+This row is **leftover test data**. `HANDOFF.md` §5 records it: *"11 deals ... and one comment
+thread on Amit Kulkarni's 17 Sept summary. They exist because the board and the thread had no data
+at all."* The deals were wiped by P2-T4; this thread was not.
+
+So the fix is to delete the fixture, not to sanitise text on the way out. **But check first
+whether any write path can produce U+FFFD** — if an agent's shell did it, fine; if the app can, that
+is a real encoding bug and matters far more than one bad row.
+
+### F31 · Drop the Open button, click the row · OPEN · **same as F27**
+
+> "i don't need open button as clicking the line item only should work same as open button"
+
+Same treatment and the same trap as the Team Summary change: the clickable thing must LOOK
+clickable, keep a 44px target, stay a real link, and the whole row should not become one big click
+surface.
+
+### F32 · A conversation that cannot be opened · OPEN · **CONFIRMED BUG, this is the real one**
+
+> "when i clicked openend this line entry ... there it says no remark yet so what is this line
+> entry I don't understand like what is the purpose ... source takes to the page there also I
+> didn't found anything so kinda confused"
+
+He is not confused; the screen is broken. Reproduced against the running server:
+
+```
+GET /api/remarks?contextType=daily_summary&contextId=f097924d-...
+  -> 400 "daily_summary is addressed by userId and date (YYYY-MM-DD), not by contextId"
+
+GET /api/remarks?contextType=daily_summary&userId=...103&date=2026-09-17
+  -> both remarks, correctly
+```
+
+`/api/conversations` groups rows by `(context_type, context_id)`, so a row can only carry the
+context id — and that is precisely the key the remarks API refuses for summary types. The thread
+therefore always opens empty.
+
+⚠️ **The refusal is correct and must not be "fixed" by making the API accept a raw id.**
+`remarks/_access.ts` documents why: a summary's `context_id` is a derived uuid that cannot be
+reversed to find whose summary it is, so accepting one would be an authorisation bypass — nothing
+could tell whose thread was being read.
+
+The fix belongs in Conversations: carry the **owner and the period** for summary contexts, not the
+derived id. The same applies to the Source link, which he also reports landing nowhere useful.
+
+
 ---
 
 ## Triaged
