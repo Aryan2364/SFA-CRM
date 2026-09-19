@@ -21,6 +21,14 @@ export const dynamic = 'force-dynamic'
  * (`{ not: 'Existing' }`). Do not rename the sentinel — several routes hardcode
  * the literal.
  *
+ * F6 added `status=all`, which applies no stage filter, and put `type` in the
+ * projection. Both are additive: `existing` is still the default and the two
+ * pre-existing values behave exactly as before. They exist because the Daily
+ * Activity meeting form no longer asks the user to pick a lead type or a
+ * stage before picking a party — it offers one list of parties and files the
+ * meeting under the party's OWN `companies.type`, which is the only honest
+ * source for `daily_visits.visit_type` once the selector is gone.
+ *
  * Authorisation is `companies.view`: it reads the same rows `/api/companies`
  * does, so it must not be a side door around that permission (01-GAP-ANALYSIS
  * G4 — it previously called `requireUser()` and discarded the result, leaving
@@ -41,9 +49,11 @@ export async function GET(req: NextRequest) {
         tenant_id: getTenantId(),
         is_active: true,
         ...(type ? { type } : {}),
-        stage: status === 'lead' ? { not: 'Existing' } : 'Existing',
+        ...(status === 'all'
+          ? {}
+          : { stage: status === 'lead' ? { not: 'Existing' } : 'Existing' }),
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, type: true, stage: true },
       orderBy: { name: 'asc' },
     })
     // Ids and names only — nothing to serialise.

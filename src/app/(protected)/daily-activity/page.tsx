@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { HistoryIcon, PlusIcon } from 'lucide-react'
+import { PlusIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
@@ -30,10 +30,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { AddMeetingDialog } from '@/components/daily-activity/add-meeting-dialog'
+import { AddMeetingDialog, type MeetingDraft } from '@/components/daily-activity/add-meeting-dialog'
 import { AttendanceCard } from '@/components/daily-activity/attendance-card'
 import { ExpensesTab } from '@/components/daily-activity/expenses-tab'
-import { ManualMeetingDialog } from '@/components/daily-activity/manual-meeting-dialog'
 import { OrderEntryDialog } from '@/components/daily-activity/order-entry-dialog'
 import { PlannedCard } from '@/components/daily-activity/planned-card'
 import { SummaryTab } from '@/components/daily-activity/summary-tab'
@@ -74,11 +73,16 @@ import {
  * `src/components/daily-activity/*` so each of them has one small file
  * to attach to; start and stop are still two buttons, on purpose.
  *
- * LAYOUT — the header, the attendance card, the week strip and the tab
- * bar are pinned; only the list under them scrolls, so the primary
- * action is reachable at any scroll position. The old screen was a
- * `max-w-2xl` column with a floating action button that overlapped the
- * last card.
+ * LAYOUT — the header row, the week strip and the tab bar are pinned;
+ * only the list under them scrolls, so the primary action is reachable
+ * at any scroll position. The old screen was a `max-w-2xl` column with a
+ * floating action button that overlapped the last card.
+ *
+ * F4/F5 — the attendance PANEL that used to sit between the header and
+ * the week strip is gone. It is a chip on the header row now
+ * (`attendance-card.tsx`), check-in/check-out sit beside it, and the two
+ * meeting buttons became one dialog with a toggle. Nothing was dropped:
+ * every sentence the panel carried lives in the chip's popover.
  */
 function DailyActivityInner() {
   const { toast } = useToast()
@@ -99,7 +103,6 @@ function DailyActivityInner() {
   const [acting, setActing] = useState(false)
   const [startingPlanItem, setStartingPlanItem] = useState<string | null>(null)
   const [meetingDialog, setMeetingDialog] = useState<{ open: boolean; planItem: PlannedItem | null }>({ open: false, planItem: null })
-  const [manualDialogOpen, setManualDialogOpen] = useState(false)
   const [orderEntry, setOrderEntry] = useState<Visit | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Visit | null>(null)
   const [locationDenied, setLocationDenied] = useState<{ visitId: string; action: 'start' | 'stop' } | null>(null)
@@ -193,40 +196,30 @@ function DailyActivityInner() {
     })
   }, [])
 
-  async function handleAdd(partial: Partial<Visit> & { weekly_plan_item_id?: string | null }) {
-    if (isFuture) { toast('Meetings cannot be logged for a future date', 'error'); return }
-    const r = await fetch('/api/daily-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...partial, visit_date: selectedDate }),
-    })
-    if (!r.ok) { toast((await r.json()).error ?? 'Failed to log the meeting', 'error'); return }
-    setMeetingDialog({ open: false, planItem: null })
-    await loadVisits()
-  }
-
   /**
-   * P3-T10 — a past meeting entered by hand. Kept separate from
-   * `handleAdd` (rather than folded in) because the future-date guard
-   * and the "day already selected on screen" date are shared, but the
-   * success path never opens `meetingDialog` — it has its own dialog
-   * state — and a 400 here (e.g. end before start) needs to land back
-   * in the manual dialog's own inline errors, not the toast-only path
-   * the ad-hoc dialog uses.
+   * F5 — ONE handler, because there is now one form.
+   *
+   * `handleAddManual` used to sit beside this, differing only in its
+   * error copy and which dialog it closed. The merged dialog owns both
+   * modes, so the only thing left that varies is the noun in the toast.
+   * The provenance fields (`is_manual_entry`, `manual_start_time`,
+   * `manual_end_time`) ride through untouched and the server decides
+   * what they mean; nothing here can turn a typed time into a captured
+   * one.
    */
-  async function handleAddManual(partial: Partial<Visit> & {
-    is_manual_entry: true
-    manual_start_time: string
-    manual_end_time: string
-  }) {
+  async function handleAdd(partial: MeetingDraft) {
     if (isFuture) { toast('Meetings cannot be logged for a future date', 'error'); return }
+    const past = partial.is_manual_entry === true
     const r = await fetch('/api/daily-activity', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...partial, visit_date: selectedDate }),
     })
-    if (!r.ok) { toast((await r.json()).error ?? 'Failed to log the past meeting', 'error'); return }
-    setManualDialogOpen(false)
+    if (!r.ok) {
+      toast((await r.json()).error ?? `Failed to log the ${past ? 'past ' : ''}meeting`, 'error')
+      return
+    }
+    setMeetingDialog({ open: false, planItem: null })
     await loadVisits()
   }
 
@@ -365,28 +358,42 @@ function DailyActivityInner() {
   return (
     <Tabs value={activeTab} onValueChange={v => setActiveTab(String(v))} className="h-full">
       <div className="flex h-full flex-col gap-3">
-        {/* ZONE 1 — pinned. Title, date, primary action. */}
-        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-          <div>
+        {/*
+          ZONE 1 — pinned, and F4's whole point: as short as it can be.
+
+          It used to be three stacked blocks — a title row, a full-width
+          attendance panel, then the week strip — above a tab bar, on a
+          screen whose only scrolling region is the list underneath. The
+          attendance panel alone was ~72px plus its 12px gap of permanent
+          chrome saying things that are true all day and change twice.
+
+          Now: one header row carrying the title, the attendance chip,
+          check-in/check-out and the single meeting button; then the week
+          strip, promoted to just under it as Aryan asked; then the tabs.
+          Everything the panel said is still reachable, one press away in
+          the chip's popover, including the load-bearing sentence that
+          check-out locks nothing.
+        */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="min-w-0">
             <h1 className="text-section font-medium text-text-primary">Daily Activity</h1>
             <p className="text-body text-text-secondary">{displayDate}</p>
           </div>
-          {canLogMeeting && !isFuture && (
-            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-              <Button variant="secondary" onClick={() => setManualDialogOpen(true)} className="flex-1 sm:flex-none">
-                <HistoryIcon />
-                Log a past meeting
-              </Button>
-              <Button onClick={() => setMeetingDialog({ open: true, planItem: null })} className="flex-1 sm:flex-none">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            {/* Attendance and its buttons sit next to the day they
+                describe, not in a panel of their own. */}
+            <AttendanceCard selectedDate={selectedDate} canMark={canLogMeeting} />
+            {canLogMeeting && !isFuture && (
+              <Button
+                onClick={() => setMeetingDialog({ open: true, planItem: null })}
+                className="min-h-11 flex-1 sm:min-h-0 sm:flex-none"
+                size="sm"
+              >
                 <PlusIcon />
                 Log a meeting
               </Button>
-            </div>
-          )}
-        </div>
-
-        <div className="shrink-0">
-          <AttendanceCard selectedDate={selectedDate} canMark={canLogMeeting} />
+            )}
+          </div>
         </div>
 
         <div className="shrink-0">
@@ -498,14 +505,8 @@ function DailyActivityInner() {
         open={meetingDialog.open}
         onOpenChange={v => setMeetingDialog(s => ({ open: v, planItem: v ? s.planItem : null }))}
         planItem={meetingDialog.planItem}
-        onAdd={handleAdd}
-      />
-
-      <ManualMeetingDialog
-        open={manualDialogOpen}
-        onOpenChange={setManualDialogOpen}
         visitDate={selectedDate}
-        onAdd={handleAddManual}
+        onAdd={handleAdd}
       />
 
       {orderEntry && (

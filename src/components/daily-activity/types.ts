@@ -60,7 +60,17 @@ export type Visit = {
   location_flagged?: boolean
 }
 
-export type Entity = { id: string; name: string }
+/**
+ * A pickable party from `/api/business-partners`.
+ *
+ * `type` is the party's own `companies.type` and `stage` its funnel stage.
+ * Both arrived with F6: once the meeting form stopped asking the user to
+ * choose a lead type and a stage, the party's own values became the only
+ * honest source for `daily_visits.visit_type` and for the Lead/Existing
+ * marker in the list. Both are optional because the route did not always
+ * return them.
+ */
+export type Entity = { id: string; name: string; type?: string | null; stage?: string | null }
 
 export type Expense = {
   id: string
@@ -207,4 +217,64 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string |
   } catch {
     return null
   }
+}
+
+// ---- Attendance state (F3) ----
+
+/**
+ * The four honest readings of an attendance row, in one place so the
+ * compact chip and the expanded panel can never disagree.
+ *
+ * F3: **"Absent" is a claim about the past.** A day that has not
+ * happened yet cannot have had attendance recorded, so a future date
+ * reads `not-yet`, never `absent`. Today with no check-in is
+ * `not-marked` — still open, not yet a failure. Only a PAST day with no
+ * check-in is `absent`.
+ */
+export type AttendanceState = 'present' | 'not-marked' | 'not-yet' | 'absent'
+
+export function attendanceState(
+  dateStr: string,
+  record: AttendanceRecord | null | undefined
+): AttendanceState {
+  if (record?.check_in_time) return 'present'
+  const today = toDateStr(new Date())
+  if (dateStr > today) return 'not-yet'
+  if (dateStr === today) return 'not-marked'
+  return 'absent'
+}
+
+export const ATTENDANCE_LABEL: Record<AttendanceState, string> = {
+  present: 'Present',
+  'not-marked': 'Not marked present',
+  'not-yet': 'Not yet',
+  absent: 'Absent',
+}
+
+export const ATTENDANCE_SENTENCE: Record<AttendanceState, string> = {
+  present: 'Working hours are running.',
+  'not-marked': 'Check in to mark yourself present and start counting working hours.',
+  'not-yet': 'This day has not happened yet, so there is nothing to record.',
+  absent: 'No attendance was recorded on this day.',
+}
+
+/**
+ * F1 — a worked duration that can never read negative.
+ *
+ * The bug: `now` was captured once by `useState(() => Date.now())` at
+ * mount and only refreshed by a 30s interval that did not exist until
+ * `checkedIn` became true. Press Check in an hour after the page loaded
+ * and the very first render computed `mountTime - checkInTime`, i.e.
+ * MINUS one hour — which the old `${Math.floor(ms/3_600_000)}h
+ * ${Math.floor((ms%3_600_000)/60_000)}m` formatter rendered literally as
+ * `-1h -1m`. Thirty seconds later the interval fired, `now` caught up and
+ * it "self-corrected". Nothing to do with the IST/UTC skew: 1h1m is how
+ * long that tab had been open.
+ *
+ * The clock is fixed at the call site. This is the belt-and-braces half:
+ * a clock that disagrees with itself reads `0h 0m`, never a negative.
+ */
+export function formatWorked(ms: number) {
+  const safe = Number.isFinite(ms) && ms > 0 ? ms : 0
+  return `${Math.floor(safe / 3_600_000)}h ${Math.floor((safe % 3_600_000) / 60_000)}m`
 }
