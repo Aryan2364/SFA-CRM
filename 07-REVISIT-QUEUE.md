@@ -264,3 +264,35 @@ the warning, dutifully updates both, and the dead copy makes the change look big
 instruction in the phase plan, and update the stale comment in `masters-registry.ts`. Left undone
 here because deleting a file is not this session's call to make unasked, and nothing is broken by
 its presence.
+
+## R-18 — `/api/conversations` applies no permission or scope check
+
+Found 19 Sep by the agent seeding demo conversations, while trying to confirm that scope applied.
+It could not confirm it, because it does not.
+
+`src/app/api/conversations/route.ts` calls `requireUser()` and filters every query by `tenant_id`.
+That is the whole of its authorisation. There is **no `checkPermission`** and **no `getDataScope`
+/ `scopedUserIds`**. Reproduced with 13 seeded threads: the administrator, the manager and the
+Sales Executive all receive the identical 13.
+
+**Why this is worse than a missing filter usually is.** A remark inherits the reach of whatever it
+is attached to. So an executive can read a manager's written feedback on a *different* executive's
+daily summary, and notes on deals and orders he has no permission to open. It is in-tenant — the
+`tenant_id` filter holds, so nothing crosses a customer boundary — but it is the same shape as the
+four authorisation holes already found in the weekly-plan routes: **authenticated, not
+authorised.**
+
+**The pattern to fix it already exists two files away.** `src/app/api/remarks/_access.ts` argues it
+in full: compose `scopedUserIds` with `intersectScope`, and borrow the permission section from the
+parent record, because a remark is not its own kind of record. `_context.ts` already maps every
+context type to its section. Conversations simply never adopted it.
+
+⚠️ Do **not** gate on `canView()` — `user_visibility` holds no self rows, so `canView(me, me)` is
+false for everyone. That mistake is R-15.
+
+⚠️ A thread the caller may not see must be **absent**, not shown-and-locked. A row saying "you
+cannot open this" still discloses that the record exists and that someone commented on it.
+
+Sent for fix the same day. Recorded because the class of bug matters more than the instance: the
+useful question is *"is this one route, or the family?"* — which is how the weekly-plan holes were
+found.
