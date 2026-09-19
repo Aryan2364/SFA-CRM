@@ -29,9 +29,11 @@ import type { ReportFormat, ReportRow } from './types'
  *
  * What §34 asks for, and where each rule lands:
  *
- *   34.1  Total row pinned the same way the header is → `TableFooter sticky`,
- *         which applies `sticky bottom-0` to the `tfoot` AND to its cells,
- *         because several engines ignore it on `tfoot`.
+ *   34.1  The total stays visible while the result is read. It used to be a
+ *         `TableFooter sticky` here; F34 moved it to the reports page's own
+ *         sticky header, because a sticky footer requires a clipping box and
+ *         that box was the layout bug. The footer row remains, unpinned, as
+ *         the end of the column.
  *   34.2  Never paginate. Show every row and scroll. There is no page size
  *         here and none in the API — the only ceiling is the engine's
  *         MAX_ROWS, and when it bites `truncated` says so rather than the
@@ -154,9 +156,17 @@ export function ReportTable({
             ))}
           </TableBody>
 
-          {/* §34.1. Pinned, and present even when there are no rows — a total
-              of zero is an answer, and a missing total row reads as a bug. */}
-          <TableFooter sticky>
+          {/* §34.1. Present even when there are no rows — a total of zero is
+              an answer, and a missing total row reads as a bug.
+
+              NOT `sticky` any more (F34). A sticky `tfoot` only sticks inside
+              a box that clips it, and that box — a fixed page frame with a
+              nested scroller — is what kept squeezing the result to a strip.
+              The reports page now states the total in its own sticky HEADER,
+              which stays on screen while the page scrolls normally. This row
+              is the end of the column, not the pinned copy; pinning it too
+              would put the same number on screen twice. */}
+          <TableFooter>
             <TableRow>
               <TableCell
                 className={`${FROZEN} bg-surface-sunken font-medium`}

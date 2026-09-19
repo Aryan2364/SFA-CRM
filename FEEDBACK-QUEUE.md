@@ -352,7 +352,7 @@ real. Note `weekly_plan_items` has `party_id`, `party_type` and `expected_order_
 
 ## Round 4 — 19 Sep
 
-### F25 · The alerts become an icon with a popup, not page furniture · OPEN · **supersedes half of F20**
+### F25 · The alerts become an icon with a popup, not page furniture · **FIXED** · **supersedes half of F20**
 
 > "Now in leads i need a icon which when clicked in leads opens pop-up like thing saying this 7
 > leads are incomplete / 15 leads have no deal / I don't it to be sticking on main page which
@@ -479,7 +479,7 @@ The fix belongs in Conversations: carry the **owner and the period** for summary
 derived id. The same applies to the Source link, which he also reports landing nowhere useful.
 
 
-### F33 · Reports page clips its own content · OPEN · **layout regression**
+### F33 · Reports page clips its own content · **FIXED** · **layout regression**
 
 > "there is a bug in page scoll has ended early so the section below Order Amount by Company · 13
 > Sep 2026 to 19 Sep 2026 / Measure / Dimension is hidden"
@@ -503,7 +503,7 @@ reason that was measured in a browser: without them the total row left the scree
 after whatever change is made — at 1440 wide AND at 390.
 
 
-### F34 · Reports: collapse the two-panel model into one · OPEN · **architecture, and Aryan is right**
+### F34 · Reports: collapse the two-panel model into one · **FIXED** · **architecture, and Aryan is right**
 
 > "reports page is still not working fine 'Order Amount by Sales Person · 21 Aug 2026 to 19 Sep
 > 2026' now this section is not opening I don't understand why do we have two section like setup

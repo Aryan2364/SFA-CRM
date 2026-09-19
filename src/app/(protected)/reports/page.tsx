@@ -29,7 +29,7 @@ import {
   ReportPresets,
   type PresetPick,
 } from '@/components/reports/report-presets'
-import { ReportTable } from '@/components/reports/report-table'
+import { formatValue, ReportTable } from '@/components/reports/report-table'
 import {
   SavedReports,
   type SavedReport,
@@ -108,6 +108,14 @@ type View = 'table' | 'chart'
 
 /** Debounce before a run. Long enough to absorb a click-through of presets. */
 const RUN_DEBOUNCE_MS = 250
+
+/**
+ * The floor for a result that has no rows — a message, a skeleton or an error.
+ * Only those states need one: a table sizes itself. Without it an EmptyState
+ * centred in an auto-height box is a strip, which is the very complaint F34
+ * opens with.
+ */
+const EMPTY_MIN = 'min-h-[18rem]'
 
 let filterSeq = 0
 function nextFilterId(): string {
@@ -442,6 +450,17 @@ export default function ReportsPage() {
     currentConfig !== null &&
     JSON.stringify(currentConfig) !== JSON.stringify(activeSaved.config)
 
+  /**
+   * §34.1's total, formatted the same way the table's own column is — through
+   * `formatValue`, so the header and the table can never disagree. `null`
+   * whenever there is no answer to state: an invalid range, a failed run, or
+   * a first load that has not returned. A zero total IS an answer and shows.
+   */
+  const totalLabel =
+    rangeValid && !runError && result !== null
+      ? formatValue(result.total, result.measure.format)
+      : null
+
   const savedControls = (
     <SavedReports
       currentConfig={currentConfig}
@@ -512,10 +531,23 @@ export default function ReportsPage() {
   }
 
   return (
-    // The whole page is exactly as tall as the shell's content box and never
-    // overflows it, so the ONLY thing that scrolls is the result. That is what
-    // keeps every control reachable without scrolling back up.
-    <div className="flex h-full min-h-0 flex-col">
+    // F34 — ONE REGION, ONE SCROLL, AND THE REGION IS THE PAGE.
+    //
+    // This page used to be a fixed frame (`h-full min-h-0`) holding two
+    // independently-sized boxes: a controls panel capped at 45vh with its own
+    // scrollbar, and a result box that was the only thing allowed to scroll.
+    // Every row of chrome added since — the four headline tiles, Ready-made,
+    // Saved — came out of the same fixed vertical budget, so each addition
+    // squeezed the result towards its `basis-40` floor. It broke twice in two
+    // days for that one reason. The frame is gone: everything below is in
+    // normal flow and the shell's own content scroller is the only scroller.
+    //
+    // §34.1 (the total must stay visible while the result is read) survives
+    // WITHOUT the frame, because it never actually required a nested
+    // scroller — only a sticky box. The total now rides the section's sticky
+    // header instead of the table's `tfoot`; a sticky footer needs a box that
+    // clips it, a sticky header does not. See the header below.
+    <div className="flex flex-col">
       <PageHeader
         action={
           // Save/open sit on the header bar beside the view toggle — the one
@@ -553,80 +585,78 @@ export default function ReportsPage() {
         rangeLabel={describeRange(spec.range)}
       />
 
-      {/* ── PINNED CONTROLS ──────────────────────────────────────────────
-          Collapsible, because on a phone a full control panel and a result
-          cannot both be on screen, and the result is what the person came
-          for. Animated rather than snapped: 200ms on the grid rows, which is
-          the one property that can animate a height that is not known. */}
-      {/* NOT `shrink-0`. This is the one box on the page that gives up height,
-          and it is what keeps F33 fixed without re-breaking §34.1. See the
-          note on the scroller inside it. */}
-      <section className="mt-4 flex min-h-0 flex-col rounded-xl border border-border-light bg-surface">
-        <button
-          type="button"
-          aria-expanded={controlsOpen}
-          onClick={() => setControlsOpen(o => !o)}
-          className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-2 text-left"
-        >
-          <span className="min-w-0 truncate text-label text-text-secondary">
-            {measure?.label ?? '—'}
-            {' by '}
-            {spec.dimensions
-              .map(d => dimensionOptions[d] ?? d)
-              .join(' and ')}
-            {' · '}
-            {describeRange(spec.range)}
-          </span>
-          <ChevronDownIcon
-            aria-hidden="true"
-            className={cn(
-              'size-4 shrink-0 text-text-secondary transition-transform duration-200',
-              controlsOpen && 'rotate-180'
-            )}
-          />
-        </button>
+      {/* ── ONE SECTION: SETUP AND RESULT ────────────────────────────────
+          Aryan, F34: "why do we have two section like setup rather than
+          having one big section having both in it". One card. Its sticky
+          header names the report and carries the total; the setup folds out
+          of that header; the result sits under it in normal flow. */}
+      <section className="mt-4 flex flex-col rounded-xl border border-border-light bg-surface">
+        {/*
+          THE STICKY HEADER, AND WHERE §34.1's TOTAL NOW LIVES.
 
+          The total used to be a sticky `tfoot`, and a sticky footer only
+          sticks inside a box that clips it — which is the whole reason this
+          page carried a fixed frame, a 45vh cap and a nested scroller. A
+          sticky HEADER needs none of that: `top-0` here resolves against the
+          shell's content scroller (`h-full overflow-y-auto` in app-shell),
+          so this row stays on screen for the entire length of the table, at
+          every window height, with the page scrolling normally underneath.
+
+          The title and the total are on one row because they are one
+          sentence: what was asked, and what it came to.
+        */}
+        <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-t-xl border-b border-border-light bg-surface px-4 py-2">
+          <button
+            type="button"
+            aria-expanded={controlsOpen}
+            onClick={() => setControlsOpen(o => !o)}
+            // The chevron sits against the title rather than at the far end
+            // of the row: it opens the setup for THIS report, and stranding
+            // it beside the total made it read as the total's control.
+            className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left sm:min-h-8"
+          >
+            <span className="min-w-0 truncate text-label text-text-secondary">
+              {measure?.label ?? '—'}
+              {' by '}
+              {spec.dimensions
+                .map(d => dimensionOptions[d] ?? d)
+                .join(' and ')}
+              {' · '}
+              {describeRange(spec.range)}
+            </span>
+            <ChevronDownIcon
+              aria-hidden="true"
+              className={cn(
+                'size-4 shrink-0 text-text-secondary transition-transform duration-200',
+                controlsOpen && 'rotate-180'
+              )}
+            />
+          </button>
+
+          {/* Said once. The table's own `tfoot` total is no longer sticky —
+              two totals on screen at once would be the same number twice. */}
+          {totalLabel !== null && (
+            <p className="flex shrink-0 items-baseline gap-2 text-label text-text-secondary">
+              Total
+              <span className="text-body font-medium tabular-nums text-text-primary">
+                {totalLabel}
+              </span>
+            </p>
+          )}
+        </div>
+
+        {/* Collapsible setup. Animated rather than snapped: 200ms on the grid
+            rows, which is the one property that can animate a height that is
+            not known. No height cap and no scroller of its own — with the
+            page scrolling normally there is nothing to protect it from. */}
         <div
           className={cn(
-            'grid min-h-0 transition-[grid-template-rows] duration-200 ease-out',
-            // `flex-1` only while open: it hands the row whatever height the
-            // section was given, so `1fr` resolves against a real number and
-            // the panel below can fill it. Closed, the row must be free to
-            // collapse to 0fr, so the section is only as tall as its button.
-            controlsOpen ? 'min-h-0 flex-1 grid-rows-[1fr]' : 'grid-rows-[0fr]'
+            'grid transition-[grid-template-rows] duration-200 ease-out',
+            controlsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
           )}
         >
-          <div className="min-h-0 overflow-hidden">
-            {/*
-              THE CONTROLS SCROLL INSIDE THEMSELVES, and this cap is what makes
-              the §34.1 pinned total actually pinned.
-
-              Measured at 420×900 with the panel open: the panel is tall enough
-              (three stacked selects, nine date chips, ten preset chips) that
-              the page exceeded the shell's content box, the SHELL began to
-              scroll, and the total row landed at y=1061 in an 802px window —
-              off screen, which is the exact failure §34.1 describes. A sticky
-              footer is only sticky within a box that clips it, so a page that
-              overflows its own frame has no sticky footer at all.
-
-              Capping the panel and letting it scroll keeps the page exactly as
-              tall as the frame, so the result box owns the only vertical
-              scroll and the total stays on screen. On a desktop the panel
-              never reaches this height and nothing changes.
-
-              F33: 45vh alone stopped being enough. The four headline tiles and
-              the Ready-made / Saved row were added above this panel, and at
-              390x844 the pinned stack then came to 842 in a 744 frame — the
-              shell scrolled 98px, the total landed at y=941 in an 844 window,
-              and the panel's own header and first fields were cut off. So the
-              cap is now the SMALLER of two things: 45vh, and whatever height
-              the section is actually left with. The section is a shrinking
-              flex item (no `shrink-0`), the result below it reserves a floor
-              through `basis-40 sm:basis-56`, and this scroller takes `h-full`
-              of the row it is given. 45vh stays as the upper bound so a tall
-              desktop does not hand the panel half the screen for no reason.
-            */}
-            <div className="flex h-full max-h-[45vh] flex-col gap-4 overflow-y-auto border-t border-border-light p-4">
+          <div className="overflow-hidden">
+            <div className="flex flex-col gap-4 border-b border-border-light p-4">
               {/* Measure and the one or two dimensions, side by side on a
                   desktop and stacked on a phone. */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -716,14 +746,17 @@ export default function ReportsPage() {
             </div>
           </div>
         </div>
-      </section>
 
       {/* ── RESULT ───────────────────────────────────────────────────────
-          The only scrolling region on the page. `overflow-hidden` here is what
-          clips the table's own scroller to this box. */}
-      <div className="mt-4 flex min-h-0 shrink-0 grow basis-40 flex-col overflow-hidden rounded-xl border border-border-light bg-surface sm:basis-56">
+          In normal flow, inside the same card. It is as tall as its rows and
+          the page scrolls — it can no longer be squeezed, because nothing is
+          competing with it for a fixed budget. `EMPTY_MIN` is a floor for the
+          states that have no rows to give them one, so a message is never a
+          strip. The table keeps its own HORIZONTAL scroller: §34.3's frozen
+          first column is a legitimately nested scroller and stays. */}
+      <div className="flex flex-col rounded-b-xl">
         {!rangeValid ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className={`flex ${EMPTY_MIN} items-center justify-center`}>
             <EmptyState
               variant="failed"
               heading="That date range runs backwards"
@@ -735,7 +768,7 @@ export default function ReportsPage() {
             </EmptyState>
           </div>
         ) : runError ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className={`flex ${EMPTY_MIN} items-center justify-center`}>
             <EmptyState
               variant="failed"
               heading="The report could not be run"
@@ -745,14 +778,14 @@ export default function ReportsPage() {
             </EmptyState>
           </div>
         ) : running && !result ? (
-          <div className="flex-1 space-y-3 p-4">
+          <div className={`${EMPTY_MIN} space-y-3 p-4`}>
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-5/6" />
             <Skeleton className="h-8 w-4/6" />
           </div>
         ) : result && result.rows.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className={`flex ${EMPTY_MIN} items-center justify-center`}>
             <EmptyState
               variant="nothing-found"
               heading="No records in this range"
@@ -767,7 +800,7 @@ export default function ReportsPage() {
         ) : result ? (
           <div
             className={cn(
-              'flex min-h-0 flex-1 flex-col transition-opacity duration-200',
+              'flex flex-col transition-opacity duration-200',
               // A re-run dims the previous answer rather than replacing it
               // with a spinner. The numbers stay readable and the rows are
               // never destroyed and recreated.
@@ -797,7 +830,8 @@ export default function ReportsPage() {
             )}
           </div>
         ) : null}
-      </div>
+        </div>
+      </section>
     </div>
   )
 }
