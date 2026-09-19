@@ -350,6 +350,43 @@ Related to **F13**: plan rows gain a party, which is what makes "Not Met" and pl
 real. Note `weekly_plan_items` has `party_id`, `party_type` and `expected_order_value` already,
 **but no agenda column** — F13's optional agenda needs one, or a decision to reuse `notes`.
 
+## Round 4 — 19 Sep
+
+### F25 · The alerts become an icon with a popup, not page furniture · OPEN · **supersedes half of F20**
+
+> "Now in leads i need a icon which when clicked in leads opens pop-up like thing saying this 7
+> leads are incomplete / 15 leads have no deal / I don't it to be sticking on main page which
+> should hold actual table top of it."
+
+F20 halved the banners' height. That was not the real complaint. He does not want them **in the
+page flow at all** — the table should own the top of the screen, and the alerts should live behind
+an icon that opens a popup.
+
+Keep everything the alerts currently earn: the counts, **what** is missing (§7.7 requires the
+specific fields, not a bare number), the scope-correct figures, and clicking through to filter the
+list. Only the placement changes — from a strip above the table to a control the user opens.
+
+⚠️ The icon must carry the fact that something needs attention without being opened, or it is a
+feature nobody finds. A count on the icon is the obvious answer; zero alerts should show no
+indicator at all rather than a confident "0".
+
+Applies to the Leads page first. Orders and Deals carry the same banners, so decide whether they
+follow now or later — **note F19 was never fixed on Orders** (the agent was barred from that file
+to avoid a collision), so Orders still renders the banner above its heading. If the alerts move
+behind an icon there too, that fixes itself.
+
+### F26 · The search field is narrower than the rest of the form · OPEN · **routed to FX-daily**
+
+> "while log a meet search by name has shorter width as compared to form and where other elements
+> on the right end. it should be at same space from right as other element"
+
+In the log-a-meeting form the search-by-name input stops short of the right edge that every other
+element aligns to. It should share the same right margin.
+
+Sent to FX-daily rather than queued, because that agent is rebuilding this exact form for F5 and a
+second agent in the file would collide.
+
+
 ---
 
 ## Triaged
