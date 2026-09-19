@@ -18,6 +18,14 @@
  *
  * The write is `POST /api/contacts` with `company_ids: [companyId]` — the same
  * endpoint the Contacts tab uses. There is no second create path.
+ *
+ * F22: the Contacts tab itself has no company to lock to — there is no "one
+ * company's page" this dialog was opened from. `companyId`/`companyName`
+ * become optional for that caller, which instead passes `companies` (every
+ * company the picker offers) and gets a `SearchableSelect` in the same slot
+ * the locked `Input` occupies everywhere else. Which company owns a contact
+ * still has to be a real choice made before saving — `validate()` requires
+ * one when there is no fixed `companyId`.
  */
 
 import { useEffect, useState } from 'react'
@@ -60,6 +68,7 @@ export function ContactDialog({
   onOpenChange,
   companyId,
   companyName,
+  companies,
   contactTypes,
   users,
   markPrimary,
@@ -67,9 +76,13 @@ export function ContactDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  companyId: string
+  /** Omit together with `companyName` and pass `companies` instead to let
+   *  the user pick — see the F22 note above. */
+  companyId?: string
   /** Shown in the locked field. This is the whole point of the dialog. */
-  companyName: string
+  companyName?: string
+  /** Picker options when `companyId` is not fixed. Ignored otherwise. */
+  companies?: NamedRef[]
   contactTypes: NamedRef[]
   users: UserRef[]
   /**
@@ -90,18 +103,19 @@ export function ContactDialog({
    * So the caller decides, and passes true only for a company's FIRST contact —
    * which is true under both readings at once.
    */
-  markPrimary: boolean
+  markPrimary?: boolean
   onCreated: (contact: CreatedContact) => void
 }) {
   const [form, setForm] = useState(BLANK)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [pickedCompanyId, setPickedCompanyId] = useState('')
 
   // A dialog that reopens holding the last contact's details would silently
   // create a duplicate on a double save. Reset on every open, not on close —
   // closing mid-animation would otherwise blank the fields in view.
   useEffect(() => {
-    if (open) { setForm(BLANK); setErrors({}); setSaving(false) }
+    if (open) { setForm(BLANK); setErrors({}); setSaving(false); setPickedCompanyId('') }
   }, [open])
 
   /* Setting a field clears its error — a message that outlived the problem
@@ -127,6 +141,7 @@ export function ContactDialog({
     const next: Record<string, string> = {}
     if (!form.name.trim()) next.name = 'Enter the contact person’s name.'
     if (!form.mobile.trim()) next.mobile = 'Enter a mobile number.'
+    if (!companyId && !pickedCompanyId) next.company = 'Select a company.'
 
     const mobile = checkMobile(form.mobile, 'Mobile Number')
     if (form.mobile.trim() && mobile) next.mobile = mobile
@@ -146,6 +161,8 @@ export function ContactDialog({
     if (!validate()) return
     setSaving(true)
 
+    const targetCompanyId = companyId ?? pickedCompanyId
+
     const res = await fetch('/api/contacts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -160,8 +177,8 @@ export function ContactDialog({
         owner_user_id: form.owner_user_id || null,
         notes: form.notes.trim() || null,
         // §3.4 is plural on the wire even when it is one company here.
-        company_ids: [companyId],
-        ...(markPrimary ? { primary_company_id: companyId } : {}),
+        company_ids: [targetCompanyId],
+        ...(markPrimary ? { primary_company_id: targetCompanyId } : {}),
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -184,31 +201,53 @@ export function ContactDialog({
         <DialogHeader>
           <DialogTitle>Add contact person</DialogTitle>
           <DialogDescription>
-            This person is linked to {companyName}. Name and mobile number are
-            required; everything else can be filled in later.
+            {companyId
+              ? <>This person is linked to {companyName}. Name and mobile number are
+                required; everything else can be filled in later.</>
+              : 'Name, mobile number and company are required; everything else can be filled in later.'}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-12 gap-4">
-          {/*
-            Locked, not hidden. The user has to be able to SEE which company
-            they are adding a person to — a hidden field would make the dialog
-            identical whichever company it was opened from.
-          */}
-          <div className="col-span-12">
-            <Label htmlFor="cd-company">Company</Label>
-            <Input
-              id="cd-company"
-              className="mt-1.5"
-              value={companyName}
-              readOnly
-              disabled
-              aria-describedby="cd-company-hint"
-            />
-            <p id="cd-company-hint" className="mt-1.5 text-label text-text-muted">
-              Fixed — this contact is being added to this company.
-            </p>
-          </div>
+          {companyId ? (
+            /*
+              Locked, not hidden. The user has to be able to SEE which company
+              they are adding a person to — a hidden field would make the
+              dialog identical whichever company it was opened from.
+            */
+            <div className="col-span-12">
+              <Label htmlFor="cd-company">Company</Label>
+              <Input
+                id="cd-company"
+                className="mt-1.5"
+                value={companyName}
+                readOnly
+                disabled
+                aria-describedby="cd-company-hint"
+              />
+              <p id="cd-company-hint" className="mt-1.5 text-label text-text-muted">
+                Fixed — this contact is being added to this company.
+              </p>
+            </div>
+          ) : (
+            /* No single company owns this dialog from the Contacts tab —
+               the user chooses which one this contact belongs to. */
+            <div className="col-span-12">
+              <Label htmlFor="cd-company-picker" required>Company</Label>
+              <SearchableSelect
+                id="cd-company-picker"
+                className="mt-1.5"
+                options={Object.fromEntries((companies ?? []).map(c => [c.id, c.name]))}
+                value={pickedCompanyId}
+                onValueChange={value => {
+                  setPickedCompanyId(value)
+                  setErrors(e => { const { company: _c, ...rest } = e; return rest })
+                }}
+                placeholder="Select the company this contact belongs to…"
+              />
+              <InlineFieldError>{errors.company}</InlineFieldError>
+            </div>
+          )}
 
           <div className="col-span-12 sm:col-span-6">
             <Label htmlFor="cd-name" required>Contact person name</Label>

@@ -751,25 +751,35 @@ function DealsScreen() {
      * of the strip.
      */
     <div className="flex h-full min-h-0 flex-col">
-      <PipelineStrip totals={totals} />
-
-      {onlyNoFollowUp ? (
-        <QuickFilterChip
-          label="Showing Deals without a follow-up only"
-          onClear={() => { setOnlyNoFollowUp(false); setRefreshKey(k => k + 1) }}
-        />
-      ) : (
-        <DataHealthAlert
-          count={totals?.noFollowUp ?? 0}
-          title={`${totals?.noFollowUp ?? 0} ${(totals?.noFollowUp ?? 0) === 1 ? 'deal has' : 'deals have'} no open follow-up`}
-          description="Nothing is scheduled to move these forward."
-          actionLabel="View"
-          onAction={() => { setOnlyNoFollowUp(true); setRefreshKey(k => k + 1) }}
-        />
-      )}
-
       <ListPage<DealRow>
         className="h-auto min-h-0 flex-1"
+        /*
+         * F19: the heading was sitting below `PipelineStrip` and the
+         * data-health banner, which used to render in a `div` above this
+         * whole `ListPage` — above its own `<h1>`. Composed into the
+         * `sectionTabs` slot instead, both now render directly UNDER the
+         * title (zone 1a, section 33), never above it. Deals has no tabs
+         * of its own, so the slot was free.
+         */
+        sectionTabs={
+          <>
+            <PipelineStrip totals={totals} />
+            {onlyNoFollowUp ? (
+              <QuickFilterChip
+                label="Showing Deals without a follow-up only"
+                onClear={() => { setOnlyNoFollowUp(false); setRefreshKey(k => k + 1) }}
+              />
+            ) : (
+              <DataHealthAlert
+                count={totals?.noFollowUp ?? 0}
+                title={`${totals?.noFollowUp ?? 0} ${(totals?.noFollowUp ?? 0) === 1 ? 'deal has' : 'deals have'} no open follow-up`}
+                description="Nothing is scheduled to move these forward."
+                actionLabel="View"
+                onAction={() => { setOnlyNoFollowUp(true); setRefreshKey(k => k + 1) }}
+              />
+            )}
+          </>
+        }
         toolbarExtra={
           boardOffered ? (
             <ViewSwitcher view={view} onChange={setView} />

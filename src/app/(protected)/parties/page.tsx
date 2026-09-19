@@ -49,6 +49,8 @@ import { PencilIcon, PlusIcon, Trash2Icon, UploadIcon, ZapIcon } from 'lucide-re
 
 import Modal from '@/components/ui/Modal'
 import { QuickCreateDialog } from './quick-create-dialog'
+import { ContactDialog, type CreatedContact } from './contact-dialog'
+import { usePartyMasters } from './party-masters'
 import { useMe, type Me } from '@/hooks/useMe'
 import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/BusinessPartnerForm'
 import { useToast } from '@/contexts/ToastContext'
@@ -788,6 +790,53 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     },
   ]
 
+  /*
+   * F19 + F20: the banners used to sit in a `div` ABOVE this whole `ListPage`
+   * — above its own `<h1>` title, which is exactly the "heading below
+   * something" complaint. `list-page.tsx` renders zone 1a (`sectionTabs`)
+   * directly under zone 1's title and above the toolbar, so composing the
+   * tab bar and the banners into ONE node for that slot puts them where
+   * section 33 already allows something to sit — below the heading, above
+   * the toolbar — without adding a prop to the template.
+   *
+   * F20: each banner is now the compact one-line `DataHealthAlert` — see
+   * that file for how the fuller explanation moved from a wrapped second
+   * line into an on-demand tooltip. The count and the immediate cause stay
+   * in the line itself; only the sentence-length elaboration moved.
+   */
+  const banners = (
+    <>
+      {onlyIncomplete ? (
+        <QuickFilterChip
+          label="Showing incomplete parties only"
+          onClear={() => { setOnlyIncomplete(false); setRefreshKey(k => k + 1) }}
+        />
+      ) : (
+        <DataHealthAlert
+          count={incompleteCount}
+          title={`${incompleteCount} ${incompleteCount === 1 ? 'lead is' : 'leads are'} incomplete`}
+          description="Missing a primary address, city, state, pincode or GST number — an order against one stays in Draft."
+          actionLabel="View incomplete leads"
+          onAction={() => { setOnlyIncomplete(true); setRefreshKey(k => k + 1) }}
+        />
+      )}
+      {onlyNoDeal ? (
+        <QuickFilterChip
+          label="Showing parties without a deal"
+          onClear={() => { setOnlyNoDeal(false); setRefreshKey(k => k + 1) }}
+        />
+      ) : (
+        <DataHealthAlert
+          count={noDealCount}
+          title={`${noDealCount} ${noDealCount === 1 ? 'lead has' : 'leads have'} no deal`}
+          description="Nothing in the pipeline is tied to these parties yet."
+          actionLabel="View"
+          onAction={() => { setOnlyNoDeal(true); setRefreshKey(k => k + 1) }}
+        />
+      )}
+    </>
+  )
+
   return (
     <>
       {/*
@@ -799,39 +848,11 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
        * on; `list-page.tsx` itself is untouched.
        */}
       <div className="flex h-full min-h-0 flex-col">
-        {onlyIncomplete ? (
-          <QuickFilterChip
-            label="Showing incomplete parties only"
-            onClear={() => { setOnlyIncomplete(false); setRefreshKey(k => k + 1) }}
-          />
-        ) : (
-          <DataHealthAlert
-            count={incompleteCount}
-            title={`${incompleteCount} ${incompleteCount === 1 ? 'party is' : 'parties are'} incomplete`}
-            description="Missing a primary address, city, state, pincode or GST number — an order against one stays in Draft."
-            actionLabel="View incomplete"
-            onAction={() => { setOnlyIncomplete(true); setRefreshKey(k => k + 1) }}
-          />
-        )}
-        {onlyNoDeal ? (
-          <QuickFilterChip
-            label="Showing parties without a deal"
-            onClear={() => { setOnlyNoDeal(false); setRefreshKey(k => k + 1) }}
-          />
-        ) : (
-          <DataHealthAlert
-            count={noDealCount}
-            title={`${noDealCount} ${noDealCount === 1 ? 'party has' : 'parties have'} no deal`}
-            description="Nothing in the pipeline is tied to these parties yet."
-            actionLabel="View"
-            onAction={() => { setOnlyNoDeal(true); setRefreshKey(k => k + 1) }}
-          />
-        )}
       <ListPage<CompanyRow>
         className="h-auto min-h-0 flex-1"
-        title="Parties"
+        title="Leads"
         noun={{ one: 'company', many: 'companies' }}
-        sectionTabs={sectionTabs}
+        sectionTabs={<>{sectionTabs}{banners}</>}
         /*
          * Section 6.1 rules 1 and 2: exactly ONE primary per screen, everything
          * else secondary. Add is the primary; Bulk Upload is the same act for
@@ -1104,10 +1125,27 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
   // G1 again: the contacts tab reads the `contacts` section, not `companies`
   // and certainly not `business`.
   const canDelete = isAdmin || (me?.permissions?.contacts?.delete ?? false)
+  // F22: gated on the real `contacts` permission, same rule the Companies
+  // tab applies to its own Add button — never a hardcoded role.
+  const canCreate = isAdmin || (me?.permissions?.contacts?.edit ?? false)
 
   const [contactTypes, setContactTypes] = useState<NamedRef[]>([])
   const [deleting, setDeleting] = useState<ContactRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [companyOptions, setCompanyOptions] = useState<NamedRef[]>([])
+  const partyMasters = usePartyMasters()
+
+  useEffect(() => {
+    let live = true
+    fetch('/api/companies')
+      .then(r => (r.ok ? r.json() : []))
+      .then((d: { id: string; name: string }[]) => {
+        if (live) setCompanyOptions(Array.isArray(d) ? d.map(c => ({ id: c.id, name: c.name })) : [])
+      })
+      .catch(() => { if (live) setCompanyOptions([]) })
+    return () => { live = false }
+  }, [])
 
   /* P5-T7 §7.7 — "Contacts Without Company", counted off a separate
      unfiltered fetch of this same scoped endpoint, for the same reason the
@@ -1205,34 +1243,47 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
     },
   ]
 
+  // F19/F20 — see the Companies tab's `banners` for why this is composed
+  // into the `sectionTabs` slot rather than rendered above the `ListPage`.
+  const banners = onlyUnlinked ? (
+    <QuickFilterChip
+      label="Showing contacts without a company"
+      onClear={() => { setOnlyUnlinked(false); setRefreshKey(k => k + 1) }}
+    />
+  ) : (
+    <DataHealthAlert
+      count={unlinkedCount}
+      title={`${unlinkedCount} ${unlinkedCount === 1 ? 'contact is' : 'contacts are'} not linked to any company`}
+      description="A contact belongs to no lead until it is linked from a company's own page."
+      actionLabel="View"
+      onAction={() => { setOnlyUnlinked(true); setRefreshKey(k => k + 1) }}
+    />
+  )
+
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
-        {onlyUnlinked ? (
-          <QuickFilterChip
-            label="Showing contacts without a company"
-            onClear={() => { setOnlyUnlinked(false); setRefreshKey(k => k + 1) }}
-          />
-        ) : (
-          <DataHealthAlert
-            count={unlinkedCount}
-            title={`${unlinkedCount} ${unlinkedCount === 1 ? 'contact is' : 'contacts are'} not linked to any company`}
-            description="A contact belongs to no party until it is linked from a company's own page."
-            actionLabel="View"
-            onAction={() => { setOnlyUnlinked(true); setRefreshKey(k => k + 1) }}
-          />
-        )}
       <ListPage<ContactRow>
         className="h-auto min-h-0 flex-1"
-        title="Parties"
+        title="Leads"
         noun={{ one: 'contact', many: 'contacts' }}
-        sectionTabs={sectionTabs}
+        sectionTabs={<>{sectionTabs}{banners}</>}
         /*
-         * No Add button on this tab, and that is not an omission: §3.3 step 2
-         * creates a contact from the company it belongs to, and the two-step
-         * form that does it is P1-T16. A primary action that opens nothing
-         * would be the worse answer.
+         * F22: "contact tab doesn't even have create contact button" — a
+         * missing function, not a styling gap. `ContactDialog` already
+         * existed (built for §3.4 step 2, opened from a company's own
+         * page) but nothing on THIS tab mounted it. It is reused here in
+         * its picker mode (see contact-dialog.tsx) rather than adding a
+         * second create path.
          */
+        action={
+          canCreate ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <PlusIcon />
+              Add contact
+            </Button>
+          ) : undefined
+        }
         columns={contactColumns({ canDelete, onDelete: setDeleting })}
         rowKey={row => row.id}
         filters={filters}
@@ -1242,10 +1293,25 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
         searchHint={CONTACT_SEARCH_HINT}
         emptyYet={{
           heading: 'No contacts yet',
-          body: 'The people at those companies live here. A contact is added from the company page it belongs to, and may be linked to more than one company.',
+          body: 'The people at those companies live here. Add one directly, or from the company page it belongs to — a contact may be linked to more than one company.',
+          actionLabel: canCreate ? 'Add contact' : undefined,
+          onAction: canCreate ? () => setCreateOpen(true) : undefined,
         }}
       />
       </div>
+
+      <ContactDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        companies={companyOptions}
+        contactTypes={partyMasters.contactTypes.length ? partyMasters.contactTypes : contactTypes}
+        users={partyMasters.users}
+        onCreated={contact => {
+          setCreateOpen(false)
+          setRefreshKey(k => k + 1)
+          toast(`${contact.name} created.`)
+        }}
+      />
 
       <AlertDialog
         open={deleting !== null}
