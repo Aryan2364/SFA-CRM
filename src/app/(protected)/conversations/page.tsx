@@ -35,6 +35,8 @@ type Conversation = {
   updated_at: string
   unread_count: number
   context_user_id: string | null
+  /** Whether the record the thread hangs on belongs to the caller. */
+  is_own: boolean
   /** Summary contexts only: whose summary, and which period. F32. */
   context_user_name: string | null
   context_period: string | null
@@ -109,7 +111,7 @@ const SEARCH_HINT =
  * it is worse than no link, and the thread itself is still one click away.
  */
 function sourceHref(conv: Conversation): string | null {
-  const isOwnContent = conv.context_user_id === null
+  const isOwnContent = conv.is_own
   if (conv.context_type === 'daily_summary') {
     if (!conv.context_user_id || !conv.context_period) return null
     return `/review/${conv.context_user_id}?tab=summary&date=${conv.context_period}`
@@ -117,13 +119,18 @@ function sourceHref(conv: Conversation): string | null {
   if (conv.context_type === 'weekly_summary') {
     return '/review/weekly'
   }
-  if (conv.context_type === 'meeting') {
-    if (isOwnContent) return `/daily-activity?remarks=${conv.context_id}`
-    return `/review/${conv.context_user_id}?tab=activity&remarks=${conv.context_id}`
-  }
-  if (conv.context_type === 'expense') {
-    if (isOwnContent) return `/daily-activity?tab=expenses&remarks=${conv.context_id}`
-    return `/review/${conv.context_user_id}?tab=expenses&remarks=${conv.context_id}`
+  if (conv.context_type === 'meeting' || conv.context_type === 'expense') {
+    const tab = conv.context_type === 'expense' ? 'expenses' : 'activity'
+    /* My own record is on my own screen; somebody else's is on theirs. With no
+       owner there is no "theirs" to send anyone to, so no link — better than
+       one that reads `/review/null`. */
+    if (isOwnContent) {
+      return conv.context_type === 'expense'
+        ? `/daily-activity?tab=expenses&remarks=${conv.context_id}`
+        : `/daily-activity?remarks=${conv.context_id}`
+    }
+    if (!conv.context_user_id) return null
+    return `/review/${conv.context_user_id}?tab=${tab}&remarks=${conv.context_id}`
   }
   if (
     conv.context_type === 'weekly_plan_day' ||

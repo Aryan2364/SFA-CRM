@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { isSummaryContext } from '../remarks/_context'
 import { contextLabel } from './_labels'
 import { resolveSummaryAddresses, groupKey } from './_summary-address'
+import { resolveOwners, visibleGroupKeys } from './_scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -80,25 +81,35 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Look up owner user_id for each context (to build correct redirects)
-  const contextIds = Object.values(groups).map(g => ({ type: g.context_type, id: g.context_id }))
-  const meetingIds = contextIds.filter(c => c.type === 'meeting').map(c => c.id)
-  const expenseIds = contextIds.filter(c => c.type === 'expense').map(c => c.id)
+  /*
+   * ⚠️ AUTHORISATION. Until now this route ran `requireUser()`, filtered by
+   * `tenant_id` and stopped — so every signed-in user received every remark
+   * thread in the tenant, including a manager's feedback on somebody else's
+   * summary and notes on deals they cannot open. Authenticated, not
+   * authorised.
+   *
+   * A remark inherits the reach of the record it is attached to, so the owner
+   * of that record is resolved FIRST — for every context type, not just the
+   * two whose owner happened to be needed for a redirect — and the threads the
+   * caller may not reach are then dropped from the list entirely. See
+   * `_scope.ts`, and `../remarks/_access.ts`, which is where this rule is
+   * written down.
+   *
+   * ⚠️ `resolveSummaryAddresses` runs BEFORE the filter because a summary's
+   * owner IS its address: the derived id names nobody, so there is nothing to
+   * authorise against until it has been recovered.
+   */
+  const summaryAddresses = await resolveSummaryAddresses(
+    tenantId,
+    Object.values(groups).filter(g => isSummaryContext(g.context_type))
+  )
 
-  const ownerMap: Record<string, string> = {}
-  if (meetingIds.length > 0) {
-    const visits = await prisma.daily_visits.findMany({
-      where: { tenant_id: tenantId, id: { in: meetingIds } },
-      select: { id: true, user_id: true },
-    })
-    for (const v of visits) ownerMap[v.id] = v.user_id
-  }
-  if (expenseIds.length > 0) {
-    const exps = await prisma.expenses.findMany({
-      where: { tenant_id: tenantId, id: { in: expenseIds } },
-      select: { id: true, user_id: true },
-    })
-    for (const e of exps) ownerMap[e.id] = e.user_id
+  const allGroups = Object.values(groups)
+  const owners = await resolveOwners(tenantId, allGroups, summaryAddresses)
+  const visible = await visibleGroupKeys(user, allGroups, owners)
+  for (const g of allGroups) {
+    const key = groupKey(g.context_type, g.context_id)
+    if (!visible.has(key)) delete groups[key]
   }
 
   // Get unread counts per context for current user
@@ -126,16 +137,11 @@ export async function GET(req: NextRequest) {
   /*
    * F32. A summary conversation's `context_id` is derived from (kind, owner,
    * period) and cannot be reversed, and `/api/remarks` refuses a raw id for
-   * those types — correctly, see `../remarks/_access.ts`. So the row has to
-   * carry the owner and the period instead, or the thread it points at can
-   * never be opened and the Source link can never land anywhere. Everything
-   * else on the row is unchanged.
+   * those types — correctly, see `../remarks/_access.ts`. So the row carries
+   * the owner and the period instead, or the thread it points at can never be
+   * opened and the Source link can never land anywhere. Those were recovered
+   * above, because the filter needs them too.
    */
-  const summaryAddresses = await resolveSummaryAddresses(
-    tenantId,
-    Object.values(groups).filter(g => isSummaryContext(g.context_type))
-  )
-
   let conversations = Object.values(groups).map(g => {
     const key = groupKey(g.context_type, g.context_id)
     const address = summaryAddresses.get(key) ?? null
@@ -145,7 +151,13 @@ export async function GET(req: NextRequest) {
       // so no screen has to know what a context key looks like.
       context_label: contextLabel(g.context_type),
       unread_count: unreadByContext[key] ?? 0,
-      context_user_id: address?.userId ?? ownerMap[g.context_id] ?? null,
+      context_user_id: address?.userId ?? owners.get(key) ?? null,
+      /* Whether the record this thread hangs on is the CALLER's own, decided
+         here because the route already knows who is asking. The client used to
+         fetch `/api/auth/me` and compare ids to work this out, and a screen
+         that gets it wrong sends a rep to a review page built for their
+         manager. */
+      is_own: (owners.get(key) ?? null) === (user.userId ?? null),
       /* Both null for every non-summary context — those are addressed by id,
          and a client that sees a period knows it must address by person. */
       context_user_name: address?.userName ?? null,

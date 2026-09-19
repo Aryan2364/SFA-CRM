@@ -265,7 +265,7 @@ instruction in the phase plan, and update the stale comment in `masters-registry
 here because deleting a file is not this session's call to make unasked, and nothing is broken by
 its presence.
 
-## R-18 — `/api/conversations` applies no permission or scope check
+## R-18 — `/api/conversations` applies no permission or scope check · **RESOLVED 19 Sep**
 
 Found 19 Sep by the agent seeding demo conversations, while trying to confirm that scope applied.
 It could not confirm it, because it does not.
@@ -313,3 +313,24 @@ none of them honour it on a phone.
 
 Not fixed when found because the agent that measured it was scoped to the reports page, and a
 shell change touches every screen in the app — that is a deliberate dispatch, not a drive-by.
+
+### R-18 resolution
+
+Fixed the day it was found. Every context now resolves its parent record's owner in bulk, borrows
+that parent's permission section, takes `checkPermission(section, 'view')`, and is filtered by
+`scopedUserIds` over the owner. One permission read per section rather than per row. No `canView`,
+per R-15.
+
+Threads the caller may not reach are **absent**, not shown-and-locked, so the list does not
+disclose that a record exists.
+
+Verified 13 / 13 / 6 across administrator, manager and executive. The manager's 13 matching the
+administrator's is not a pass-through: a remark was temporarily added on a record outside her team
+and the counts moved to 14 / 13 / 6, then the row was removed. Proving a filter that is currently
+a no-op on the seeded data required manufacturing the case, which is the right instinct.
+
+Not over-tightened either — the executive's own weekly summary still opens with both remarks in it.
+
+⚠️ One duplication introduced knowingly: the context-to-section map is mirrored from
+`remarks/_access.ts`, where it is module-private. The drift risk is documented at both ends. If a
+context type is ever added, both copies must move.
