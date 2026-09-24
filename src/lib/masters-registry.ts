@@ -177,7 +177,7 @@ export const MASTERS = [
   {
     key: 'lead_types', label: 'Lead Types',
     href: '/masters/lead-types', api: '/api/masters/lead-types',
-    model: 'lead_types', group: 'lead_config', icon: 'bookmark',
+    model: 'company_types', group: 'lead_config', icon: 'bookmark',
     seeded: [
       { name: 'Dealer',       sort_order: 1 },
       { name: 'Distributor',  sort_order: 2 },
@@ -188,7 +188,7 @@ export const MASTERS = [
   {
     key: 'lead_stages', label: 'Lead Stages',
     href: '/masters/lead-stages', api: '/api/masters/lead-stages',
-    model: 'lead_stages', group: 'lead_config', icon: 'git-branch',
+    model: 'deal_stages', group: 'lead_config', icon: 'git-branch',
     /**
      * `Prospect` and `Existing` are is_fixed and are matched BY NAME in six
      * route files; `Existing` also sorts last by design (999, not 8). Changing
