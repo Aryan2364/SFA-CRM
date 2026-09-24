@@ -67,3 +67,10 @@ __pycache__/
 devserver.log
 *.log
 /.t9/
+
+# Kept OUT of git deliberately. This started as a blank template, but real
+# production values get typed into it by hand, and a tracked file that people
+# fill in is a credential leak waiting to happen -- once pushed, rotating the
+# secret is the only remedy. The real file lives only on the server as
+# ~/SFACRM/.env.production; DEPLOYMENT.md documents the keys it needs.
+.env.production.example
