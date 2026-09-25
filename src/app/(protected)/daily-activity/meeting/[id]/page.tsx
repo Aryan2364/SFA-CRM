@@ -275,7 +275,12 @@ export default function MeetingPage() {
           <DealsSection
             visitId={visit.id}
             companyId={company?.id ?? null}
-            companyName={visit.entity_name}
+            /* The COMPANY's own name, not the visit's display name: since
+               the meeting form learned to name the person met,
+               `entity_name` can read "Ramesh Kumar · ACME Traders" and
+               this prop labels a company. `entity_name` stays the
+               fallback for a meeting with no linked party. */
+            companyName={company?.name ?? visit.entity_name}
             deals={ctx.deals}
             openDealCount={ctx.open_deal_count}
             discussedIds={ctx.discussed_deal_ids}
@@ -293,7 +298,8 @@ export default function MeetingPage() {
             visitId={visit.id}
             visitDate={day}
             companyId={company?.id ?? null}
-            companyName={visit.entity_name}
+            /* The company's own name — see DealsSection above. */
+            companyName={company?.name ?? visit.entity_name}
             recentOrders={ctx.recent_orders}
             orderCount={ctx.order_count}
             draftOrders={ctx.draft_orders}

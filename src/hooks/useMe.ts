@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from 'react'
 
-export type SectionPerm = { view: boolean; edit: boolean; delete: boolean }
+/** `create` is optional so a client reading a response from before it was
+ *  added still type-checks; screens fall back to `edit`, which is what every
+ *  screen read before this field existed. */
+export type SectionPerm = { view: boolean; create?: boolean; edit: boolean; delete: boolean }
 export type MePermissions = Record<string, SectionPerm>
 
 export type Me = {

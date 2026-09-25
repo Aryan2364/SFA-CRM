@@ -19,7 +19,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       className={cn(
         "h-control w-full max-w-field-max min-w-0 rounded-lg border border-border bg-surface px-3 text-body text-text-primary transition-colors",
         "placeholder:text-text-muted",
-        "outline-none focus-visible:border-primary-ring focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary-ring",
+        "outline-none focus-visible:border-primary-ring focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-0 focus-visible:outline-primary-ring",
         /*
          * Section 6.4: hover changes the background, pressed changes it
          * further. This control had NEITHER — only resting, disabled and

@@ -23,9 +23,22 @@
  * company's page" this dialog was opened from. `companyId`/`companyName`
  * become optional for that caller, which instead passes `companies` (every
  * company the picker offers) and gets a `SearchableSelect` in the same slot
- * the locked `Input` occupies everywhere else. Which company owns a contact
- * still has to be a real choice made before saving — `validate()` requires
- * one when there is no fixed `companyId`.
+ * the locked `Input` occupies everywhere else.
+ *
+ * ⚠️ That company picker is OPTIONAL. It used to be compulsory — `validate()`
+ * refused to save without one — and that is wrong for the way contacts are
+ * actually collected: a card picked up at a trade show is a person before it
+ * is an account. Nothing in the data layer ever required it either. Company is
+ * a MANY-TO-MANY (`company_contacts`), not a column on `contacts`, so "no
+ * company" is simply no join rows; `readCompanyIds()` already accepts an empty
+ * list and `POST /api/contacts` already skips the nested create for it
+ * (`_handlers.ts`). The link can be added later from the company's own page.
+ *
+ * Phone numbers carry their dialling code INLINE — `+919876543210` in the same
+ * single column, because there is no country-code column and adding one is a
+ * schema change. `splitPhone`/`joinPhone` in `src/lib/country-codes.ts` own
+ * that format, `checkPhone` in `src/lib/validation.ts` is the matching check,
+ * and both accept the bare ten digits every pre-existing row holds.
  */
 
 import { useEffect, useState } from 'react'
@@ -40,12 +53,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Checkbox } from '@/components/ui/checkbox'
 import { InlineFieldError } from '@/components/ui/inline-field-error'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PhoneField } from '@/components/ui/phone-field'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Textarea } from '@/components/ui/textarea'
-import { checkEmail, checkMobile } from '@/lib/validation'
+import { DEFAULT_COUNTRY_CODE, joinPhone } from '@/lib/country-codes'
+import { checkEmail, checkPhone } from '@/lib/validation'
 
 import type { NamedRef, UserRef } from './party-masters'
 
@@ -111,12 +127,49 @@ export function ContactDialog({
   const [saving, setSaving] = useState(false)
   const [pickedCompanyId, setPickedCompanyId] = useState('')
 
+  /* The dialling code of each phone field, held apart from the digits so a
+     half-typed number keeps its code. The two halves are joined into the one
+     value the column stores — see the header note. */
+  const [mobileCode, setMobileCode] = useState(DEFAULT_COUNTRY_CODE)
+  const [altCode, setAltCode] = useState(DEFAULT_COUNTRY_CODE)
+  const [whatsappCode, setWhatsappCode] = useState(DEFAULT_COUNTRY_CODE)
+
+  /**
+   * "Same as primary number".
+   *
+   * While it is ticked the WhatsApp field is not state at all — it is DERIVED
+   * from the mobile field, which is what makes it track the primary number live
+   * as the user types, with no effect, no copying and nothing to fall out of
+   * step. The untouched `form.whatsapp` waits underneath for the tick to come
+   * off, so unticking restores whatever was typed rather than a blank.
+   *
+   * It starts ticked, and the rule that makes that right is the same rule that
+   * pre-ticks it for an existing contact: it is on when the two numbers already
+   * match, and on a blank form they match at "". Most people's WhatsApp IS
+   * their mobile, so the common case needs no interaction at all.
+   */
+  const [waSameAsPrimary, setWaSameAsPrimary] = useState(true)
+
   // A dialog that reopens holding the last contact's details would silently
   // create a duplicate on a double save. Reset on every open, not on close —
   // closing mid-animation would otherwise blank the fields in view.
   useEffect(() => {
-    if (open) { setForm(BLANK); setErrors({}); setSaving(false); setPickedCompanyId('') }
+    if (open) {
+      setForm(BLANK)
+      setErrors({})
+      setSaving(false)
+      setPickedCompanyId('')
+      setMobileCode(DEFAULT_COUNTRY_CODE)
+      setAltCode(DEFAULT_COUNTRY_CODE)
+      setWhatsappCode(DEFAULT_COUNTRY_CODE)
+      setWaSameAsPrimary(BLANK.whatsapp === BLANK.mobile)
+    }
   }, [open])
+
+  /* What the WhatsApp field shows and what gets saved. One expression, read by
+     the input, by validate() and by save(), so the three cannot disagree. */
+  const waCode = waSameAsPrimary ? mobileCode : whatsappCode
+  const waNumber = waSameAsPrimary ? form.mobile : form.whatsapp
 
   /* Setting a field clears its error — a message that outlived the problem
      tells the user the form still objects when it no longer does. Re-validated
@@ -141,13 +194,19 @@ export function ContactDialog({
     const next: Record<string, string> = {}
     if (!form.name.trim()) next.name = 'Enter the contact person’s name.'
     if (!form.mobile.trim()) next.mobile = 'Enter a mobile number.'
-    if (!companyId && !pickedCompanyId) next.company = 'Select a company.'
+    // Company is deliberately NOT checked — it is optional. See the header note.
 
-    const mobile = checkMobile(form.mobile, 'Mobile Number')
+    // Checked on the JOINED value, because that is the string the column ends
+    // up holding and the string the route re-checks.
+    const mobile = checkPhone(joinPhone(mobileCode, form.mobile), 'Mobile Number')
     if (form.mobile.trim() && mobile) next.mobile = mobile
-    const alt = checkMobile(form.alternate_mobile, 'Alternate Number')
+    const alt = checkPhone(joinPhone(altCode, form.alternate_mobile), 'Alternate Number')
     if (alt) next.alternate_mobile = alt
-    const wa = checkMobile(form.whatsapp, 'WhatsApp Number')
+    // Skipped while the tick is on: the value IS the mobile, and reporting one
+    // typo against two fields makes it look like two.
+    const wa = waSameAsPrimary
+      ? null
+      : checkPhone(joinPhone(whatsappCode, form.whatsapp), 'WhatsApp Number')
     if (wa) next.whatsapp = wa
     const email = checkEmail(form.email)
     if (email) next.email = email
@@ -168,17 +227,23 @@ export function ContactDialog({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name.trim(),
-        mobile: form.mobile.trim(),
-        alternate_mobile: form.alternate_mobile.trim() || null,
-        whatsapp: form.whatsapp.trim() || null,
+        // `mobile` is NOT NULL and validate() has already refused a blank, so
+        // joinPhone cannot return null here; the fallback only keeps the type
+        // honest.
+        mobile: joinPhone(mobileCode, form.mobile) ?? form.mobile.trim(),
+        alternate_mobile: joinPhone(altCode, form.alternate_mobile),
+        whatsapp: joinPhone(waCode, waNumber),
         email: form.email.trim() || null,
         designation: form.designation.trim() || null,
         contact_type_id: form.contact_type_id || null,
         owner_user_id: form.owner_user_id || null,
         notes: form.notes.trim() || null,
-        // §3.4 is plural on the wire even when it is one company here.
-        company_ids: [targetCompanyId],
-        ...(markPrimary ? { primary_company_id: targetCompanyId } : {}),
+        // §3.4 is plural on the wire even when it is one company here — and
+        // EMPTY when the user picked none, which the route already accepts.
+        company_ids: targetCompanyId ? [targetCompanyId] : [],
+        ...(markPrimary && targetCompanyId
+          ? { primary_company_id: targetCompanyId }
+          : {}),
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -204,7 +269,7 @@ export function ContactDialog({
             {companyId
               ? <>This person is linked to {companyName}. Name and mobile number are
                 required; everything else can be filled in later.</>
-              : 'Name, mobile number and company are required; everything else can be filled in later.'}
+              : 'Only the name and mobile number are required — a company, and everything else, can be added later.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -233,19 +298,18 @@ export function ContactDialog({
             /* No single company owns this dialog from the Contacts tab —
                the user chooses which one this contact belongs to. */
             <div className="col-span-12">
-              <Label htmlFor="cd-company-picker" required>Company</Label>
+              <Label htmlFor="cd-company-picker">Company</Label>
               <SearchableSelect
                 id="cd-company-picker"
                 className="mt-1.5"
                 options={Object.fromEntries((companies ?? []).map(c => [c.id, c.name]))}
                 value={pickedCompanyId}
-                onValueChange={value => {
-                  setPickedCompanyId(value)
-                  setErrors(e => { const { company: _c, ...rest } = e; return rest })
-                }}
-                placeholder="Select the company this contact belongs to…"
+                onValueChange={setPickedCompanyId}
+                placeholder="No company"
               />
-              <InlineFieldError>{errors.company}</InlineFieldError>
+              <p className="mt-1.5 text-label text-text-muted">
+                A contact can be linked to a company later, and to more than one.
+              </p>
             </div>
           )}
 
@@ -264,13 +328,14 @@ export function ContactDialog({
 
           <div className="col-span-12 sm:col-span-6">
             <Label htmlFor="cd-mobile" required>Mobile number</Label>
-            <Input
+            <PhoneField
               id="cd-mobile"
               className="mt-1.5"
-              inputMode="numeric"
-              value={form.mobile}
-              onChange={e => set('mobile')(e.target.value)}
-              aria-invalid={Boolean(errors.mobile)}
+              code={mobileCode}
+              onCodeChange={setMobileCode}
+              number={form.mobile}
+              onNumberChange={set('mobile')}
+              invalid={Boolean(errors.mobile)}
               placeholder="10 digits"
             />
             <InlineFieldError>{errors.mobile}</InlineFieldError>
@@ -278,28 +343,67 @@ export function ContactDialog({
 
           <div className="col-span-12 sm:col-span-6">
             <Label htmlFor="cd-alt">Alternate number</Label>
-            <Input
+            <PhoneField
               id="cd-alt"
               className="mt-1.5"
-              inputMode="numeric"
-              value={form.alternate_mobile}
-              onChange={e => set('alternate_mobile')(e.target.value)}
-              aria-invalid={Boolean(errors.alternate_mobile)}
+              code={altCode}
+              onCodeChange={setAltCode}
+              number={form.alternate_mobile}
+              onNumberChange={set('alternate_mobile')}
+              invalid={Boolean(errors.alternate_mobile)}
             />
             <InlineFieldError>{errors.alternate_mobile}</InlineFieldError>
           </div>
 
           <div className="col-span-12 sm:col-span-6">
             <Label htmlFor="cd-whatsapp">WhatsApp number</Label>
-            <Input
+            <PhoneField
               id="cd-whatsapp"
               className="mt-1.5"
-              inputMode="numeric"
-              value={form.whatsapp}
-              onChange={e => set('whatsapp')(e.target.value)}
-              aria-invalid={Boolean(errors.whatsapp)}
+              code={waCode}
+              onCodeChange={setWhatsappCode}
+              number={waNumber}
+              onNumberChange={set('whatsapp')}
+              disabled={waSameAsPrimary}
+              invalid={Boolean(errors.whatsapp)}
             />
             <InlineFieldError>{errors.whatsapp}</InlineFieldError>
+            {/*
+              The tick sits in this field's helper slot, under the input, where
+              every other field in this form puts its hint.
+
+              It was on the label row first, beside the label of the thing it
+              controls. Two rules moved it: section 9 rule 4 wants 44px of
+              touch target on a tablet, and a 44px label row makes this cell
+              taller than the Alternate number cell beside it in the same grid
+              row, so the two inputs stop lining up. Below the field it gets
+              its full height and costs no alignment. It still reads in order,
+              because while it is ticked the input above is filled with the
+              mirrored number rather than blank — greyed and populated, then
+              the sentence that says why.
+
+              Checkbox and Label are SIBLINGS, the pattern the kitchen sink
+              already sets: this control renders a button, and a <label>
+              wrapped round a button does not toggle it on click.
+            */}
+            <div className="mt-1.5 flex min-h-11 items-center gap-2">
+              <Checkbox
+                id="cd-whatsapp-same"
+                checked={waSameAsPrimary}
+                onCheckedChange={checked => {
+                  setWaSameAsPrimary(Boolean(checked))
+                  // Ticking it cannot leave a stale message behind: the field
+                  // that message was about is no longer the one on screen.
+                  setErrors(e => {
+                    const { whatsapp: _w, ...rest } = e
+                    return rest
+                  })
+                }}
+              />
+              <Label htmlFor="cd-whatsapp-same" className="cursor-pointer">
+                Same as primary number
+              </Label>
+            </div>
           </div>
 
           <div className="col-span-12 sm:col-span-6">

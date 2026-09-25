@@ -37,6 +37,17 @@ model daily_visits {
   visit_type          String
   entity_id           String?   @db.Uuid
   entity_name         String
+  /// The PERSON the meeting was with, when one was named. Mirrors
+  /// `deals.contact_id`. Additive: `entity_id` still means the COMPANY and
+  /// every consumer of it is unchanged. NULL for a meeting logged against a
+  /// company alone, and `entity_id` is NULL for a meeting with a contact who
+  /// belongs to no company.
+  /// NOT YET PUSHED to any database — see src/lib/visit-contact.ts, which
+  /// reads and writes this column through guarded raw SQL so every screen
+  /// keeps working until the column exists. No Prisma call may select it, and
+  /// every Prisma read of daily_visits needs an explicit `select` so the
+  /// generated client does not ask for it.
+  contact_id          String?   @db.Uuid
   is_new_entity       Boolean   @default(false)
   start_time          DateTime? @db.Timestamptz(6)
   end_time            DateTime? @db.Timestamptz(6)
@@ -55,7 +66,13 @@ model daily_visits {
   location_flagged    Boolean   @default(false)
   weekly_plan_item_id String?   @db.Uuid
   users               users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// Declared for symmetry with `deals.contacts` and to carry the FK. NOTHING
+  /// includes this relation while the column is unpushed — reads go through
+  /// src/lib/visit-contact.ts.
+  contacts            contacts? @relation(fields: [contact_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   orders              orders?
+
+  @@index([contact_id])
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -390,6 +407,7 @@ model users {
   notifications_notifications_recipient_idTousers       notifications[]           @relation("notifications_recipient_idTousers")
   orders                                                orders[]
   remark_reads                                          remark_reads[]
+  user_tenant_memberships                               user_tenant_memberships?
   user_territory_mappings                               user_territory_mappings[]
   user_visibility_user_visibility_target_user_idTousers user_visibility[]         @relation("user_visibility_target_user_idTousers")
   user_visibility_user_visibility_viewer_user_idTousers user_visibility[]         @relation("user_visibility_viewer_user_idTousers")
@@ -646,6 +664,7 @@ model contacts {
   company_contacts     company_contacts[]
   contact_types        contact_types?     @relation(fields: [contact_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users                users?             @relation(fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  daily_visits         daily_visits[]
   deals                deals[]
 
   @@index([tenant_id])
@@ -757,6 +776,12 @@ model deal_stages {
   is_fixed   Boolean  @default(false)
   is_active  Boolean  @default(true)
   created_at DateTime @default(now()) @db.Timestamptz(6)
+  /// Open | Closed. `Closed` means TERMINAL: the deal has ended and nothing
+  /// follows the stage (Won, Lost). NOT YET PUSHED to any database — see
+  /// src/lib/deal-stage-type.ts, which reads and writes this column through
+  /// guarded raw SQL so every screen keeps working until the column exists.
+  /// No Prisma call may select it until then.
+  stage_type String   @default("Open")
   deals      deals[]
 }
 
@@ -927,4 +952,48 @@ model weekly_goals {
 
   @@index([tenant_id])
   @@index([weekly_plan_id])
+}
+
+/// Multi-firm identity (docs/multi-firm-build-plan.md §2). One row per human,
+/// deliberately GLOBAL — this and `tenants` are the only tables here with no
+/// `tenant_id`. Nothing reads it until Phase 2.
+model people {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contact                 String
+  email                   String
+  name                    String
+  password                String                    @default("")
+  credentials_version     Int                       @default(1)
+  status                  String                    @default("Active")
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  user_tenant_memberships user_tenant_memberships[]
+
+  // NOT @unique yet, on purpose. The target state is a global unique on
+  // `contact`, but the Phase 1 backfill deliberately creates SEPARATE people
+  // rows for the same phone in different firms (it may not decide that two
+  // humans are one), so the index would reject the backfill it is meant to
+  // follow. Phase 4 merges the duplicates; Phase 5 adds the unique index.
+  @@index([contact], map: "people_contact")
+}
+
+/// Which firms a `people` row may act as, and as what. `user_id` points at the
+/// existing per-firm `users` row, which is unchanged and keeps owning all
+/// history. `tenant_id` is a plain column with no relation, as on every other
+/// tenant-scoped model in this schema.
+model user_tenant_memberships {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  person_id  String    @db.Uuid
+  tenant_id  String    @db.Uuid
+  user_id    String    @db.Uuid
+  profile    String    @default("Standard")
+  status     String    @default("Active")
+  joined_at  DateTime  @default(now()) @db.Timestamptz(6)
+  removed_at DateTime? @db.Timestamptz(6)
+  people     people    @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([person_id, tenant_id])
+  @@unique([user_id])
+  @@index([tenant_id], map: "utm_tenant")
 }

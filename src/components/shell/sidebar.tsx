@@ -124,7 +124,7 @@ function NavLink({ item, active, expanded, onNavigate }: NavLinkProps) {
       aria-current={active ? 'page' : undefined}
       className={cn(
         'group/nav relative flex h-control items-center gap-1 overflow-hidden rounded-lg text-body transition-colors',
-        'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring',
+        'outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring',
         expanded ? 'px-3' : 'justify-center px-0',
         active
           ? 'bg-primary-subtle font-medium text-text-primary hover:bg-primary-subtle-hover active:bg-primary-subtle-pressed'

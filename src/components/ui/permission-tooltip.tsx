@@ -64,7 +64,7 @@ export function PermissionTooltip({
             tabIndex={0}
             role="note"
             aria-label={reason}
-            className="inline-flex rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
+            className="inline-flex rounded-lg outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
           />
         }
       >

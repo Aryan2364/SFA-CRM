@@ -6,6 +6,7 @@ import { isLocationFlagged } from '@/lib/geo'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { getTenantSettings } from '@/lib/settings'
+import { readVisitContact, VISIT_SELECT } from '@/lib/visit-contact'
 
 /**
  * How many Deals and how many past Orders the meeting screen is given.
@@ -59,7 +60,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         tenant_id: tid,
         ...scopeWhere(await scopedUserIds(user, 'meetings')),
       },
-      include: { users: { select: { id: true, name: true } } },
+      // Explicit scalars, not the default whole row: see VISIT_SELECT for
+      // why an unselected read breaks once the client learns about contact_id.
+      select: { ...VISIT_SELECT, users: { select: { id: true, name: true } } },
     })
     if (!visit) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -197,8 +200,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         return { ...rest, item_count: _count?.order_items ?? 0 }
       })
 
+    /* The person met, when one was named. Null while the column is unpushed,
+       and the screen then falls back to `entity_name` as it always did. */
+    const contact = await readVisitContact(tid, visit.id)
+
     return NextResponse.json({
-      visit: serialize(visit, 'daily_visits'),
+      visit: { ...(serialize(visit, 'daily_visits') as Record<string, unknown>), contact },
       company: company ? serialize(company, 'companies') : null,
       discussed_deal_ids: discussed.map(d => d.deal_id),
       deals_visible: canViewDeals,
@@ -262,6 +269,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const data = await prisma.daily_visits.update({
         where: { id: params.id, tenant_id: tid, user_id: user.userId ?? undefined },
         data: { status: 'Active', start_time: new Date(), latitude: latitude ?? null, longitude: longitude ?? null, address: address ?? null },
+        select: VISIT_SELECT,
       })
       return NextResponse.json(serialize(data, 'daily_visits'))
     }
@@ -313,6 +321,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           end_latitude: end_latitude ?? null, end_longitude: end_longitude ?? null, end_address: end_address ?? null,
           location_flagged: locationFlagged,
         },
+        select: VISIT_SELECT,
       })
       return NextResponse.json(serialize(data, 'daily_visits'))
     }
@@ -327,6 +336,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const data = await prisma.daily_visits.update({
         where: { id: params.id, tenant_id: tid },
         data: { notes: body.notes ?? null },
+        select: VISIT_SELECT,
       })
       return NextResponse.json(serialize(data, 'daily_visits'))
     }

@@ -155,7 +155,7 @@ function PhoneValue({ number }: { number: string | null }) {
     <a
       className={cn(
         'inline-flex min-h-11 items-center text-primary hover:text-primary-hover',
-        'rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
+        'rounded-lg outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
       )}
       href={`tel:${number}`}
     >
@@ -418,7 +418,7 @@ function ContactDetail() {
                         <a
                           className={cn(
                             'inline-flex min-h-11 items-center text-primary hover:text-primary-hover',
-                            'rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
+                            'rounded-lg outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
                           )}
                           href={`mailto:${contact.email}`}
                         >
@@ -497,7 +497,7 @@ function CompaniesCard({ companies }: { companies: LinkedCompany[] }) {
                 href={`/parties/companies/${company.id}`}
                 className={cn(
                   'flex min-h-11 min-w-0 flex-col justify-center gap-1 rounded-lg py-1',
-                  'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
+                  'outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
                 )}
               >
                 <span className="flex flex-wrap items-center gap-2">

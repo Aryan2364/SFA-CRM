@@ -873,9 +873,9 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
        * flex-1"` on `ListPage` is the same override that pattern relies
        * on; `list-page.tsx` itself is untouched.
        */}
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-col md:h-full">
       <ListPage<CompanyRow>
-        className="h-auto min-h-0 flex-1"
+        className="md:h-auto md:min-h-0 md:flex-1"
         title="Leads"
         noun={{ one: 'company', many: 'companies' }}
         sectionTabs={<>{sectionTabs}{banners}</>}
@@ -1300,9 +1300,9 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-col md:h-full">
       <ListPage<ContactRow>
-        className="h-auto min-h-0 flex-1"
+        className="md:h-auto md:min-h-0 md:flex-1"
         title="Leads"
         noun={{ one: 'contact', many: 'contacts' }}
         sectionTabs={<>{sectionTabs}{banners}</>}

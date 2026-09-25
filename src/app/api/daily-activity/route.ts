@@ -5,6 +5,13 @@ import { requireUser } from '@/lib/auth'
 import { awardPoint } from '@/lib/points'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import {
+  attachVisitContacts,
+  readVisitContacts,
+  resolveVisitContact,
+  VISIT_SELECT,
+  writeVisitContact,
+} from '@/lib/visit-contact'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,17 +28,25 @@ export async function GET(req: NextRequest) {
     await scopedUserIds(user, 'meetings'),
     req.nextUrl.searchParams.get('userId')
   )
+  const tid = getTenantId()
   try {
     const data = await prisma.daily_visits.findMany({
       where: {
-        tenant_id: getTenantId(),
+        tenant_id: tid,
         ...scopeWhere(ids),
         // visit_date is @db.Date.
         visit_date: new Date(date),
       },
+      // Explicit, not the default whole row: see VISIT_SELECT for why an
+      // unselected read breaks the moment the client learns about contact_id.
+      select: VISIT_SELECT,
       orderBy: { created_at: 'asc' },
     })
-    return NextResponse.json(serialize(data, 'daily_visits'))
+    const rows = serialize(data, 'daily_visits') as (Record<string, unknown> & { id: string })[]
+    // One extra query for the whole day's meetings, not one per row. Null when
+    // the column is unpushed, and every card then falls back to entity_name.
+    const contacts = await readVisitContacts(tid, rows.map(r => r.id))
+    return NextResponse.json(attachVisitContacts(rows, contacts))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -41,7 +56,7 @@ export async function POST(req: NextRequest) {
   const user = await requireUser()
   const {
     visit_type, entity_id, entity_name, is_new_entity, visit_date, new_prospect, weekly_plan_item_id,
-    is_manual_entry, manual_start_time, manual_end_time,
+    is_manual_entry, manual_start_time, manual_end_time, contact_id,
   } = await req.json()
   if (!visit_type) return NextResponse.json({ error: 'visit_type is required' }, { status: 400 })
   const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
@@ -122,6 +137,27 @@ export async function POST(req: NextRequest) {
     planItemId = item.id
   }
 
+  /*
+   * The PERSON met, when the form named one.
+   *
+   * Validated BEFORE anything is written: a 400 must not leave a meeting
+   * behind. `resolveVisitContact` checks the contact is this tenant's and,
+   * when a company is also named, that the two are actually linked — see that
+   * function for why the second check is the one that matters.
+   */
+  let resolvedContactId: string | null = null
+  if (contact_id) {
+    if (new_prospect) {
+      return NextResponse.json(
+        { error: 'A lead being created here has no contacts yet, so a person cannot be named on this meeting' },
+        { status: 400 }
+      )
+    }
+    const found = await resolveVisitContact(tid, String(contact_id), entity_id || null)
+    if ('error' in found) return NextResponse.json({ error: found.error }, { status: 400 })
+    resolvedContactId = found.contact.id
+  }
+
   try {
     // New Prospect mode: create business_partner first, then link visit
     if (new_prospect) {
@@ -147,9 +183,12 @@ export async function POST(req: NextRequest) {
           weekly_plan_item_id: planItemId,
           ...manualFields,
         },
+        select: VISIT_SELECT,
       })
       void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${bp.name} on ${effectiveDate}` })
-      return NextResponse.json(serialize(data, 'daily_visits'), { status: 201 })
+      // A lead created here has no contacts yet, so there is never one to name.
+      const created = serialize(data, 'daily_visits') as Record<string, unknown>
+      return NextResponse.json({ ...created, contact: null }, { status: 201 })
     }
 
     if (!entity_name?.trim()) return NextResponse.json({ error: 'entity_name is required' }, { status: 400 })
@@ -161,9 +200,20 @@ export async function POST(req: NextRequest) {
         weekly_plan_item_id: planItemId,
         ...manualFields,
       },
+      select: VISIT_SELECT,
     })
+    /*
+     * A second statement rather than a column on the insert, because the
+     * column may not exist yet. `writeVisitContact` answers false in that
+     * case and the meeting stands: it is already saved, `entity_name` already
+     * carries the person's name as text, and refusing to log a meeting over a
+     * pending migration would be the worse failure.
+     */
+    if (resolvedContactId) await writeVisitContact(tid, data.id, resolvedContactId)
     void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${entity_name.trim()} on ${effectiveDate}` })
-    return NextResponse.json(serialize(data, 'daily_visits'), { status: 201 })
+    const row = serialize(data, 'daily_visits') as Record<string, unknown> & { id: string }
+    const contacts = await readVisitContacts(tid, [row.id])
+    return NextResponse.json(attachVisitContacts([row], contacts)[0], { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

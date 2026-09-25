@@ -4,7 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from './_shape'
-import { checkEmail, checkMobile, firstError, trimmed } from '@/lib/validation'
+import { checkEmail, checkPhone, firstError, trimmed } from '@/lib/validation'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 
 
@@ -83,13 +83,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Mobile Number is required' }, { status: 400 })
 
   const bad = firstError(
-    checkMobile(mobile, 'Mobile Number'),
-    checkMobile(alternate_mobile, 'Alternate Number'),
-    checkMobile(whatsapp, 'WhatsApp Number'),
+    checkPhone(mobile, 'Mobile Number'),
+    checkPhone(alternate_mobile, 'Alternate Number'),
+    checkPhone(whatsapp, 'WhatsApp Number'),
     checkEmail(email),
   )
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
 
+  // Company is OPTIONAL and always has been: it lives in `company_contacts`,
+  // a many-to-many, not in a column on `contacts`. An empty or absent list is
+  // a contact with no company yet, and the nested create below is skipped for
+  // it. The Contact form used to require one anyway; it no longer does.
   const parsed = readCompanyIds(company_ids)
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const ids = parsed.ids

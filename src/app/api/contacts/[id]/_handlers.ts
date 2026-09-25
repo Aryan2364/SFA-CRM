@@ -4,7 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from '../_shape'
-import { checkEmail, checkMobile, firstError, trimmed } from '@/lib/validation'
+import { checkEmail, checkPhone, firstError, trimmed } from '@/lib/validation'
 
 
 /**
@@ -69,9 +69,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // The identical set POST runs — the two verbs drifting apart is exactly what
   // src/lib/validation.ts exists to prevent.
   const bad = firstError(
-    checkMobile(body.mobile, 'Mobile Number'),
-    checkMobile(body.alternate_mobile, 'Alternate Number'),
-    checkMobile(body.whatsapp, 'WhatsApp Number'),
+    checkPhone(body.mobile, 'Mobile Number'),
+    checkPhone(body.alternate_mobile, 'Alternate Number'),
+    checkPhone(body.whatsapp, 'WhatsApp Number'),
     checkEmail(body.email),
   )
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })

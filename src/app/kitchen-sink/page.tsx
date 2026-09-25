@@ -1355,7 +1355,7 @@ export default function KitchenSinkPage() {
               </Table>
             </div>
             <PaginationBar>
-              <PaginationCount>Showing 1 to 8 of 148</PaginationCount>
+              <PaginationCount>1–8 of 148</PaginationCount>
               <Pagination>
                 <PaginationContent>
                   <PaginationItem>

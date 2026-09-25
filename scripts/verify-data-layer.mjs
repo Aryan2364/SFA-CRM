@@ -209,7 +209,14 @@ if (ord) {
   ok('nested order_items[].rate/.amount -> numbers', s.order_items.every(i => typeof i.rate === 'number' && typeof i.amount === 'number'))
 } else skipped('order serialisation', 'no orders with items')
 
-const dv = await prisma.daily_visits.findFirst({ where: { start_time: { not: null } } })
+// Explicit select, not the whole row: this script is meant to be safe against
+// ANY database, and `daily_visits.contact_id` is declared in the schema but not
+// yet pushed everywhere. An unselected read asks for every scalar the generated
+// client knows about and would fail with 42703 on a database without it.
+const dv = await prisma.daily_visits.findFirst({
+  where: { start_time: { not: null } },
+  select: { start_time: true },
+})
 if (dv) ok('daily_visits.start_time -> ISO, .slice(0,10) works (daily-activity/[id] trap)', serialize(dv, 'daily_visits').start_time.slice(0, 10).length === 10)
 else skipped('start_time serialisation', 'no daily_visits with start_time')
 

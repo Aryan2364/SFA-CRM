@@ -3,12 +3,30 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { isStageType, readStageType, writeStageType } from '@/lib/deal-stage-type'
+
+/**
+ * ⚠️ Explicit, and it must stay explicit — `stage_type` is in `schema.prisma`
+ * and not yet in the database. See `src/lib/deal-stage-type.ts`.
+ */
+const STAGE_SELECT = {
+  id: true,
+  tenant_id: true,
+  name: true,
+  sort_order: true,
+  is_fixed: true,
+  is_active: true,
+  created_at: true,
+} as const
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'lead_stages', 'edit')) return forbidden()
-  const { name, sort_order, is_active } = await req.json()
+  const { name, sort_order, is_active, stage_type } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  if (stage_type !== undefined && stage_type !== null && !isStageType(stage_type)) {
+    return NextResponse.json({ error: "Stage type must be 'Open' or 'Closed'" }, { status: 400 })
+  }
   const tid = getTenantId()
   try {
     // A fixed stage may only be activated/deactivated; its name and order are
@@ -29,8 +47,30 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const data = await prisma.deal_stages.update({
       where: { id: params.id, tenant_id: tid },
       data: update,
+      select: STAGE_SELECT,
     })
-    return NextResponse.json(serialize(data, 'deal_stages'))
+
+    // Whether the stage is terminal is NOT part of what `is_fixed` locks. A
+    // fixed row's name and position are the software's; what happens to a deal
+    // that reaches it is the admin's. So this is written for fixed rows too.
+    // Absent key means "not being changed", matching how the rest of this route
+    // treats a field it was not sent.
+    let effective: string | null = null
+    let unavailable = false
+    if (isStageType(stage_type)) {
+      const wrote = await writeStageType(tid, params.id, stage_type)
+      effective = wrote ? stage_type : null
+      unavailable = !wrote
+    } else {
+      effective = await readStageType(tid, params.id)
+    }
+
+    const row = serialize(data, 'deal_stages') as Record<string, unknown>
+    return NextResponse.json({
+      ...row,
+      stage_type: effective,
+      ...(unavailable ? { stage_type_unavailable: true } : {}),
+    })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

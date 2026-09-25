@@ -27,7 +27,7 @@ function RadioGroupItem({ className, ...props }: RadioPrimitive.Root.Props) {
       className={cn(
         "group/radio-group-item peer relative flex aspect-square size-4 shrink-0 cursor-pointer rounded-full border border-border-strong bg-surface transition-colors",
         "after:absolute after:-inset-x-3 after:-inset-y-2",
-        "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
+        "outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
         "data-checked:border-primary data-checked:bg-primary",
         /*
          * Section 6.4: hover changes the background, pressed changes it

@@ -54,24 +54,63 @@ function columns(
   onOpen: (id: string) => void,
 ): ListColumn<QueueRow>[] {
   return [
+    /*
+      Section 17.1. The four predictable columns below carry a DECLARED
+      width from the `col-*` vocabulary; the person's name, which has no
+      known longest value, is the one `grow` column and absorbs whatever
+      is left.
+
+      Sized the other way round — which is what this table did — the
+      name column claimed `w-full` of an auto-layout table and every
+      other column was pushed down to its minimum CONTENT width. "07 Sep
+      2026 — 13 Sep 2026" then broke over six lines at 66px and the row
+      stood 159px tall, while one short name held 545px of a 971px
+      table.
+
+      `min-w-*`, not `w-*`, and that is the whole mechanism. The table
+      is auto-layout, so a `width` on a column beside a `width:100%`
+      column is only a preference and loses: setting `w-col-status` here
+      still rendered 102px. A MINIMUM width is honoured, because the
+      auto algorithm may never take a column below it. `whitespace-nowrap`
+      goes with it so the value cannot buy width back by wrapping.
+    */
     {
       id: 'owner',
       header: 'Person',
       grow: true,
       truncate: true,
+      /* A floor, and only below 768. `grow` carries `max-w-0`, so the
+         name column will shrink to nothing once the declared minimums
+         above it have taken the row: measured at 32px on a 420px
+         container, which is a column of ellipsis. At and above 768 the
+         table still fits without it and nothing scrolls sideways;
+         below it, section 10 rule 2's last resort applies — two
+         columns have already been dropped by then, and a table that
+         scrolls beats a name nobody can read. */
+      className: 'max-md:min-w-field-min',
       cellClassName: 'font-medium text-text-primary',
       cell: row => row.owner?.name ?? 'Unknown',
     },
     {
       id: 'week',
       header: 'Week',
+      className: 'min-w-col-week whitespace-nowrap',
+      skeletonWidth: 'w-44',
       cell: row => `${fmtDate(row.week_start_date)} — ${fmtDate(row.week_end_date)}`,
     },
     {
       id: 'status',
       header: 'Status',
+      className: 'min-w-col-status whitespace-nowrap',
+      skeletonWidth: 'w-28',
       cell: row => (
-        <span className="flex items-center gap-1.5">
+        /*
+          `flex-wrap`: the width is measured for the status badge alone,
+          because `Reopen` is the exception rather than the rule. Sizing
+          every row for a second badge would spend 64px on every row to
+          save a second line on a few; this way the rare row stacks.
+        */
+        <span className="flex flex-wrap items-center gap-1.5">
           <StatusBadge status={row.status} />
           {row.reopen_requested && <Badge variant="warning">Reopen</Badge>}
         </span>
@@ -82,12 +121,16 @@ function columns(
       header: 'Lines',
       numeric: true,
       tier: 'hide-below-768',
+      className: 'min-w-col-count',
+      skeletonWidth: 'w-8',
       cell: row => row.item_count,
     },
     {
       id: 'submitted',
       header: 'Submitted',
       tier: 'hide-below-1024',
+      className: 'min-w-col-datetime whitespace-nowrap',
+      skeletonWidth: 'w-36',
       cell: row => (row.submitted_at ? fmtDateTime(row.submitted_at) : '—'),
     },
     {
@@ -104,6 +147,11 @@ function columns(
       */
       id: 'open',
       header: '',
+      /* `col-actions` is measured for ONE ICON button. This row's action
+         is a labelled button, so the column sizes to it and only needs
+         protecting from wrapping "Review" onto two lines. */
+      className: 'whitespace-nowrap',
+      skeletonWidth: 'w-16',
       cell: row => (
         <Button
           variant={canDecide ? 'primary' : 'secondary'}
@@ -155,9 +203,9 @@ function ApprovalQueue() {
   }))
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex min-h-0 flex-col md:h-full">
       <ListPage<QueueRow>
-        className="min-h-0 flex-1"
+        className="md:min-h-0 md:flex-1"
         title="Plan Approvals"
         noun={{ one: 'plan', many: 'plans' }}
         sectionTabs={<SectionTabs tabs={tabs} value={queue} />}

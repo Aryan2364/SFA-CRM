@@ -42,7 +42,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
       className={cn(
         "relative inline-flex h-control cursor-pointer items-center justify-center gap-2 whitespace-nowrap",
         "text-body text-text-secondary transition-colors hover:text-text-primary",
-        "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
+        "outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
         "data-disabled:pointer-events-none data-disabled:text-text-muted",
         "data-active:font-medium data-active:text-primary",
         // The 2px accent, section 5.3.

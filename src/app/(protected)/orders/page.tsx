@@ -684,9 +684,9 @@ function OrdersPageInner() {
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-col md:h-full">
       <ListPage<OrderRow>
-        className="h-auto min-h-0 flex-1"
+        className="md:h-auto md:min-h-0 md:flex-1"
         title="Orders"
         noun={{ one: 'order', many: 'orders' }}
         /*

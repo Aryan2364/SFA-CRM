@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import { attachVisitContacts, readVisitContacts, VISIT_SELECT } from '@/lib/visit-contact'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,17 +53,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Not authorized to view this user' }, { status: 403 })
   }
 
+  const tid = getTenantId()
   try {
     const data = await prisma.daily_visits.findMany({
       where: {
-        tenant_id: getTenantId(),
+        tenant_id: tid,
         ...scopeWhere(ids),
         // visit_date is @db.Date, so the "YYYY-MM-DD" query parameter becomes a Date.
         visit_date: new Date(date),
       },
+      // Explicit, not the default whole row: see VISIT_SELECT for why an
+      // unselected read breaks the moment the client learns about contact_id.
+      select: VISIT_SELECT,
       orderBy: { created_at: 'asc' },
     })
-    return NextResponse.json(serialize(data, 'daily_visits'))
+    const rows = serialize(data, 'daily_visits') as (Record<string, unknown> & { id: string })[]
+    const contacts = await readVisitContacts(tid, rows.map(r => r.id))
+    return NextResponse.json(attachVisitContacts(rows, contacts))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

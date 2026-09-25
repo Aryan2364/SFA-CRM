@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ColumnsIcon, ListIcon, TriangleAlertIcon } from 'lucide-react'
+import { ColumnsIcon, ListIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react'
 
 import {
   ListPage,
@@ -21,9 +21,14 @@ import {
   type BoardColumn,
 } from '@/components/ui/board'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
-import { EMPTY, fmtAmount, fmtDate, fmtNumber, parseApiDate } from '@/lib/format'
+import { useToast } from '@/contexts/ToastContext'
+import { useMe } from '@/hooks/useMe'
+import { EMPTY, fmtAmount, fmtDate, parseApiDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
+
+import { DealDialog } from './deal-dialog'
 
 /**
  * The Deals list (REBUILD-PLAN.md §4.2) and the pipeline header strip
@@ -420,37 +425,48 @@ function totalsOf(rows: DealRow[]): PipelineTotals {
  * `shrink-0` is load-bearing: it sits above `ListPage` in a flex column with a
  * definite height, and a strip that could shrink would steal zone 3's height
  * instead of the page keeping it.
+ *
+ * ONE ROW, NOT THREE TILES, and that is a height decision rather than a taste
+ * one. Section 11.1 gives zone 3 whatever the window has left after zones 1,
+ * 1a, 2 and 4, so every pixel this strip takes is a pixel of table. Measured
+ * at a 1280x700 window: the tile grid was 84px of a 600px page — 14% of the
+ * screen spent on two numbers — and at 420px it stacked to 216px, more than a
+ * third of the window, above a data area of 230. One row is 40 and wraps to
+ * two at phone width.
+ *
+ * THE DEAL COUNT IS GONE FROM HERE because it was said twice. `ListPage`
+ * already writes it into zone 1's meta line under the title ("8 deals"), which
+ * is where section 11.1 puts a record count; a tile repeating it is the same
+ * value in two forms.
+ *
+ * No `mb-4`: zone 1a already carries `mt-4` and zone 2 carries its own, so the
+ * bottom margin only stacked a second 16px gap under the strip.
  */
 function PipelineStrip({ totals }: { totals: PipelineTotals | null }) {
   const items: { label: string; value: string; skeletonWidth: string }[] = [
     {
-      label: 'Deals',
-      value: fmtNumber(totals?.count),
-      skeletonWidth: 'w-8',
-    },
-    {
       label: 'Estimated value',
       value: fmtAmount(totals?.value),
-      skeletonWidth: 'w-32',
+      skeletonWidth: 'w-28',
     },
     {
       label: 'Weighted value',
       value: fmtAmount(totals?.weighted),
-      skeletonWidth: 'w-32',
+      skeletonWidth: 'w-28',
     },
   ]
 
   return (
-    <div className="mb-4 grid shrink-0 grid-cols-1 gap-px overflow-hidden rounded-xl border border-border-light bg-border-light sm:grid-cols-3">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border-light bg-surface px-4 py-2">
       {items.map(item => (
-        <div key={item.label} className="bg-surface px-4 py-3">
-          <p className="text-meta text-text-secondary">{item.label}</p>
+        <div key={item.label} className="flex min-w-0 items-baseline gap-2">
+          <span className="text-label text-text-secondary">{item.label}</span>
           {totals === null ? (
-            <Skeleton className={cn('mt-1.5 h-5', item.skeletonWidth)} />
+            <Skeleton className={cn('h-4', item.skeletonWidth)} />
           ) : (
-            <p className="mt-0.5 text-card-heading font-medium tabular-nums text-text-primary">
+            <span className="text-body font-medium tabular-nums text-text-primary">
               {item.value}
-            </p>
+            </span>
           )}
         </div>
       ))}
@@ -514,9 +530,14 @@ export default function DealsPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex h-full min-h-0 flex-col">
+        <div className="flex min-h-0 flex-col gap-4 md:h-full">
           <PipelineStrip totals={null} />
-          <Skeleton className="min-h-0 flex-1 rounded-xl" />
+          {/* `md:` for the same reason the template's own heights carry
+              it: below 768 this column has no definite height, so a
+              `flex-1` child with `min-h-0` would have a zero
+              hypothetical main size and the skeleton would be invisible
+              rather than the shape of what is coming (section 14). */}
+          <Skeleton className="h-96 rounded-xl md:h-auto md:min-h-0 md:flex-1" />
         </div>
       }
     >
@@ -527,6 +548,8 @@ export default function DealsPage() {
 
 function DealsScreen() {
   const router = useRouter()
+  const { toast } = useToast()
+  const me = useMe()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [totals, setTotals] = useState<PipelineTotals | null>(null)
@@ -537,6 +560,26 @@ function DealsScreen() {
   const [refreshKey, setRefreshKey] = useState(0)
   /* P5-T7 §7.7 — "Deals Without Follow-up", the one-click narrowing state. */
   const [onlyNoFollowUp, setOnlyNoFollowUp] = useState(false)
+  /* F-DEALS-CREATE — the create dialog this screen had no way to open. */
+  const [createOpen, setCreateOpen] = useState(false)
+
+  /*
+   * §26: whether this user may create a Deal, read from the REAL permission
+   * map — `/api/auth/me` builds it from `role_permissions`, the same table
+   * `checkPermission(user, 'deals', 'create')` reads in `POST /api/deals` —
+   * never from a role name. The Administrator branch mirrors the server's own
+   * short-circuit. §26's closing note applies: this is appearance only, and
+   * the route enforces the permission regardless of what renders here.
+   */
+  const canCreate =
+    me?.role === 'Administrator' ||
+    (me?.permissions?.deals?.create ?? me?.permissions?.deals?.edit ?? false)
+  /* `useMe` starts at null, so for the first moment the answer is "not known
+     yet", which is not the same as "not allowed". Attaching section 26's
+     reason to that moment would tell the user they lack a permission nobody
+     has looked up. The button is present and disabled until the answer
+     arrives; only then does it either enable or explain itself. */
+  const permissionsKnown = me !== null
 
   /*
    * §35.3: the board is offered at 768px and above. Below that the switcher
@@ -755,17 +798,23 @@ function DealsScreen() {
      * 1a is reserved for section 33's tabs — so it sits above zone 1, here,
      * and no prop is added to `list-page`.
      *
-     * This wrapper is a flex COLUMN with a definite height, never a plain div:
-     * the shell's content wrapper is what gives `ListPage` its height, and a
-     * plain wrapper breaks that chain so the PAGE scrolls instead of zone 3.
-     * `h-auto` on the template is load-bearing too — `cn()` is an extended
-     * tailwind-merge, `h-full` and `flex-1` do not conflict, so without
-     * `h-auto` the template keeps its own `h-full` and overflows by the height
-     * of the strip.
+     * AT 768 AND ABOVE this wrapper is a flex COLUMN with a definite height,
+     * never a plain div: the shell's content wrapper is what gives `ListPage`
+     * its height, and a plain wrapper breaks that chain so the PAGE scrolls
+     * instead of zone 3. `md:h-auto` on the template is load-bearing too —
+     * `cn()` is an extended tailwind-merge, `h-full` and `flex-1` do not
+     * conflict, so without it the template would keep its own `md:h-full` and
+     * overflow by the height of anything above it.
+     *
+     * BELOW 768 every one of those classes is off, deliberately, and matches
+     * `list-page`'s own boundary: the wrapper's height is its content, the
+     * template grows to its rows and the shell's content wrapper scrolls the
+     * page. Leaving `h-full min-h-0` unprefixed here would re-impose the
+     * fixed height from outside and undo the template's half of it.
      */
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex min-h-0 flex-col md:h-full">
       <ListPage<DealRow>
-        className="h-auto min-h-0 flex-1"
+        className="md:h-auto md:min-h-0 md:flex-1"
         /*
          * F19: the heading was sitting below `PipelineStrip` and the
          * data-health banner, which used to render in a `div` above this
@@ -775,7 +824,10 @@ function DealsScreen() {
          * of its own, so the slot was free.
          */
         sectionTabs={
-          <>
+          /* The strip no longer carries its own bottom margin, so the
+             gap between it and the chip belongs here — one place,
+             applied only when the chip is actually rendered. */
+          <div className="flex flex-col gap-2">
             <PipelineStrip totals={totals} />
             {onlyNoFollowUp ? (
               <QuickFilterChip
@@ -783,13 +835,45 @@ function DealsScreen() {
                 onClear={() => { setOnlyNoFollowUp(false); setRefreshKey(k => k + 1) }}
               />
             ) : null}
-          </>
+          </div>
         }
         /* F25: the data-health alert is no longer a strip above the table
            — it is behind the header's alert icon, grouped with the other
            header controls. Only the applied-filter chip stays in zone 1a,
            and only while a filter is applied. */
-        action={<DataHealthAlerts alerts={healthAlerts} label="Deal data health" />}
+        /*
+         * Section 11.1 zone 1: the one primary action, top-right, grouped
+         * with the alert trigger rather than stranded at the screen edge.
+         *
+         * Section 26: an individual action the user cannot perform is
+         * DISABLED with the reason attached, not hidden — hiding is for whole
+         * areas, like a sidebar section. Somebody who cannot find a button
+         * does not know whether it does not exist or whether they may not use
+         * it. The reason has to hang off `PermissionTooltip` rather than the
+         * button: every disabled control here carries `pointer-events-none`,
+         * so a tooltip on the button itself would be written and never
+         * readable. This is the same wrapper the follow-ups section and the
+         * board already use for their gated actions.
+         *
+         * No `<Link>` and no `router.push` — see the hydration note in
+         * `parties/page.tsx`. A dialog also keeps the user on the list, which
+         * is what lets the new row appear in place instead of after a
+         * navigation.
+         */
+        action={
+          <div className="flex items-center gap-2">
+            <DataHealthAlerts alerts={healthAlerts} label="Deal data health" />
+            <PermissionTooltip
+              allowed={!permissionsKnown || canCreate}
+              reason="Only someone who can create deals can add one."
+            >
+              <Button disabled={!canCreate} onClick={() => setCreateOpen(true)}>
+                <PlusIcon />
+                Create deal
+              </Button>
+            </PermissionTooltip>
+          </div>
+        }
         toolbarExtra={
           boardOffered ? (
             <ViewSwitcher view={view} onChange={setView} />
@@ -843,6 +927,31 @@ function DealsScreen() {
         emptyYet={{
           heading: 'No deals yet',
           body: 'Every opportunity being worked — its stage, what it is worth and when it is expected to close — is listed here.',
+          /* Section 13: "nothing yet" offers a primary create. It is left
+             off for a user who may not create — an empty state's button
+             cannot carry section 26's reason, and section 26's first rule is
+             that no control may fail after being clicked. The header button
+             above is where that user reads why. */
+          actionLabel: canCreate ? 'Create deal' : undefined,
+          onAction: canCreate ? () => setCreateOpen(true) : undefined,
+        }}
+      />
+
+      <DealDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        companies={companies}
+        stages={stages}
+        team={team}
+        /*
+         * No reload and no navigation: bumping the template's only refetch
+         * lever re-runs `load` in place, so the new Deal appears in the list
+         * (and in the pipeline strip, which `load` recomputes) without the
+         * page going away and coming back.
+         */
+        onCreated={deal => {
+          toast(`Deal "${deal.name}" created`)
+          setRefreshKey(k => k + 1)
         }}
       />
     </div>

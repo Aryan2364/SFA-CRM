@@ -3,6 +3,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { FUNNEL_STAGE_WHERE } from '../_shape'
+import { attachStageTypes, readStageTypes } from '@/lib/deal-stage-type'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,12 +28,24 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET() {
   await requireUser()
+  const tid = getTenantId()
   try {
-    const rows = await prisma.deal_stages.findMany({
-      where: { tenant_id: getTenantId(), is_active: true, ...FUNNEL_STAGE_WHERE },
-      orderBy: [{ sort_order: 'asc' }, { name: 'asc' }],
-    })
-    return NextResponse.json(serialize(rows, 'deal_stages'))
+    // ⚠️ The select is explicit because `stage_type` is declared in
+    // `schema.prisma` and is not in the database yet; it is read separately, in
+    // raw SQL. See `src/lib/deal-stage-type.ts`.
+    const [rows, types] = await Promise.all([
+      prisma.deal_stages.findMany({
+        where: { tenant_id: tid, is_active: true, ...FUNNEL_STAGE_WHERE },
+        orderBy: [{ sort_order: 'asc' }, { name: 'asc' }],
+        select: { id: true, tenant_id: true, name: true, sort_order: true, is_fixed: true, is_active: true, created_at: true },
+      }),
+      readStageTypes(tid),
+    ])
+    // `stage_type: 'Closed'` is how a caller knows a column on the board ends
+    // the deal rather than advancing it; `null` means the setting is not
+    // available yet and nothing should be inferred from it.
+    const serialised = serialize(rows, 'deal_stages') as ({ id: string } & Record<string, unknown>)[]
+    return NextResponse.json(attachStageTypes(serialised, types))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

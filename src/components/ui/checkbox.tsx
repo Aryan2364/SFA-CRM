@@ -21,7 +21,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
         "peer relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-(--radius-tick) border border-border-strong bg-surface transition-colors",
         // A larger invisible hit area than the 16px box it draws.
         "after:absolute after:-inset-x-3 after:-inset-y-2",
-        "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
+        "outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
         "data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground",
         /*
          * Section 6.4: hover changes the background, pressed changes it

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon, MessageSquareIcon } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 import StatusBadge from '@/components/ui/StatusBadge'
 import {
@@ -15,10 +16,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useToast } from '@/contexts/ToastContext'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { ManagerChanges, changeCountLabel } from '@/components/weekly-plan/manager-changes'
 import { PlanBoard, PlanDayList, type PlanBoardLine } from '@/components/weekly-plan/plan-board'
+import { PlanBoardSkeleton, WeeklyPlanSkeleton } from '@/components/weekly-plan/plan-skeleton'
 import { PlanLineDialog, DayPicker, type PlanLineDraft } from '@/components/weekly-plan/plan-line-dialog'
 import { WeeklyPriorities } from '@/components/weekly-plan/weekly-priorities'
 import type { ItemsDiff } from '@/lib/weekly-plan-diff'
@@ -313,12 +316,22 @@ type LineEdit = {
 }
 
 // ---- My Plan Tab ----
-function MyPlanTab({ userId }: { userId: string | null }) {
+/** `userId` is never null here: the page renders this only once
+ *  /api/auth/me has answered and the answer carries a user record. */
+function MyPlanTab({ userId }: { userId: string }) {
   const { toast } = useToast()
   const [monday, setMonday] = useState(() => getMondayOf(new Date()))
   const [plan, setPlan] = useState<Plan | null>(null)
   const [dayData, setDayData] = useState<DayData>({})
-  const [loading, setLoading] = useState(false)
+  /*
+   * True from the first render, not from the effect that fetches. Starting at
+   * false paints one frame of an empty week — seven "Nothing planned" columns
+   * asserting the plan is empty before the request that would say so has even
+   * been made. The same mistake the page-level guard used to make.
+   */
+  const [loading, setLoading] = useState(true)
+  /* Section 14.3: failed is its own branch, never a skeleton that never ends. */
+  const [loadError, setLoadError] = useState(false)
   const [saving, setSaving] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [logsOpen, setLogsOpen] = useState(false)
@@ -407,24 +420,37 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       goalCache.current.delete(weekStart)
     }
     setLoading(true)
-    const r = await fetch(`/api/weekly-plans/my?weekStart=${weekStart}`)
-    const data = await r.json()
-    setPlan(data)
-    const cached = weekCache.current.get(weekStart)
-    if (cached && !clearCache) {
-      setDayData(cached)
-      setDayNotes(notesCache.current.get(weekStart) ?? {})
-      setGoals(padGoals(goalCache.current.get(weekStart) ?? goalsFromPlan(data)))
-    } else if (data && data.weekly_plan_items) {
-      setDayData(planItemsToDayData(data.weekly_plan_items, weekDays))
-      setDayNotes(data.day_notes ?? {})
-      setGoals(padGoals(goalsFromPlan(data)))
-    } else {
-      const empty: DayData = {}
-      for (const d of weekDays) empty[d] = []
-      setDayData(empty)
-      setDayNotes({})
-      setGoals(padGoals([]))
+    setLoadError(false)
+    try {
+      // `fetch` has no deadline of its own (section 14.4): without this a
+      // stalled response never settles and the skeleton stays for ever.
+      const r = await fetch(`/api/weekly-plans/my?weekStart=${weekStart}`, {
+        signal: AbortSignal.timeout(20000),
+      })
+      if (!r.ok) throw new Error(`weekly-plans/my ${r.status}`)
+      const data = await r.json()
+      setPlan(data)
+      const cached = weekCache.current.get(weekStart)
+      if (cached && !clearCache) {
+        setDayData(cached)
+        setDayNotes(notesCache.current.get(weekStart) ?? {})
+        setGoals(padGoals(goalCache.current.get(weekStart) ?? goalsFromPlan(data)))
+      } else if (data && data.weekly_plan_items) {
+        setDayData(planItemsToDayData(data.weekly_plan_items, weekDays))
+        setDayNotes(data.day_notes ?? {})
+        setGoals(padGoals(goalsFromPlan(data)))
+      } else {
+        const empty: DayData = {}
+        for (const d of weekDays) empty[d] = []
+        setDayData(empty)
+        setDayNotes({})
+        setGoals(padGoals([]))
+      }
+    } catch {
+      // The banners above read from `plan`; a stale week's status must not
+      // stay on screen describing a week that failed to load.
+      setPlan(null)
+      setLoadError(true)
     }
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -822,8 +848,6 @@ function MyPlanTab({ userId }: { userId: string | null }) {
     setMonday(d => addDays(d, delta * 7))
   }
 
-  if (!userId) return <div className="py-12 text-center text-text-muted">Please add yourself as a user in Masters first.</div>
-
   const dialogParty = editing?.entry.partyId ? partyById.get(editing.entry.partyId) : undefined
   const mobileDay = selectedDay && weekDays.includes(selectedDay) ? selectedDay : weekDays[0]
 
@@ -942,7 +966,17 @@ function MyPlanTab({ userId }: { userId: string | null }) {
       )}
 
       {loading ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center text-text-muted">Loading…</div>
+        /* Section 14.1: the shape of the board that is coming, not a word. */
+        <PlanBoardSkeleton />
+      ) : loadError ? (
+        <EmptyState
+          variant="failed"
+          heading="Could not load this week"
+          onAction={() => loadPlan(true)}
+        >
+          The plan for {formatWeekRange(monday)} did not load. Nothing you had
+          typed has been sent, so it is safe to try again.
+        </EmptyState>
       ) : (
         <>
           {/*
@@ -1131,18 +1165,84 @@ function MyPlanTab({ userId }: { userId: string | null }) {
 }
 
 // ---- Main Page ----
-export default function WeeklyPlanPage() {
-  const { toast } = useToast()
-  const [me, setMe] = useState<{ userId: string | null; hasSubordinates: boolean } | null>(null)
+/*
+ * Who the caller is has three answers, not two, and they are three branches
+ * (section 14.3). `me === null` used to mean both "the request is still in
+ * flight" and "there is no user record", so the first paint of this screen
+ * asserted, falsely, that the person did not exist in Masters — and a failed
+ * request left that same false claim on screen for good, with the real reason
+ * spent on a toast that had already faded.
+ *
+ * `status` separates them: a skeleton while loading, a Retry while failed, and
+ * the Masters message only once the answer has actually landed and says so.
+ * The request carries its own deadline because `fetch` has none (section 14.4)
+ * — without it a stalled response never settles and the skeleton is forever.
+ */
+type MeState =
+  | { status: 'loading' }
+  | { status: 'failed' }
+  | { status: 'ready'; userId: string | null; canAddUsers: boolean }
 
-  useEffect(() => {
-    fetch('/api/auth/me').then(r => r.json()).then(d => setMe({ userId: d.userId, hasSubordinates: d.hasSubordinates })).catch(() => toast('Failed to load user settings', 'error'))
-  }, [toast])
+export default function WeeklyPlanPage() {
+  const router = useRouter()
+  const [me, setMe] = useState<MeState>({ status: 'loading' })
+
+  const loadMe = useCallback(() => {
+    setMe({ status: 'loading' })
+    fetch('/api/auth/me', { signal: AbortSignal.timeout(20000) })
+      .then(async r => {
+        if (!r.ok) throw new Error(`auth/me ${r.status}`)
+        return r.json()
+      })
+      .then((d: { userId: string | null; permissions?: Record<string, { view?: boolean; create?: boolean; edit?: boolean }> }) => {
+        const users = d.permissions?.users
+        setMe({
+          status: 'ready',
+          userId: d.userId ?? null,
+          // `create ?? edit` is the same expression /api/auth/me and
+          // permissions.ts use for the create question.
+          canAddUsers: Boolean(users?.create ?? users?.edit),
+        })
+      })
+      .catch(() => setMe({ status: 'failed' }))
+  }, [])
+
+  useEffect(() => { loadMe() }, [loadMe])
 
   // `h-full` so the board inside gets a definite height to fill.
   return (
     <div className="h-full min-h-0">
-      <MyPlanTab userId={me?.userId ?? null} />
+      {me.status === 'loading' ? (
+        <WeeklyPlanSkeleton />
+      ) : me.status === 'failed' ? (
+        <EmptyState
+          variant="failed"
+          heading="Could not load your weekly plan"
+          onAction={loadMe}
+        >
+          We could not check who you are signed in as, so the plan cannot be
+          opened yet.
+        </EmptyState>
+      ) : me.userId === null ? (
+        /*
+          Genuinely no user record: the login exists but is not linked to a row
+          in Masters → Users, so there is nobody to hold a plan. Both arms lead
+          somewhere — the one who may create the record is sent to it, and the
+          one who may not is not left staring at a button that would only 403.
+        */
+        <EmptyState
+          variant="nothing-yet"
+          heading="Your login is not linked to a user"
+          actionLabel={me.canAddUsers ? 'Open Masters → Users' : 'Go to Dashboard'}
+          onAction={() => router.push(me.canAddUsers ? '/masters/users' : '/')}
+        >
+          {me.canAddUsers
+            ? 'A weekly plan belongs to a user record. Add yourself in Masters → Users, then come back to this screen.'
+            : 'A weekly plan belongs to a user record, and this login has none yet. Ask an administrator to add you in Masters → Users.'}
+        </EmptyState>
+      ) : (
+        <MyPlanTab userId={me.userId} />
+      )}
     </div>
   )
 }

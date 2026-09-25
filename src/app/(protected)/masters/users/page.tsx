@@ -548,7 +548,7 @@ export default function UsersPage() {
         was available this run. This is the highest-risk unverified
         claim on the screen; see the report.
       */}
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-col md:h-full">
         <Breadcrumb className="mb-4 shrink-0">
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -565,7 +565,7 @@ export default function UsersPage() {
           /* `h-auto` is not cosmetic: it is what makes `cn` drop the
              template's own `h-full`, so the root carries no
              `height: 100%` to argue with the flex basis. */
-          className="h-auto min-h-0 flex-1"
+          className="md:h-auto md:min-h-0 md:flex-1"
           title="Users"
           noun={{ one: 'user', many: 'users' }}
           action={action}

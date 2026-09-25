@@ -246,7 +246,7 @@ export default function ReviewPage() {
      * min-h-0 flex-col` here plus `min-h-0 flex-1` on the template
      * keeps zone 3 the only scrolling zone — measured, not assumed.
      */
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex min-h-0 flex-col md:h-full">
       {pendingCount > 0 && (
         <Banner variant="warning" className="mb-4 shrink-0">
           <TriangleAlertIcon />
@@ -261,7 +261,7 @@ export default function ReviewPage() {
       )}
 
       <ListPage<SubCard>
-        className="min-h-0 flex-1"
+        className="md:min-h-0 md:flex-1"
         title="Review"
         noun={{ one: 'team member', many: 'team members' }}
         columns={reviewColumns(

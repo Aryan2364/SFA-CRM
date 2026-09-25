@@ -265,6 +265,46 @@
   --spacing-field-min: 160px;
   --spacing-field-max: 480px;
 
+  /* Table column widths - 17.1. MEASURED, not chosen: the longest
+     realistic value rendered in Geist at the size the cell actually
+     uses, plus the 32px of cell padding (px-4 both sides), rounded up
+     to the nearest 8. Measured in this app, in Chrome, on the Plan
+     Approval table.
+
+       tick     48px  the tick box column as it renders today
+       count    96px  "1,24,500" tabular = 56px
+       date    128px  "22 Sept 2026" = 89.5px, the longest DD Mon YYYY
+       amount  136px  "1,23,45,680.00" tabular = 95.3px, a crore figure
+       ref     144px  "INV-2026-04471" = 108.4px
+       status  168px  RE-MEASURED for this product, which the kit asks
+                      for where the status labels are longer than its
+                      own. StatusBadge renders at 12px inside a pill:
+                      "Changes Suggested" = 133px including the pill's
+                      padding, against the kit's 112.9px reference.
+       actions  80px  one 36px icon button (6.3)
+
+     Two tokens below the kit's seven. Both are the same MEASUREMENT
+     METHOD applied to a shape the kit's vocabulary has no name for,
+     rather than an invented pixel in a screen file:
+
+       datetime 192px  "22 Sept 2026, 12:45 PM" = 155.6px. A timestamp
+                       is a date plus a time and does not fit col-date.
+       week     216px  "07 Sep 2026 - 13 Sep 2026" = 183.9px. A week is
+                       a RANGE of two dates, not a date.
+
+     These are the PREDICTABLE columns. Free-text columns - a name, a
+     description, an address - take the remainder and are the only ones
+     where truncation is the intended outcome. */
+  --spacing-col-tick: 48px;
+  --spacing-col-count: 96px;
+  --spacing-col-date: 128px;
+  --spacing-col-amount: 136px;
+  --spacing-col-ref: 144px;
+  --spacing-col-status: 168px;
+  --spacing-col-actions: 80px;
+  --spacing-col-datetime: 192px;
+  --spacing-col-week: 216px;
+
   /* Dialog widths - 24. Three exist. */
   --spacing-dialog-sm: 400px;
   --spacing-dialog-md: 560px;

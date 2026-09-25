@@ -16,12 +16,26 @@ export type NewProspectPayload = {
   village_id: string | null
 }
 
+/** The PERSON a meeting was with, from `daily_visits.contact_id`. */
+export type VisitContact = { id: string; name: string; designation: string | null }
+
 export type Visit = {
   id: string
   user_id?: string
   visit_type: string
   entity_id?: string | null
   entity_name: string
+  /**
+   * The person met, as a real reference rather than text.
+   *
+   * ⚠️ `null` means EITHER "this meeting named no person" OR "the
+   * `daily_visits.contact_id` column has not been pushed yet". Nothing on
+   * screen needs to tell those apart, because `entity_name` already carries
+   * the person's name either way — it is written as "Ramesh Kumar · ACME
+   * Traders" when a person is named. Use this field for linking and filtering,
+   * never as the only source of the displayed name.
+   */
+  contact?: VisitContact | null
   new_prospect?: NewProspectPayload
   is_new_entity: boolean
   status: 'Pending' | 'Active' | 'Completed'

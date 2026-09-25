@@ -55,7 +55,7 @@ function BreadcrumbLink({
       {
         className: cn(
           "cursor-pointer rounded-lg text-primary transition-colors hover:text-primary-hover",
-          "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
+          "outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
           className
         ),
       },

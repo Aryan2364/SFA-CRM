@@ -16,7 +16,7 @@ function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
       className={cn(
         "peer group/switch relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent p-0.5 transition-colors",
         "after:absolute after:-inset-x-3 after:-inset-y-2",
-        "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
+        "outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
         "data-checked:bg-primary data-unchecked:bg-surface-control-pressed",
         /*
          * Section 6.4: hover changes the background, pressed changes it

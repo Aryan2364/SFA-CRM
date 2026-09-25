@@ -52,8 +52,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Truncate } from '@/components/ui/truncate'
 
 /**
- * Section 11.1. The list page: four fixed zones, only zone 3 scrolling,
- * and everything that is the same on every list screen.
+ * Section 11.1. The list page: four fixed zones, section 35.8's bounded
+ * page scroll, and everything that is the same on every list screen.
  *
  *   1  Header      title left, one primary action right, record count
  *                  as meta text under the title. Does not scroll.
@@ -62,29 +62,63 @@ import { Truncate } from '@/components/ui/truncate'
  *   2  Toolbar     search left at a fixed 260-320px, the section 27.3
  *                  filter panel beside it, active filters as chips
  *                  underneath. Does not scroll.
- *   3  Data area   THE ONLY SCROLLING ZONE. Fixed height from the
- *                  window. Column headers stay visible as rows scroll.
+ *   3  Data area   The rows or the board. Column headers stay visible
+ *                  as rows scroll - see "which box scrolls" below.
  *   4  Pagination  count left, page controls right. Does not scroll.
  *
  * ---------------------------------------------------------------------
- * ZONE 3'S HEIGHT IS THE WHOLE TEMPLATE
+ * WHICH BOX SCROLLS, AND HOW FAR
  *
- * Section 10: on a list page the data area owns the scroll and the page
- * itself does not scroll. If the page body scrolls, this template has
- * failed however good the rest of it looks.
+ * Zone 1 sits outside the scroller and is therefore pinned with no
+ * `sticky` anywhere: the page title and its one primary action never
+ * leave. Everything under it — zones 1a, 2, 3 and 4 — lives in ONE box
+ * whose height is the page minus zone 1, and that box is the scroller.
  *
- * The height is derived, not measured and not guessed at. `app-shell`
+ * Scroll it and zones 1a and 2 leave the screen; the data area's own
+ * header then rests against the top of that box, which is directly
+ * under the title.
+ *
+ * SECTION 35.8 SETS THIS OUT FOR THE BOARD - a bounded page scroll,
+ * with the four conditions that keep it safe above vertically
+ * scrolling columns. THE TABLE FOLLOWS THE SAME SHAPE, which the kit
+ * does not yet say: section 10 still gives a list page's scroll to the
+ * data area. That departure was asked for directly and is recorded
+ * here, in the one file it affects. It costs nothing that section 10
+ * was protecting - the table's case has a single vertical scroller,
+ * which is stricter than what 35.8 permits, not looser.
+ *
+ *   table   the panel grows with its rows, so the scroll carries zones
+ *           1a and 2 away and then goes on through the rows. Zone 3 is
+ *           not a scroller at all, so there is exactly one vertical
+ *           scroller on the screen.
+ *   board   the panel is exactly the scroller's height, so the scroll
+ *           range IS zones 1a and 2 and stops. That bound is the
+ *           condition section 35.8 attaches to a board's columns
+ *           scrolling vertically underneath a scrolling page.
+ *
+ * The heights are derived, not measured and not guessed at. `app-shell`
  * roots the application at `h-dvh`, and its content wrapper carries a
  * DEFINITE height — 100% of a box that is itself flex-1 of that root.
- * This template is `h-full` inside that wrapper, and zone 3 is
- * `flex-1 min-h-0` inside this template. So zone 3's height IS the
- * window height minus the top bar, minus the page padding, minus zones
- * 1, 2 and 4 — arithmetic the browser redoes on every resize, with no
+ * This template is `h-full` inside that wrapper, so the scroller's
+ * height IS the window minus the top bar, minus the page padding, minus
+ * zone 1 — arithmetic the browser redoes on every resize, with no
  * constant to go stale and no resize listener to miss a frame.
  *
  * `min-h-0` at every step is load-bearing. A flex item defaults to
  * `min-height: auto`, which is its content height, so without it a long
  * table refuses to shrink and pushes the page taller than the window.
+ *
+ * ALL OF THAT IS PREFIXED `md:` — 768px, which is section 9's floor.
+ * Below the supported range the whole template grows to its rows and the
+ * shell's content wrapper scrolls the page, because a fixed height at
+ * phone width leaves the data area a porthole scrolling on both axes.
+ *
+ * A SCREEN THAT WRAPS THIS TEMPLATE has to prefix its own height
+ * classes the same way, or it re-imposes the contract from outside. The
+ * pattern is `md:h-full` on the wrapper and `md:min-h-0 md:flex-1` on
+ * the template — never the unprefixed forms, which below 768 leave a
+ * `flex-1` child of an auto-height column with a zero hypothetical main
+ * size and collapse it to nothing.
  *
  * ---------------------------------------------------------------------
  * WHAT A SCREEN CANNOT GET WRONG
@@ -626,8 +660,114 @@ export function ListPage<Row>({
     )
   }
 
+  /*
+   * BOTH VIEWS HAND THE VERTICAL SCROLL TO THE PAGE at 768 and above,
+   * so that zones 1a and 2 can leave the screen and the data area's own
+   * header — the table's column row, the board's column titles — comes
+   * to rest under the page title. Section 11.1's zone 3 keeps the scroll
+   * within itself; this is section 35.8's bounded page scroll instead,
+   * and this file is the only place it lives.
+   *
+   * WHAT DIFFERS IS HOW FAR THE PAGE SCROLLS, and the difference is the
+   * whole of section 35.8's condition.
+   *
+   *   table   the panel GROWS with its rows, so the page scroll carries
+   *           zones 1a and 2 away and then keeps going through the
+   *           rows. Nothing inside it scrolls vertically at all — zone 3
+   *           gives up `overflow-auto` at this width — so there is one
+   *           vertical scroller on the screen and no gesture to share.
+   *
+   *   board   the panel is EXACTLY the scroller's height, so the page's
+   *           whole scroll range is zones 1a and 2 and not one pixel
+   *           more. That bound is what makes the board's columns safe to
+   *           scroll vertically underneath it: the outer scroller is at
+   *           its end within one gesture and stays there, and from then
+   *           on every wheel event over a column belongs to the column.
+   *           Section 35.8 states the condition; `md:h-full md:shrink-0`
+   *           on the panel below is what enforces it.
+   */
+  const boardView = Boolean(renderData)
+
+  /*
+   * THE ONE PLACE A BOARD NEEDS JAVASCRIPT, and it is here because the
+   * browser's own rule is the wrong way round for this layout.
+   *
+   * A wheel event is offered to the innermost scroller under the pointer
+   * first, and only chains outward once that one is at its end.
+   * Measured on the board before this ran: wheeling over a column that
+   * had cards to spare moved the COLUMN and left the page where it was,
+   * so the strip and the toolbar only went away if the pointer happened
+   * to be over a gap, an empty column or a column header. The page did
+   * chain correctly once a column bottomed out — the behaviour was
+   * consistent, just not the one section 35.8 now promises.
+   *
+   * So a downward gesture is given to the page until the page's 126px
+   * of range is spent, and only then to the column. An UPWARD gesture is
+   * left alone unless the scroller under the pointer is already at its
+   * own top, because somebody reading down a column and flicking back up
+   * means that column, not the page.
+   *
+   * Only in board view. A table has nothing nested inside the scroller,
+   * so there is no gesture to arbitrate and no listener to attach.
+   */
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el || !boardView) return
+    if (!window.matchMedia('(min-width: 768px)').matches) return
+
+    /** The nearest scroller under the pointer that could take this delta. */
+    function innerTaker(target: EventTarget | null, up: boolean) {
+      let node = target instanceof Element ? target : null
+      while (node && node !== el) {
+        const overflow = getComputedStyle(node).overflowY
+        if (overflow === 'auto' || overflow === 'scroll') {
+          const room = up
+            ? node.scrollTop > 0
+            : node.scrollTop < node.scrollHeight - node.clientHeight
+          if (room) return node
+        }
+        node = node.parentElement
+      }
+      return null
+    }
+
+    function onWheel(event: WheelEvent) {
+      const box = el
+      if (!box || event.ctrlKey || event.deltaY === 0) return
+      const max = box.scrollHeight - box.clientHeight
+      if (max <= 0) return
+      const up = event.deltaY < 0
+      if (up ? box.scrollTop <= 0 : box.scrollTop >= max) return
+      if (up && innerTaker(event.target, true)) return
+      box.scrollTop = Math.max(0, Math.min(max, box.scrollTop + event.deltaY))
+      event.preventDefault()
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [boardView])
+
   return (
-    <div className={cn('flex h-full min-h-0 flex-col', className)}>
+    /*
+     * `md:h-full` rather than `h-full`, and every height class below it
+     * carries the same prefix. AGENTS.md section 9 supports desktop and
+     * tablet, and 768 is that floor — so at and above it this template
+     * is byte-identical to what it was: a definite height divided
+     * between the four zones, with zone 3 the only scrolling one.
+     *
+     * BELOW 768 the same contract makes zone 3 a porthole. Measured at
+     * 420x800 before this change: zone 3 was 230px tall around a table
+     * 492px tall and 623px wide, so the data area scrolled on both axes
+     * inside a page that could not scroll at all — 3 rows of 8 visible
+     * with the window half-full of chrome. Section 9 rule 5 governs
+     * below the supported range and asks only that the layout stay
+     * usable; the honest reading is that the page scrolls there and the
+     * data area grows to its rows, which is also what section 35.3 does
+     * for the board — a view whose shape stops working at that width is
+     * not offered at that width.
+     */
+    <div className={cn('flex min-h-0 flex-col md:h-full', className)}>
       {/* ── ZONE 1 ── header. Does not scroll. */}
       <header className="flex shrink-0 items-start justify-between gap-4">
         <div className="min-w-0">
@@ -641,7 +781,35 @@ export function ListPage<Row>({
         {action && <div className="shrink-0">{action}</div>}
       </header>
 
-      {/* ── ZONE 1a ── section tabs (section 33). Optional, does not scroll. */}
+      {/*
+        THE SCROLLER, and the whole of the scroll-away behaviour.
+        Everything below zone 1 lives inside it; zone 1 is outside it and
+        is therefore pinned without a single `sticky` anywhere.
+
+        Its height is the page minus zone 1, so the page scrolls by
+        exactly the height of zones 1a and 2 plus whatever the rows add.
+        Scroll it and the strip and the toolbar leave; the table's own
+        `sticky top-0` header then rests against the top of this box,
+        which is directly under the page title. That is the arrangement
+        asked for, stated as a fact about one box rather than as a rule
+        about three.
+
+        IN TABLE VIEW IT IS THE ONLY VERTICAL SCROLLER ON THE PAGE.
+        Zone 3 gives up its own `overflow-auto` at this width, and it
+        has to: an ancestor with a non-visible overflow becomes the
+        scrollport a sticky header sticks to, and a scrollport that never
+        scrolls holds the header still while the page moves under it.
+        That is why the column header scrolled away with the rows in
+        every attempt that left zone 3 scrolling.
+
+        IN BOARD VIEW the columns scroll vertically inside it, which
+        section 35.8 permits on one condition: that this scroller's own
+        range is bounded and ends. The panel below is exactly this box's
+        height in that view, so the range is zones 1a and 2 and stops —
+        see the note there.
+      */}
+      <div ref={scrollerRef} className="flex flex-col md:min-h-0 md:flex-1 md:overflow-auto">
+      {/* ── ZONE 1a ── section tabs (section 33). Optional. */}
       {sectionTabs && <div className="mt-4 shrink-0">{sectionTabs}</div>}
 
       {/* ── ZONE 2 ── toolbar. Does not scroll.
@@ -807,39 +975,102 @@ export function ListPage<Row>({
       </div>
 
       {/* ── ZONES 3 and 4 ── one panel.
-          `overflow-hidden` here is what clips the scrolling child to the
-          panel's radius AND what stops this element from becoming a
-          second vertical scroller around zone 3. */}
-      <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border-light bg-surface">
-        {/* ZONE 3. The only scrolling zone on the page. It scrolls both
-            axes on ONE element, which is not the nesting section 1 rule
-            8 forbids — nothing around it scrolls at all. */}
-        <div className="min-h-0 flex-1 overflow-auto">{zone3}</div>
+          `overflow-hidden` is what clips the scrolling child to the
+          panel's radius. At md it becomes `overflow-clip` in the
+          scrolling case, and the difference is load-bearing rather than
+          cosmetic: `clip` is not a scroll container, so the table header
+          and the pagination bar inside still stick to the page scroller
+          above. `hidden` would make this element their scrollport and
+          both would go static.
 
-        {/* ── ZONE 4 ── pagination. Does not scroll. */}
-        <PaginationBar>
-          <PaginationCount>
+          TABLE: `md:grow md:shrink-0` rather than `md:flex-1`. flex-1
+          would pin the panel to the leftover height and there would be
+          nothing to scroll. Grow-but-never-shrink means a short list
+          still fills the page — so the pagination bar sits at the
+          bottom, as it always did — and a long one keeps its own
+          height and lets the scroller above do its work.
+          `md:w-fit md:min-w-full` is for the eight-column case: the
+          table no longer has its own scrollbox, so where its min-content
+          runs past the window the panel grows with it and the border
+          stays around the table instead of cutting across it.
+
+          BOARD: `md:h-full md:shrink-0` — EXACTLY the scroller's height,
+          never more and never less. This is the whole of section 35.8's
+          condition, expressed as one class rather than as a promise.
+          Because the panel cannot grow, the scroller's content is zones
+          1a and 2 plus one screen, so its scroll range is the height of
+          those two zones and ends there. A bounded outer scroller that
+          is at its end after one gesture is what makes the columns
+          underneath safe to scroll vertically: there is no point after
+          that at which a wheel event could belong to either of them.
+          Measured at 1280x700: 138px of range, then nothing. */}
+      <div
+        className={cn(
+          'mt-4 flex flex-col overflow-hidden rounded-xl border border-border-light bg-surface md:overflow-clip',
+          boardView
+            ? 'md:h-full md:shrink-0'
+            : 'md:w-fit md:min-w-full md:grow md:shrink-0'
+        )}
+      >
+        {/* ZONE 3.
+
+            Below 768 this is the scrolling zone: `overflow-auto` on ONE
+            element, both axes, which is not the nesting section 1 rule 8
+            forbids.
+
+            At md the table's case stops being a scroller at all — see
+            the note on the box above; the rows are scrolled by the page
+            and the table keeps its sticky header because nothing between
+            it and that scroller clips. The board's case keeps a definite
+            height here, because `board.tsx` fills what it is given and
+            renders one screen tall in a box that will not give it one. */}
+        <div
+          className={cn(
+            'overflow-auto',
+            boardView
+              ? 'md:min-h-0 md:flex-1'
+              : 'md:grow md:shrink-0 md:overflow-visible'
+          )}
+        >
+          {zone3}
+        </div>
+
+        {/* ── ZONE 4 ── pagination. Does not scroll — and where the
+            page is what scrolls, `sticky bottom-0` is how it goes on not
+            scrolling. Its two halves stick sideways as well, because the
+            panel around them is as wide as the widest table and
+            `justify-between` would otherwise send the page controls out
+            past the right edge of the window. */}
+        <PaginationBar
+          className='md:sticky md:bottom-0 md:z-10'
+        >
+          {/* Section 11.1.1: `1–8 of 8`, not "Showing 1 to 8 of 8". The
+              total is the part that carries information; the words in
+              front of it were width spent saying what the numbers
+              already say. */}
+          <PaginationCount
+            className='md:sticky md:left-0'
+          >
             {total === 0
               ? `No ${noun.many}`
-              : `Showing ${firstOnPage + 1} to ${Math.min(
+              : `${firstOnPage + 1}–${Math.min(
                   firstOnPage + pageSize,
                   total
                 )} of ${total}`}
           </PaginationCount>
-          <Pagination>
+          <Pagination className='md:sticky md:right-0'>
             <PaginationContent>
               <PaginationItem>
                 {/* Section 6.4: a control with nowhere to go reads as
                     disabled — reduced contrast, no pointer — rather than
-                    looking live and doing nothing. `pagination.tsx` has
-                    no disabled state of its own; see the report. */}
+                    looking live and doing nothing. `aria-disabled` is
+                    the whole of it now: section 11.1.1 put that state
+                    into `pagination.tsx`, so the classes that used to be
+                    written out here are gone. */}
                 <PaginationPrevious
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   aria-disabled={current === 1}
                   tabIndex={current === 1 ? -1 : undefined}
-                  className={cn(
-                    current === 1 && 'pointer-events-none text-text-muted'
-                  )}
                 />
               </PaginationItem>
               {pageWindow(current, pageCount).map((entry, i) =>
@@ -863,15 +1094,12 @@ export function ListPage<Row>({
                   onClick={() => setPage(p => Math.min(pageCount, p + 1))}
                   aria-disabled={current === pageCount}
                   tabIndex={current === pageCount ? -1 : undefined}
-                  className={cn(
-                    current === pageCount &&
-                      'pointer-events-none text-text-muted'
-                  )}
                 />
               </PaginationItem>
             </PaginationContent>
           </Pagination>
         </PaginationBar>
+      </div>
       </div>
     </div>
   )

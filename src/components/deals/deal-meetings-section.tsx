@@ -6,6 +6,7 @@ import { HistoryIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Truncate } from '@/components/ui/truncate'
 import { formatDuration } from '@/components/daily-activity/types'
 import { fmtDate, fmtTime } from '@/lib/format'
 
@@ -91,8 +92,18 @@ export function DealMeetingsSection({ dealId }: { dealId: string }) {
               >
                 <div className="min-w-0">
                   {/* The party leads, the date and the rest sit under it. */}
-                  <p className="flex items-center gap-1.5 truncate text-body font-medium text-text-primary">
-                    {m.entity_name}
+                  {/*
+                    Kit §8. `truncate` sat on the FLEX row, which is not the
+                    box the text overflows — the name pushed the icon along
+                    instead of ending in three dots, and nothing showed the
+                    full text. `Truncate` puts the ellipsis and the tooltip
+                    on the text itself and leaves the icon as a `shrink-0`
+                    sibling. The meeting form now names the person met, so
+                    this row carries "Ramesh Kumar · ACME Traders" and
+                    reaches that edge routinely.
+                  */}
+                  <p className="flex items-center gap-1.5 text-body font-medium text-text-primary">
+                    <Truncate>{m.entity_name}</Truncate>
                     <SquareArrowOutUpRightIcon
                       className="size-3.5 shrink-0 text-text-muted"
                       aria-hidden="true"

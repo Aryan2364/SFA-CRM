@@ -14,7 +14,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
       className={cn(
         "field-sizing-content flex min-h-16 w-full min-w-0 rounded-lg border border-border bg-surface px-3 py-2 text-body text-text-primary transition-colors",
         "placeholder:text-text-muted",
-        "outline-none focus-visible:border-primary-ring focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary-ring",
+        "outline-none focus-visible:border-primary-ring focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-0 focus-visible:outline-primary-ring",
         /*
          * Section 6.4: hover changes the background, pressed changes it
          * further. This control had NEITHER, and no forcing rule in the

@@ -125,7 +125,7 @@ function Clamp({
           onClick={() => setExpanded((v) => !v)}
           className={cn(
             "mt-1 cursor-pointer rounded-lg text-label text-primary hover:text-primary-hover",
-            "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
+            "outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
           )}
         >
           {expanded ? lessLabel : moreLabel}

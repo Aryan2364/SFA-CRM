@@ -105,7 +105,7 @@ function OptionList({
               className={cn(
                 "flex h-control w-full cursor-pointer items-center rounded-lg px-3 text-body outline-none",
                 "not-aria-selected:hover:bg-surface-control",
-                "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-ring",
+                "focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:-outline-offset-2 focus-visible:outline-primary-ring",
                 isSelected && "bg-primary-subtle text-primary-pressed"
               )}
             >

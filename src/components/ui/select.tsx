@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils"
 const selectTriggerClassName = [
   "flex h-control w-full max-w-field-max min-w-0 cursor-pointer items-center justify-between gap-2",
   "rounded-lg border border-border bg-surface px-3 text-body text-text-primary whitespace-nowrap transition-colors select-none",
-  "outline-none focus-visible:border-primary-ring focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary-ring",
+  "outline-none focus-visible:border-primary-ring focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-0 focus-visible:outline-primary-ring",
   // Section 6.4, same gap as input and textarea: the trigger had no
   // hover and no pressed of its own while globals.css forced one.
   "not-data-disabled:hover:border-border-strong not-data-disabled:hover:bg-surface-control",

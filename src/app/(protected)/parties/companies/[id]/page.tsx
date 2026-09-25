@@ -570,7 +570,7 @@ function ContactsCard({ contacts }: { contacts: CompanyContact[] }) {
                 href={`/parties/contacts/${contact.id}`}
                 className={cn(
                   'flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-lg py-1',
-                  'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
+                  'outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
                 )}
               >
                 <span className="flex flex-wrap items-center gap-2">

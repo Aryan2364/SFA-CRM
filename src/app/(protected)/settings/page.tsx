@@ -82,7 +82,7 @@ export default function SettingsPage() {
             <Link
               key={card.href}
               href={card.href}
-              className="group/card flex items-start gap-3 rounded-xl border border-border-light bg-surface p-4 transition-colors outline-none hover:border-border hover:bg-surface-control active:bg-surface-control-pressed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
+              className="group/card flex items-start gap-3 rounded-xl border border-border-light bg-surface p-4 transition-colors outline-none hover:border-border hover:bg-surface-control active:bg-surface-control-pressed focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
             >
               <span
                 aria-hidden

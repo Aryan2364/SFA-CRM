@@ -16,6 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Truncate } from '@/components/ui/truncate'
 import { MeetingToggle } from './meeting-toggle'
 import { formatDuration, formatTime, Visit } from './types'
 
@@ -122,7 +123,18 @@ export function VisitCard({
               )}
               {showOwner && ownerName && <span className="text-meta text-text-muted">{ownerName}</span>}
             </div>
-            <h3 className="mt-1.5 truncate text-card-heading font-medium text-text-primary">{visit.entity_name}</h3>
+            {/*
+              Kit §8: a truncated list row shows its full text as a
+              tooltip, and `Truncate` is the one component that does it —
+              a bare `truncate` class cuts the name and offers no way to
+              read the rest. It matters more since the meeting form
+              learned to name the person met: this line now reads
+              "Ramesh Kumar · ACME Traders" and reaches the edge on a
+              narrow card where the company name alone did not.
+            */}
+            <h3 className="mt-1.5 text-card-heading font-medium text-text-primary">
+              <Truncate>{visit.entity_name}</Truncate>
+            </h3>
           </div>
 
           {/* ONE button. `canEdit` is the real permission plus ownership —

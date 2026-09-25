@@ -89,3 +89,33 @@ export function checkEmail(value: unknown, label = 'Email'): string | null {
 export function firstError(...errors: (string | null)[]): string | null {
   return errors.find(e => e !== null) ?? null
 }
+
+/**
+ * A phone number that may carry a dialling code inline — `+919876543210`.
+ *
+ * `checkMobile` above is deliberately untouched: every other form in this
+ * product still posts bare ten-digit Indian numbers, and loosening the shared
+ * check would stop catching a typo on all of them at once. This is the looser
+ * rule, applied only where a country-code picker exists (the Contact form and
+ * `/api/contacts`), and it still accepts the bare ten digits every existing row
+ * holds — see `src/lib/country-codes.ts` for why the code is stored inline.
+ *
+ * `+91` keeps the strict ten-digit rule, because that is the number this
+ * product's users actually mistype. Any other code is checked only for a
+ * plausible length, since national number lengths vary from 6 to 14 digits and
+ * hard-coding them per country is a table that goes stale.
+ */
+export function checkPhone(value: unknown, label: string): string | null {
+  if (blank(value)) return null
+  const raw = String(value).trim()
+
+  if (!raw.startsWith('+')) return checkMobile(raw, label)
+  if (raw.startsWith('+91')) {
+    return MOBILE_RE.test(raw.slice(3))
+      ? null
+      : `${label} must be exactly 10 digits after +91`
+  }
+  return /^\+\d{1,4}\d{6,14}$/.test(raw)
+    ? null
+    : `${label} is not a valid phone number`
+}

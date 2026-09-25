@@ -83,10 +83,17 @@ import { toast } from "@/components/ui/sonner"
  * SCROLL SHAPE (section 35.8), and it is a scoped exception to section
  * 10 rule 2: the board scrolls HORIZONTALLY and each column scrolls
  * VERTICALLY inside it. Those are different axes, so section 1 rule 8
- * is not engaged - the two never compete for one gesture. What WOULD
- * engage it is the page scrolling vertically behind a column that also
- * scrolls vertically, which is why the fixed height above is a
- * requirement and not a layout preference.
+ * is not engaged - the two never compete for one gesture.
+ *
+ * A THIRD SCROLLER IS NOW PERMITTED ABOVE THEM: the page, scrolling
+ * vertically by a bounded amount behind columns that also scroll
+ * vertically. Section 35.8 used to forbid exactly that and now allows
+ * it on four conditions, all of which belong to the HOST rather than to
+ * this component - the page's range is only the chrome above the board
+ * and cannot grow, the page header never moves, the column headers come
+ * to rest under it and stay, and a downward gesture is given to the page
+ * first until its range is spent. Read that section before building the
+ * host; this file still only fills the height it is given.
  */
 
 /** Section 35.4. Past this the component throws rather than rendering. */

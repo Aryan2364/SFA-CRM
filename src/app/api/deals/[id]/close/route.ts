@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { DEAL_DETAIL_INCLUDE, DEAL_OUTCOMES, shapeDeal } from '../../_shape'
 import { findScopedDeal, notFound } from '../../_access'
+import { hasClosedStage, readStageType } from '@/lib/deal-stage-type'
 
 export const dynamic = 'force-dynamic'
 
@@ -79,6 +80,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         select: { id: true },
       })
       if (!stage) return NextResponse.json({ error: 'Unknown deal stage' }, { status: 400 })
+
+      // The stage a closing Deal lands in must be one the admin marked Closed
+      // in the Lead Stages master — that setting is the whole meaning of
+      // "nothing comes after this".
+      //
+      // Gated on the tenant having configured at least one Closed stage, which
+      // is also false while `stage_type` is unpushed. A tenant that has not
+      // marked any stage terminal keeps the previous behaviour exactly: any
+      // stage is accepted. Refusing on an empty configuration would make
+      // closing a Deal impossible with no screen to fix it from.
+      if (await hasClosedStage(tid)) {
+        const type = await readStageType(tid, stage.id)
+        if (type !== 'Closed') {
+          return NextResponse.json(
+            { error: 'A deal being closed must move to a stage marked Closed in the Lead Stages master' },
+            { status: 400 }
+          )
+        }
+      }
+
       targetStageId = stage.id
     }
 

@@ -29,7 +29,30 @@ const buttonVariants = cva(
   [
     "group/button inline-flex shrink-0 cursor-pointer items-center justify-center gap-1",
     "rounded-lg border whitespace-nowrap transition-colors select-none",
-    "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
+    /*
+     * SECTION 6.4'S FOCUS RING, AND THE THIRD CLASS IS NOT OPTIONAL.
+     *
+     * Tailwind v4 compiles `outline-none` to
+     * `--tw-outline-style: none; outline-style: none`, and the WIDTH
+     * utility `outline-2` to `outline-style: var(--tw-outline-style);
+     * outline-width: 2px`. Both land on this element, so the width
+     * utility reads the style back out of the variable the suppressor
+     * just set: the focus ring computes to 2px of `outline-style: none`
+     * and paints nothing, while `:focus-visible` matches and every
+     * class reads correctly in the markup. It is invisible in the one
+     * place it cannot afford to be, and invisible in review too.
+     *
+     * `focus-visible:[outline-style:solid]` sets the property directly.
+     * The tidy `focus-visible:outline-solid` compiles to the same CSS
+     * but does NOT survive `cn()`: tailwind-merge groups it with the
+     * outline-COLOUR utilities and drops
+     * `focus-visible:outline-primary-ring`, which leaves a correct ring
+     * in `currentColor`. Measured both ways.
+     *
+     * Every control in this kit carries the same pair, so every one of
+     * them carries this third class. Anything added later does too.
+     */
+    "outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring",
     "disabled:pointer-events-none disabled:cursor-default",
     "disabled:border-border-light disabled:bg-surface-sunken disabled:text-text-muted",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",

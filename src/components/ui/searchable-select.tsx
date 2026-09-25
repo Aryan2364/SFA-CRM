@@ -29,9 +29,34 @@ import { selectTriggerClassName } from "@/components/ui/select"
  *
  * Selected and hovered stay distinct, as in section 16.2: selected is
  * primary-subtle with a tick, hovered is neutral grey.
+ *
+ * GROUPED FORM — one picker holding two KINDS of thing.
+ *
+ * Section 4 rule 4: a second flavour of an existing control is a variant
+ * on it, never a second component. `groups` is that variant. Each group
+ * carries a heading and, optionally, an icon rendered on every one of its
+ * rows AND on the trigger once one is chosen — so the kind of thing
+ * selected is still legible after the menu has closed, which a heading
+ * alone cannot do.
+ *
+ * cmdk hides a group with no matching rows, so the headings keep telling
+ * the two kinds apart while the user is typing, not only at rest.
+ *
+ * `options` and `groups` are the same control: pass one. `options` alone
+ * renders a single unheaded group, which is exactly what every existing
+ * caller already gets.
  */
+type SearchableSelectGroup = {
+  heading: string
+  /** Rendered on every row in this group and on the trigger when chosen. */
+  icon?: React.ReactNode
+  /** value to label. */
+  options: Record<string, string>
+}
+
 function SearchableSelect({
   options,
+  groups,
   value,
   onValueChange,
   id,
@@ -41,8 +66,10 @@ function SearchableSelect({
   disabled,
   className,
 }: {
-  /** value to label. */
-  options: Record<string, string>
+  /** value to label. Ignored when `groups` is given. */
+  options?: Record<string, string>
+  /** The section 4 rule 4 variant: several headed groups in one picker. */
+  groups?: SearchableSelectGroup[]
   value?: string
   onValueChange?: (value: string) => void
   id?: string
@@ -53,7 +80,19 @@ function SearchableSelect({
   className?: string
 }) {
   const [open, setOpen] = React.useState(false)
-  const entries = Object.entries(options)
+  const resolved: SearchableSelectGroup[] = React.useMemo(
+    () => groups ?? [{ heading: "", options: options ?? {} }],
+    [groups, options]
+  )
+  // The chosen row's label and icon, wherever in the groups it sits.
+  const selected = React.useMemo(() => {
+    if (!value) return null
+    for (const g of resolved) {
+      const label = g.options[value]
+      if (label !== undefined) return { label, icon: g.icon }
+    }
+    return null
+  }, [resolved, value])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -70,8 +109,13 @@ function SearchableSelect({
           />
         }
       >
+        {selected?.icon ? (
+          <span className="flex shrink-0 items-center text-text-secondary [&_svg]:size-4">
+            {selected.icon}
+          </span>
+        ) : null}
         <span className="flex-1 truncate text-left">
-          {value ? options[value] : placeholder}
+          {selected ? selected.label : placeholder}
         </span>
         <ChevronDownIcon className="pointer-events-none size-4 shrink-0 text-text-secondary transition-transform data-popup-open:rotate-180" />
       </PopoverTrigger>
@@ -85,35 +129,46 @@ function SearchableSelect({
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList className="max-h-menu-max overflow-y-auto">
             <CommandEmpty>{emptyMessage}</CommandEmpty>
-            <CommandGroup>
-              {entries.map(([v, label]) => {
-                const isSelected = v === value
-                return (
-                  <CommandItem
-                    key={v}
-                    value={label}
-                    // Not aria-selected: cmdk owns that attribute for
-                    // its own highlight, and section 16.2 needs the
-                    // chosen row and the highlighted row to stay
-                    // visually distinct. `data-chosen` carries ours.
-                    data-chosen={isSelected || undefined}
-                    // CommandItem already renders the tick, keyed to
-                    // data-checked. Rule 4: do not build it twice.
-                    data-checked={isSelected}
-                    onSelect={() => {
-                      onValueChange?.(v)
-                      setOpen(false)
-                    }}
-                    className={cn(
-                      "h-control rounded-lg px-3",
-                      isSelected && "bg-primary-subtle text-primary-pressed"
-                    )}
-                  >
-                    <span className="flex-1 truncate">{label}</span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
+            {resolved.map((group, gi) => (
+              <CommandGroup key={group.heading || gi} heading={group.heading || undefined}>
+                {Object.entries(group.options).map(([v, label]) => {
+                  const isSelected = v === value
+                  return (
+                    <CommandItem
+                      key={v}
+                      // What cmdk filters on. The heading is folded in so
+                      // that typing "contact" finds the people group, and
+                      // so two identical names in different groups are not
+                      // one row to the filter.
+                      value={group.heading ? `${label} ${group.heading}` : label}
+                      // Not aria-selected: cmdk owns that attribute for
+                      // its own highlight, and section 16.2 needs the
+                      // chosen row and the highlighted row to stay
+                      // visually distinct. `data-chosen` carries ours.
+                      data-chosen={isSelected || undefined}
+                      // CommandItem already renders the tick, keyed to
+                      // data-checked. Rule 4: do not build it twice.
+                      data-checked={isSelected}
+                      onSelect={() => {
+                        onValueChange?.(v)
+                        setOpen(false)
+                      }}
+                      className={cn(
+                        "h-control rounded-lg px-3",
+                        isSelected && "bg-primary-subtle text-primary-pressed"
+                      )}
+                    >
+                      {group.icon ? (
+                        <span className="flex shrink-0 items-center text-text-secondary [&_svg]:size-4">
+                          {group.icon}
+                        </span>
+                      ) : null}
+                      <span className="flex-1 truncate">{label}</span>
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            ))}
           </CommandList>
         </Command>
       </PopoverContent>
@@ -122,3 +177,4 @@ function SearchableSelect({
 }
 
 export { SearchableSelect }
+export type { SearchableSelectGroup }
