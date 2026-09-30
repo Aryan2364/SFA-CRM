@@ -84,8 +84,29 @@ it resolved, and where the URL came from. Read that line every time:
   exactly, so a write cannot land on the wrong database because the wrong file was
   loaded. Copy the host from the dry run's `database host:` line.
 
-Run these from a machine that can reach the RDS endpoint directly. An SSH tunnel to
-`localhost` will not work, because the certificate names the RDS host.
+#### Reaching RDS through an SSH tunnel
+
+The RDS endpoint resolves to a private VPC address, so from your machine it is reached
+through an SSH tunnel via the web server.
+
+1. **Open the tunnel** in a separate terminal and leave it running for the whole release:
+   ```bash
+   ssh -N -L 15432:database-1.cxoqkkq469da.ap-south-1.rds.amazonaws.com:5432 v2e-new
+   ```
+2. **Add one line to `.env.rds`**, below `DATABASE_URL` and `DATABASE_CA_CERT_PATH`:
+   ```bash
+   DATABASE_TUNNEL=127.0.0.1:15432
+   ```
+   Leave `DATABASE_URL` naming the **real RDS host**, not `localhost`. The scripts send
+   the connection to the tunnel's local port, but check the allow-list and `--host`
+   against the RDS host, and verify the TLS certificate against the RDS hostname. The
+   tunnel host must be `127.0.0.1`, `localhost` or `::1`; anything else is refused.
+3. **`--host` stays the RDS hostname**, never `127.0.0.1`. The dry run prints
+   `database host: <rds-host> (via tunnel 127.0.0.1:15432)`. Copy the host from the part
+   before the brackets.
+
+Without `DATABASE_TUNNEL` the scripts connect to the RDS host directly, which only works
+from inside AWS.
 
 1. **Set the new env vars** in `.env.production`: `APP_URL` (the public base URL,
    e.g. `https://admin.example.com`) and the `SMTP_*` set. Optionally

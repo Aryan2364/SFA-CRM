@@ -46,6 +46,17 @@
  * allow-list on purpose: the only databases these scripts may reach are the
  * local one and AWS RDS.
  *
+ * --- SSH TUNNEL (opt-in) ---------------------------------------------------
+ * RDS resolves to a private VPC address, so from outside AWS it is reached
+ * through an SSH tunnel the owner opens himself. `DATABASE_TUNNEL=127.0.0.1:15432`
+ * (read from the same source as the URL) sends the TCP connection to that local
+ * port instead. Everything else still runs against the URL's RDS host: the
+ * allow-list, `--host`, and TLS, which is verified against the RDS hostname
+ * (`servername`), not the tunnel's. The tunnel host must be local, and the URL
+ * must be RDS. The client config is built field by field, never from
+ * `connectionString`, so nothing in the URL can redirect the connection; other
+ * URL query parameters are not carried over. Unset: behaviour is unchanged.
+ *
  * Nothing here prints the URL, the user or the password.
  */
 import fs from 'node:fs'
@@ -76,6 +87,21 @@ export function flagValue(args, name) {
 function fail(message) {
   console.error(`\n${message}\n`)
   process.exit(1)
+}
+
+/**
+ * `host:port` or `[::1]:port` → { host, port }, or undefined if malformed.
+ * `localhost` becomes 127.0.0.1: node-postgres overwrites `servername` with the
+ * connect host whenever that host is a name rather than an IP, which would check
+ * the RDS certificate against "localhost".
+ */
+function parseTunnel(value) {
+  const m = value.trim().match(/^(?:\[([^\]]+)\]|([^:]+)):(\d{1,5})$/)
+  if (!m) return undefined
+  const host = (m[1] ?? m[2]).toLowerCase()
+  const port = Number(m[3])
+  if (port < 1 || port > 65535) return undefined
+  return { host, connectHost: host === 'localhost' ? '127.0.0.1' : host, port }
 }
 
 /**
@@ -125,8 +151,27 @@ export function resolveReleaseDb({ script, args, apply }) {
       'Pass --use-database-url to target DATABASE_URL on purpose.')
   }
 
+  const tunnelKey = 'DATABASE_TUNNEL'
+  const tunnelRaw = fromProcess ? process.env[tunnelKey] : fromEnvLocal(tunnelKey)
+  let tunnel
+  if (tunnelRaw) {
+    tunnel = parseTunnel(tunnelRaw)
+    if (!tunnel) {
+      fail(`REFUSING TO RUN: ${tunnelKey} (from ${source}) must be host:port, e.g. ${tunnelKey}=127.0.0.1:15432`)
+    }
+    if (!LOCAL.has(tunnel.host)) {
+      fail(`REFUSING TO RUN: ${tunnelKey} (from ${source}) points at "${tunnel.host}".\n` +
+        'A tunnel must listen on this machine: 127.0.0.1, localhost or ::1.')
+    }
+    if (local) {
+      fail(`REFUSING TO RUN: ${tunnelKey} is set, but ${urlKey} already points at the local host "${host}".\n` +
+        `A tunnel is only for reaching RDS. Remove ${tunnelKey}, or target the RDS URL.`)
+    }
+  }
+  const via = tunnel ? ` (via tunnel ${tunnel.connectHost.includes(':') ? `[${tunnel.connectHost}]` : tunnel.connectHost}:${tunnel.port})` : ''
+
   console.log(`\n${script} — ${apply ? 'APPLY (writes)' : 'DRY RUN / READ ONLY (writes nothing)'}`)
-  console.log(`database host: ${host}`)
+  console.log(`database host: ${host}${via}`)
   console.log(`database name: ${database}`)
   console.log(`url from:      ${urlKey} in ${source}`)
 
@@ -156,8 +201,9 @@ export function resolveReleaseDb({ script, args, apply }) {
     if (!ca.includes('-----BEGIN CERTIFICATE-----')) {
       fail(`REFUSING TO RUN: "${caPath}" (${caKey}) does not contain a PEM certificate.`)
     }
-    ssl = { ca, rejectUnauthorized: true }
-    console.log(`tls:           verified against ${caPath} (hostname checked)` +
+    // Through a tunnel the socket goes to 127.0.0.1, so name the RDS host explicitly.
+    ssl = tunnel ? { ca, servername: host, rejectUnauthorized: true } : { ca, rejectUnauthorized: true }
+    console.log(`tls:           verified against ${caPath} (hostname checked${tunnel ? `: ${host}` : ''})` +
       (sslMode === 'disable' ? '  [sslmode=disable in the URL was ignored]' : ''))
   } else {
     console.log('tls:           none (local database)')
@@ -165,8 +211,19 @@ export function resolveReleaseDb({ script, args, apply }) {
   if (expectedHost !== undefined) console.log(`host confirmed: --host matches ${host}`)
   console.log('')
 
+  const connection = tunnel
+    ? {
+        host: tunnel.connectHost,
+        port: tunnel.port,
+        ...(url.username ? { user: decodeURIComponent(url.username) } : {}),
+        ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
+        ...(database === '(default)' ? {} : { database }),
+        ssl,
+      }
+    : { connectionString: url.toString(), ssl }
+
   return {
-    connection: { connectionString: url.toString(), ssl },
+    connection,
     host,
     database,
     live,
