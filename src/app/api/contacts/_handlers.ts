@@ -6,6 +6,8 @@ import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from './_shape'
 import { checkEmail, checkPhone, firstError, trimmed } from '@/lib/validation'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import { foreignContactRef } from './_access'
+import { ownerOutsideScope } from '../companies/_access'
 
 
 /**
@@ -104,12 +106,33 @@ export async function POST(req: NextRequest) {
     const found = await loadCompanies(ids, tid)
     if ('error' in found) return NextResponse.json({ error: found.error }, { status: 400 })
 
+    // The body's own FK ids. An owner inherited from the company below is
+    // already this tenant's — `loadCompanies()` proved the company is.
+    const miss = await foreignContactRef(tid, { contact_type_id, owner_user_id })
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
     // §3.4: "Owner — From Employee Master. Defaults to the Company's Owner."
     // Only meaningful when there is exactly one company: with none there is
     // nothing to inherit, and with several there is no single right answer, so
-    // both cases leave the column to whatever the caller sent.
-    const owner = trimmed(owner_user_id)
-      ?? (found.companies.length === 1 ? found.companies[0].owner_user_id : null)
+    // both cases fall back to the creator — as does a company with no owner. An
+    // unowned contact is outside every Self/Team scope, so its own creator
+    // could not open it again below Company scope.
+    //
+    // The same scope rule as a company's owner (`../companies/_access.ts`): an
+    // explicit owner outside the caller's `contacts` scope is a 403, because
+    // the contact would vanish from their own list. An INHERITED owner is a
+    // default, not a request, so one outside scope quietly falls back to the
+    // creator instead of refusing a form the user filled in correctly.
+    const explicitOwner = trimmed(owner_user_id)
+    if (explicitOwner) {
+      const outside = await ownerOutsideScope(user, 'contacts', explicitOwner)
+      if (outside) return NextResponse.json({ error: outside }, { status: 403 })
+    }
+    const inherited = found.companies.length === 1 ? found.companies[0].owner_user_id : null
+    const owner = explicitOwner
+      ?? (inherited && !(await ownerOutsideScope(user, 'contacts', inherited)) ? inherited : null)
+      ?? user.userId
+      ?? null
 
     // One create, with the join rows nested — a single statement, so a contact
     // can never be left behind with none of its links written.

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { invalidateMeCache } from '@/hooks/useMe'
+import { invalidateMeCache, useMeStatus } from '@/hooks/useMe'
 import { useToast } from '@/contexts/ToastContext'
 import {
   OPERATION_SECTIONS,
@@ -11,6 +11,8 @@ import {
   type MasterGroup,
 } from '@/lib/masters-registry'
 import type { OperationSection } from '@/lib/permissions'
+import { LoadError } from '@/components/ui/load-error'
+import { Skeleton } from '@/components/ui/skeleton'
 
 type UserEntry = { id: string; name: string }
 type VisibilityEntry = { id: string; target_user_id: string; name: string }
@@ -34,8 +36,24 @@ export default function AccessControlPage() {
 function AccessControlContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const tab = searchParams.get('tab') ?? 'schema'
+  const { me, error: meError, retry: retryMe } = useMeStatus()
   const preselected = searchParams.get('selectedUser') ?? null
+
+  /*
+   * Roles & Permissions and Reporting Schema are Administrator-only — their
+   * routes carry no grantable section. The Org Chart is a view of the user
+   * master, so its route is gated on `users` → view (`/api/access-control/
+   * org-chart`), and a role granted that sees this tab alone. `isAdmin` is
+   * the server-derived `isAdministrator` from /api/auth/me, which mirrors
+   * checkPermission's own Administrator short-circuit — never a role name.
+   *
+   * `me` is null while it loads: that is "not known yet", so nothing is shown
+   * rather than a refusal.
+   */
+  const isAdmin = me?.isAdministrator ?? false
+  const canChart = isAdmin || (me?.permissions?.users?.view ?? false)
+  const requested = searchParams.get('tab') ?? (me && !isAdmin ? 'chart' : 'schema')
+  const tab = isAdmin ? requested : 'chart'
 
   const setTab = (t: string) => {
     const p = new URLSearchParams(searchParams.toString())
@@ -53,9 +71,20 @@ function AccessControlContent() {
         </p>
       </div>
 
+      {!me && meError ? (
+        <LoadError forbidden={false} what="your access" onRetry={retryMe} />
+      ) : !me ? (
+        <div className="space-y-3">
+          <Skeleton className="h-9 w-80" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      ) : !canChart ? (
+        <LoadError forbidden what="access control" />
+      ) : (
+      <>
       <div className="flex gap-1 mb-6 border-b border-border-light">
-        <TabButton active={tab === 'roles'} onClick={() => setTab('roles')}>Roles &amp; Permissions</TabButton>
-        <TabButton active={tab === 'schema'} onClick={() => setTab('schema')}>Reporting Schema</TabButton>
+        {isAdmin && <TabButton active={tab === 'roles'} onClick={() => setTab('roles')}>Roles &amp; Permissions</TabButton>}
+        {isAdmin && <TabButton active={tab === 'schema'} onClick={() => setTab('schema')}>Reporting Schema</TabButton>}
         <TabButton active={tab === 'chart'} onClick={() => setTab('chart')}>Org Chart</TabButton>
       </div>
 
@@ -65,6 +94,8 @@ function AccessControlContent() {
         <ReportingSchema preselectedUserId={preselected} />
       ) : (
         <OrgChart />
+      )}
+      </>
       )}
     </div>
   )
@@ -92,14 +123,15 @@ type PermGroup = { group: string; module: string; sections: PermSectionDef[] }
 /**
  * The Masters Module half of the matrix is DERIVED from src/lib/masters-registry.ts.
  *
- * It used to be a literal, and the literal omitted dealers, distributors and
- * institutions — which meant no administrator could ever grant those three
- * permissions, because this table is the only place the toggle exists. The
- * registry is now the only list, so a master cannot be added without its row
- * appearing here.
+ * It used to be a literal, and the literal omitted masters — which meant no
+ * administrator could ever grant them, because this table is the only place
+ * the toggle exists. The registry is now the only list, so a master cannot be
+ * added without its row appearing here.
  *
- * distributors and institutions have no screen yet (P1-T18), but their APIs are
- * live and do check the permission, so the toggle is real and belongs here.
+ * There is no Business Partners group: its three sections (`dealers`,
+ * `distributors`, `institutions`) were removed with the dealer master screen
+ * and their routes. The meeting picker (`/api/business-partners`) is governed
+ * by `companies`, under Parties & Pipeline below.
  *
  * Group headings live here rather than in the registry: this table and the
  * Masters page group the same masters under different headings, in a different
@@ -107,7 +139,6 @@ type PermGroup = { group: string; module: string; sections: PermSectionDef[] }
  */
 const MASTER_GROUP_LABELS: { group: MasterGroup; label: string }[] = [
   { group: 'locations',         label: 'Locations' },
-  { group: 'business_partners', label: 'Business Partners' },
   { group: 'products',          label: 'Products' },
   { group: 'organisation',      label: 'Organisation' },
   { group: 'lead_config',       label: 'Lead Configuration' },
@@ -180,8 +211,9 @@ const OPERATION_ROWS: Record<OperationSection, OperationRow> = {
    * places. It is left in Daily Operations, where administrators are used to
    * finding it, rather than moved down to Parties & Pipeline where it now
    * arguably belongs — moving a row is a change to muscle memory for no
-   * functional gain. Retiring the key is its own task; until then it is still
-   * read by `/api/business-partners` and must stay grantable.
+   * functional gain. No route checks it any more — `/api/business-partners`,
+   * the meeting picker, is gated on `companies` below, and that is the toggle
+   * that must stay grantable. Retiring this key is its own task.
    */
   leads:       { label: 'Leads',          group: 'daily_operations', isOperation: true },
   users:       { label: 'Users (Master)', group: 'daily_operations', isOperation: true },
@@ -276,21 +308,67 @@ function RolesPermissions() {
 
   useEffect(() => { loadRoles() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /*
+   * The matrix on screen must always be the SELECTED role's matrix, or a
+   * toggle saves to one role what the screen showed for another.
+   *
+   * It used to keep the previous role's matrix up while the next one loaded,
+   * and for good if that load failed - labelled as the new role, and live. So:
+   * the matrix is cleared the moment the selection changes, `permsFor` records
+   * which role it was loaded for, and every control is disabled unless that
+   * is the selected role. A response that arrives after the selection has
+   * moved on is aborted, and the sequence check drops one that slips past.
+   */
+  const [permsFor, setPermsFor] = useState<string | null>(null)
+  const [permsError, setPermsError] = useState<{ forbidden: boolean } | null>(null)
+  const [permsAttempt, setPermsAttempt] = useState(0)
+  const permsSeq = useRef(0)
+  const permsForRef = useRef<string | null>(null)
+  permsForRef.current = permsFor
+
   useEffect(() => {
+    const seq = ++permsSeq.current
+    setPerms({})
+    setPermsFor(null)
+    setPermsError(null)
     if (!selectedRole) return
     if (selectedRole.name === 'Administrator') {
       const all: PermMap = {}
       for (const g of PERM_GROUPS) for (const s of g.sections) all[s.key] = { view: true, create: true, edit: true, delete: true, data_scope: 'all' }
       setPerms(all)
+      setPermsFor(selectedRole.id)
       return
     }
-    fetch(`/api/settings/role-permissions?profile=${encodeURIComponent(selectedRole.name)}`)
-      .then(r => r.json())
-      .then((d: PermMap) => setPerms(d))
-  }, [selectedRole])
+    const controller = new AbortController()
+    // Section 14.4: a request that cannot fail cannot be shown as failed.
+    const deadline = setTimeout(() => controller.abort(), 15_000)
+    const roleId = selectedRole.id
+    fetch(`/api/settings/role-permissions?profile=${encodeURIComponent(selectedRole.name)}`, { signal: controller.signal })
+      .then(async r => {
+        if (!r.ok) throw Object.assign(new Error('load failed'), { forbidden: r.status === 403 })
+        const d = await r.json()
+        if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('bad shape')
+        return d as PermMap
+      })
+      .then(d => {
+        if (seq !== permsSeq.current) return
+        setPerms(d)
+        setPermsFor(roleId)
+      })
+      .catch((err: { forbidden?: boolean }) => {
+        if (seq !== permsSeq.current) return
+        setPermsError({ forbidden: err?.forbidden === true })
+      })
+      .finally(() => clearTimeout(deadline))
+    return () => { controller.abort(); clearTimeout(deadline) }
+  }, [selectedRole, permsAttempt])
+
+  /** True only when the matrix on screen belongs to the selected role. */
+  const permsReady = !!selectedRole && permsFor === selectedRole.id
 
   async function toggle(section: string, action: keyof Omit<SectionPerms, 'data_scope'>, value: boolean) {
     if (!selectedRole || selectedRole.name === 'Administrator') return
+    if (!permsReady) return
     const current = perms[section] ?? EMPTY_PERMS
     let next = { ...current, [action]: value }
     // Cascade: enabling create/edit/delete → enable view
@@ -300,48 +378,67 @@ function RolesPermissions() {
 
     setPerms(p => ({ ...p, [section]: next }))
     setSaving(section)
-    await savePerms(section, next)
+    await savePerms(selectedRole, section, current, next)
     setSaving(null)
     invalidateMeCache()
   }
 
   async function toggleAll(section: string, allOn: boolean) {
     if (!selectedRole || selectedRole.name === 'Administrator') return
+    if (!permsReady) return
     const current = perms[section] ?? EMPTY_PERMS
     const next: SectionPerms = allOn
       ? { ...current, view: true, create: true, edit: true, delete: true }
       : { ...current, view: false, create: false, edit: false, delete: false }
     setPerms(p => ({ ...p, [section]: next }))
     setSaving(section)
-    await savePerms(section, next)
+    await savePerms(selectedRole, section, current, next)
     setSaving(null)
     invalidateMeCache()
   }
 
   async function setScope(section: string, data_scope: string) {
     if (!selectedRole || selectedRole.name === 'Administrator') return
+    if (!permsReady) return
     const current = perms[section] ?? EMPTY_PERMS
     const next = { ...current, data_scope }
     setPerms(p => ({ ...p, [section]: next }))
     setSaving(section)
-    await savePerms(section, next)
+    await savePerms(selectedRole, section, current, next)
     setSaving(null)
   }
 
-  async function savePerms(section: string, p: SectionPerms) {
-    await fetch('/api/settings/role-permissions', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        profile: selectedRole!.name,
-        section,
-        can_view: p.view,
-        can_create: p.create,
-        can_edit: p.edit,
-        can_delete: p.delete,
-        data_scope: p.data_scope,
-      }),
-    })
+  /**
+   * Saves against the role the change was MADE on, passed in rather than read
+   * from state at save time. A failed save puts the row back as it was - while
+   * the same role is still on screen - instead of leaving a toggle showing a
+   * grant the server never stored.
+   */
+  async function savePerms(role: Role, section: string, before: SectionPerms, p: SectionPerms) {
+    let ok = false
+    let message = ''
+    try {
+      const r = await fetch('/api/settings/role-permissions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile: role.name,
+          section,
+          can_view: p.view,
+          can_create: p.create,
+          can_edit: p.edit,
+          can_delete: p.delete,
+          data_scope: p.data_scope,
+        }),
+      })
+      ok = r.ok
+      if (!ok) message = (await r.json().catch(() => null))?.error ?? ''
+    } catch {
+      // Network failure: fall through to the revert below.
+    }
+    if (ok) return
+    if (permsForRef.current === role.id) setPerms(prev => ({ ...prev, [section]: before }))
+    toast(message || `Could not save the ${role.name} permissions. Check your connection, then try again.`, 'error')
   }
 
   async function handleCreateRole() {
@@ -373,6 +470,8 @@ function RolesPermissions() {
   }
 
   const isAdmin = selectedRole?.name === 'Administrator'
+  /** Every control is off until the selected role's own matrix is on screen. */
+  const locked = isAdmin || !permsReady
 
   return (
     <div className="flex gap-6">
@@ -457,6 +556,13 @@ function RolesPermissions() {
               )}
             </div>
 
+            {permsError ? (
+              <LoadError
+                forbidden={permsError.forbidden}
+                what={`the ${selectedRole.name} permissions`}
+                onRetry={() => setPermsAttempt(a => a + 1)}
+              />
+            ) : (
             <div className="bg-surface border border-border-light rounded-xl overflow-auto max-h-[calc(100vh-280px)]">
               <table className="w-full text-sm">
                 <thead className="bg-surface-sunken border-b border-border-light sticky top-0 z-10">
@@ -499,10 +605,21 @@ function RolesPermissions() {
                               {s.label}
                               {saving === s.key && <span className="ml-2 text-xs text-warning">Saving…</span>}
                             </td>
+                            {!permsReady ? (
+                              /* Loading: the layout arrives first (section 14), and there is
+                                 no control on screen to click until this role's matrix lands. */
+                              <>
+                                <td className="px-3 py-2.5"><Skeleton className="h-5 w-5 mx-auto" /></td>
+                                {(['view', 'create', 'edit', 'delete'] as const).map(action => (
+                                  <td key={action} className="px-3 py-2.5"><Skeleton className="h-5 w-9 mx-auto" /></td>
+                                ))}
+                                <td className="px-3 py-2.5"><Skeleton className="h-5 w-14 mx-auto" /></td>
+                              </>
+                            ) : (<>
                             <td className="px-3 py-2.5 text-center">
                               <button
                                 onClick={() => toggleAll(s.key, !allOn)}
-                                disabled={isAdmin}
+                                disabled={locked}
                                 title={allOn ? 'Deselect all' : partial ? 'Select all' : 'Select all'}
                                 className={`w-5 h-5 rounded flex items-center justify-center border transition-colors focus:outline-none disabled:cursor-default ${
                                   allOn
@@ -528,7 +645,7 @@ function RolesPermissions() {
                               <td key={action} className="px-3 py-2.5 text-center">
                                 <button
                                   onClick={() => toggle(s.key, action, !p[action])}
-                                  disabled={isAdmin}
+                                  disabled={locked}
                                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:cursor-default ${
                                     p[action] ? 'bg-primary' : 'bg-surface-control'
                                   }`}
@@ -547,6 +664,7 @@ function RolesPermissions() {
                               ) : (
                                 <select
                                   value={p.data_scope}
+                                  disabled={locked}
                                   onChange={e => setScope(s.key, e.target.value)}
                                   className="text-xs border border-border-light rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary-ring bg-surface"
                                 >
@@ -556,6 +674,7 @@ function RolesPermissions() {
                                 </select>
                               )}
                             </td>
+                            </>)}
                           </tr>
                         )
                       })}
@@ -565,6 +684,7 @@ function RolesPermissions() {
                 </tbody>
               </table>
             </div>
+            )}
 
             <div className="mt-3 space-y-1">
               {isAdmin ? (
@@ -845,14 +965,27 @@ function nodeContains(node: OrgNode, q: string): boolean {
 function OrgChart() {
   const [users, setUsers] = useState<OrgUser[]>([])
   const [loading, setLoading] = useState(true)
+  // A failed load is its own state, not "No active users found".
+  const [loadError, setLoadError] = useState<{ forbidden: boolean } | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const [search, setSearch] = useState('')
 
   useEffect(() => {
-    fetch('/api/access-control/org-chart')
-      .then(r => r.json())
-      .then(d => { setUsers(Array.isArray(d) ? d : []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [])
+    const controller = new AbortController()
+    const deadline = setTimeout(() => controller.abort(), 15_000)
+    let live = true
+    setLoading(true)
+    setLoadError(null)
+    fetch('/api/access-control/org-chart', { signal: controller.signal })
+      .then(async r => {
+        if (!r.ok) throw Object.assign(new Error('load failed'), { forbidden: r.status === 403 })
+        const d = await r.json()
+        if (live) setUsers(Array.isArray(d) ? d : [])
+      })
+      .catch((err: { forbidden?: boolean }) => { if (live) setLoadError({ forbidden: err?.forbidden === true }) })
+      .finally(() => { clearTimeout(deadline); if (live) setLoading(false) })
+    return () => { live = false; controller.abort(); clearTimeout(deadline) }
+  }, [attempt])
 
   const { roots, standalone } = buildOrgTree(users)
   const q = search.toLowerCase()
@@ -860,6 +993,7 @@ function OrgChart() {
   const filteredStandalone = q ? standalone.filter(u => u.name.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)) : standalone
 
   if (loading) return <p className="text-sm text-text-muted py-8 text-center">Loading org chart...</p>
+  if (loadError) return <LoadError forbidden={loadError.forbidden} what="the org chart" onRetry={() => setAttempt(a => a + 1)} />
   if (users.length === 0) return <p className="text-sm text-text-secondary py-8 text-center">No active users found.</p>
 
   return (

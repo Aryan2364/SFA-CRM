@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorResult, uniqueConstraintName } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { firstForeignTenantRef, type TenantFkCheck } from '@/lib/tenant-fk'
 import { rebuildVisibility } from '@/lib/visibility'
 import bcrypt from 'bcryptjs'
+import { PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 
 /**
- * The `users_tenant_contact` unique index. Supabase surfaced this as PostgreSQL
- * error 23505; Prisma raises P2002. Both are answered with the same 400.
+ * The `users_tenant_contact` unique index — a phone is unique per tenant, not
+ * globally. The old client surfaced this as PostgreSQL error 23505; Prisma raises
+ * P2002. Both are answered with the same 400.
  */
 function isDuplicateContact(err: unknown): boolean {
   if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false
-  const target = JSON.stringify(err.meta?.target ?? '')
-  return target.includes('users_tenant_contact') || target.includes('contact')
+  // Prisma 7 leaves `meta.target` unset, so the index name is read from the
+  // driver adapter's error instead — see uniqueConstraintName().
+  if (uniqueConstraintName(err) === 'users_tenant_contact') return true
+  return JSON.stringify(err.meta?.target ?? '').includes('contact')
 }
 
 /**
@@ -25,6 +30,32 @@ function isDuplicateContact(err: unknown): boolean {
  */
 function withManagerAlias(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   return rows.map(({ users, ...rest }) => ({ ...rest, manager: users ?? null }))
+}
+
+/**
+ * Every FK on `users` references a bare primary key, so PostgreSQL accepts a
+ * department, designation, role or manager row belonging to ANOTHER tenant —
+ * and the list GET above then reads that tenant's name back out through its
+ * `include`. Until the composite FKs land (PLAN.md §8.2), each body-supplied id
+ * is looked up in the caller's own tenant first, through firstForeignTenantRef
+ * (src/lib/tenant-fk.ts). Absent, null and empty ids are left alone; only an id
+ * that was actually supplied is checked. One round-trip, but per id, so the
+ * message can name the field that missed.
+ */
+function userFkChecks(
+  tid: string,
+  f: { department_id?: unknown; designation_id?: unknown; role_id?: unknown; manager_user_id?: unknown }
+): TenantFkCheck[] {
+  return [
+    { value: f.department_id, label: 'Department',
+      find: id => prisma.departments.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: f.designation_id, label: 'Designation',
+      find: id => prisma.designations.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: f.role_id, label: 'Role',
+      find: id => prisma.roles.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: f.manager_user_id, label: 'Manager',
+      find: id => prisma.users.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+  ]
 }
 
 export async function GET(req: NextRequest) {
@@ -74,7 +105,8 @@ export async function GET(req: NextRequest) {
     const serialised = serialize(data, 'users') as Record<string, unknown>[]
     return NextResponse.json(withManagerAlias(serialised))
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }
 
@@ -86,6 +118,7 @@ export async function POST(req: NextRequest) {
   if (!email?.trim()) return NextResponse.json({ error: 'Email is required' }, { status: 400 })
   if (!contact?.trim()) return NextResponse.json({ error: 'Contact is required' }, { status: 400 })
   if (!password?.trim()) return NextResponse.json({ error: 'Password is required' }, { status: 400 })
+  if (passwordTooShort(password.trim())) return NextResponse.json({ error: PASSWORD_TOO_SHORT }, { status: 400 })
   if (!profile) return NextResponse.json({ error: 'Profile is required' }, { status: 400 })
   if (user.role !== 'Administrator')
     return NextResponse.json({ error: 'Only Administrators can create users' }, { status: 403 })
@@ -105,6 +138,28 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Phone must be free within THIS tenant only — the same rule the DB enforces
+    // with `users_tenant_contact`. One number may hold accounts in several
+    // firms; /api/auth/login resolves that by password. Checked up front for a
+    // clean 400; the constraint still catches a concurrent create below.
+    const contactTaken = await prisma.users.findFirst({
+      where: { tenant_id: tid, contact: contact.trim() },
+      select: { id: true },
+    })
+    if (contactTaken) {
+      return NextResponse.json({ error: 'This phone number is already used by another user in this company.' }, { status: 400 })
+    }
+
+    // Tenant-scope every body-supplied FK id before the write — see
+    // userFkChecks(). role_id is checked as it will be written: an
+    // Administrator is stored with none, so an id sent alongside that profile
+    // is discarded rather than rejected.
+    const fkError = await firstForeignTenantRef(userFkChecks(tid, {
+      department_id, designation_id, manager_user_id,
+      role_id: profile === 'Administrator' ? null : role_id,
+    }))
+    if (fkError) return NextResponse.json({ error: fkError }, { status: 400 })
+
     const hashedPassword = await bcrypt.hash(password.trim(), 12)
     let data
     try {
@@ -118,7 +173,7 @@ export async function POST(req: NextRequest) {
       })
     } catch (err) {
       if (isDuplicateContact(err))
-        return NextResponse.json({ error: 'Number already registered. Please use a different contact number.' }, { status: 400 })
+        return NextResponse.json({ error: 'This phone number is already used by another user in this company.' }, { status: 400 })
       throw err
     }
 
@@ -135,6 +190,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(serialize(data, 'users'), { status: 201 })
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

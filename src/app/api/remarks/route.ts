@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
         context_id: ctx.contextId,
         parent_remark_id: parent_remark_id ?? null,
         // author_user_id is NOT NULL while SessionUser.userId is nullable. A null
-        // hit the not-null constraint under Supabase and produced a 500; the cast
+        // hit the not-null constraint under the old client and produced a 500; the cast
         // keeps that path identical rather than inventing a new guard. Only a
         // SuperAdmin has a null userId, and middleware already blocks SuperAdmin
         // from tenant routes, so it is unreachable in practice.

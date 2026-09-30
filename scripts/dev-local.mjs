@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * Runs `next dev` against the LOCAL database instead of Supabase.
+ * Runs `next dev` against the LOCAL database, whatever .env.local says.
  *
- * Next loads .env.local itself, and .env.local's DATABASE_URL is the live
- * Supabase database — so a plain `next dev` browses production data. This
- * wrapper resolves SCRATCH_DATABASE_URL, refuses anything that is not a local
- * host, and overrides DATABASE_URL in the child process. Because an explicit
- * process env wins over a value loaded from .env.local, the app can only see
- * the local database for the life of this server.
+ * Next loads .env.local itself, so a plain `next dev` uses whatever database
+ * .env.local's DATABASE_URL names. This wrapper resolves SCRATCH_DATABASE_URL,
+ * refuses anything that is not a local host, and overrides DATABASE_URL in the
+ * child process. Because an explicit process env wins over a value loaded from
+ * .env.local, the app can only see the local database for the life of this
+ * server. DATABASE_URL may name the same local database; the host check is the
+ * safety rule, so equal values are fine.
  *
  * DATABASE_CA_CERT_PATH is cleared too: the local URL carries no sslmode, so
  * src/lib/db.ts takes its no-TLS branch and never consults a CA.
@@ -31,17 +32,12 @@ if (!raw) {
   process.exit(1)
 }
 
-const host = new URL(raw).hostname
+// WHATWG URL keeps the brackets on an IPv6 host (`[::1]`); strip them.
+const host = new URL(raw).hostname.replace(/^\[|\]$/g, '')
 const LOCAL = new Set(['localhost', '127.0.0.1', '::1'])
 if (!LOCAL.has(host)) {
   console.error(`REFUSING TO RUN: SCRATCH_DATABASE_URL points at "${host}", not a local host.`)
   console.error('dev:local exists precisely so the dev server cannot reach a hosted database.')
-  process.exit(1)
-}
-
-const live = readEnv('DATABASE_URL')
-if (live && live.trim() === raw.trim()) {
-  console.error('REFUSING TO RUN: SCRATCH_DATABASE_URL is identical to DATABASE_URL.')
   process.exit(1)
 }
 
@@ -52,7 +48,7 @@ const DEV_TENANT_ID = '0000000d-0000-4000-8000-000000000001'
 
 const port = process.argv[2] ?? '3007'
 
-console.log(`Dev server on port ${port}, database ${new URL(raw).pathname.slice(1)} @ ${host} (NOT Supabase).`)
+console.log(`Dev server on port ${port}, database ${new URL(raw).pathname.slice(1)} @ ${host} (local only).`)
 
 const child = spawn('npx', ['next', 'dev', '-p', port], {
   stdio: 'inherit',

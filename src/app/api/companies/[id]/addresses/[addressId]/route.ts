@@ -11,6 +11,7 @@ import {
   findCompany,
   type AddressBody,
 } from '../_shared'
+import { foreignLocationRef } from '../../../_access'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,7 +59,7 @@ export async function PUT(
   if ('error' in built) return NextResponse.json({ error: built.error }, { status: 400 })
 
   try {
-    if (!await findCompany(params.id, tid))
+    if (!await findCompany(user, params.id, tid))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // The address must belong to THIS company AND this tenant. Checking only
@@ -68,6 +69,10 @@ export async function PUT(
       select: { id: true, is_primary: true },
     })
     if (!current) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // The location ids came from the body — see src/lib/tenant-fk.ts.
+    const miss = await foreignLocationRef(tid, built.data)
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
 
     // `is_primary` absent from the body means "leave it alone" — a PUT that
     // only edits the street must not silently demote the primary.
@@ -124,7 +129,7 @@ export async function DELETE(
   const tid = getTenantId()
 
   try {
-    if (!await findCompany(params.id, tid))
+    if (!await findCompany(user, params.id, tid))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const current = await prisma.company_addresses.findFirst({

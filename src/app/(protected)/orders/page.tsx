@@ -19,6 +19,7 @@ import { CreateOrderDialog } from '@/components/orders/create-order-dialog'
 import { OptionSelect } from '@/components/orders/option-select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { fmtAmount, fmtDate, fmtQty } from '@/lib/format'
 import { ORDER_STATUSES, type DiscountType, type OrderStatus } from '@/lib/order-math'
 
@@ -85,8 +86,11 @@ const DETAIL_STATUS_OPTIONS: Record<string, string> = Object.fromEntries(
 // ─────────────────────────────────────────────────────────────
 // OrderDetailDrawer
 // ─────────────────────────────────────────────────────────────
-function OrderDetailDrawer({ order, onClose, onStatusChange }: {
+function OrderDetailDrawer({ order, canEdit, onClose, onStatusChange }: {
   order: OrderDetail
+  /** orders.edit, which PATCH /api/orders/[id] checks. `null` while /me is
+   *  still loading: disabled, with no reason given yet. */
+  canEdit: boolean | null
   onClose: () => void
   onStatusChange: () => void
 }) {
@@ -197,16 +201,21 @@ function OrderDetailDrawer({ order, onClose, onStatusChange }: {
               {/* F16: the kit's Select, like every other picker on this
                   screen. A native <select> paints the operating system's
                   menu and cannot carry §16.2's selected-vs-hovered rule. */}
-              <div className="w-40">
-                <OptionSelect
-                  id="order-detail-status"
-                  options={DETAIL_STATUS_OPTIONS}
-                  value={status}
-                  onValueChange={v => updateStatus(v as OrderStatus)}
-                  disabled={saving}
-                  className="max-w-none"
-                />
-              </div>
+              <PermissionTooltip
+                allowed={canEdit !== false}
+                reason="Only someone who can edit orders can change the status"
+              >
+                <div className="w-40">
+                  <OptionSelect
+                    id="order-detail-status"
+                    options={DETAIL_STATUS_OPTIONS}
+                    value={status}
+                    onValueChange={v => updateStatus(v as OrderStatus)}
+                    disabled={saving || canEdit !== true}
+                    className="max-w-none"
+                  />
+                </div>
+              </PermissionTooltip>
               {order.has_discount && <SpecBadge spec={DISCOUNT_FLAG} />}
             </div>
             {blockedReason && (
@@ -535,6 +544,10 @@ function OrdersPageInner() {
   const [detailOrder, setDetailOrder] = useState<OrderDetail | null>(null)
   const [hasSubordinates, setHasSubordinates] = useState(false)
   const [canCreateOrder, setCanCreateOrder] = useState(false)
+  const [canEditOrder, setCanEditOrder] = useState(false)
+  /* "Not known yet" is not "not allowed": until /me answers, Create order is
+     disabled with no reason attached. */
+  const [permsLoaded, setPermsLoaded] = useState(false)
   const [canCreateParty, setCanCreateParty] = useState(false)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   /* Bumped when a create or a status change makes the list stale. */
@@ -558,16 +571,20 @@ function OrdersPageInner() {
 
   const draftCount = draftOrders?.length ?? 0
 
-  /* Real permissions, never a role name. `/api/auth/me` reports a section's
-     `edit` as `can_edit || can_create`, which is the closest the wire gets to
-     "may create" — and it is what `POST /api/orders` and `POST /api/companies`
-     both authorise against (`can_create ?? can_edit`). A button whose only
-     outcome for this user is a 403 is not shown. */
+  /* Real permissions, never a role name. Each gate is the action its route
+     checks: `POST /api/orders` without a visit (the only kind this screen
+     raises) checks orders.create, and `POST /api/companies` checks
+     companies.create. Re-punching a meeting's order is orders.edit, but that
+     lives on the meeting, not here. */
   useEffect(() => {
-    fetch('/api/auth/me').then(r => r.json()).then(d => {
+    // An error body is not a user: reading it would report "not allowed".
+    fetch('/api/auth/me').then(r => (r.ok ? r.json() : Promise.reject(r))).then(d => {
       setHasSubordinates(d.hasSubordinates ?? false)
-      setCanCreateOrder(Boolean(d.permissions?.orders?.edit))
-      setCanCreateParty(Boolean(d.permissions?.companies?.edit))
+      setCanCreateOrder(Boolean(d.permissions?.orders?.create))
+      // PATCH /api/orders/[id] — the drawer's status change — checks orders.edit.
+      setCanEditOrder(Boolean(d.permissions?.orders?.edit))
+      setCanCreateParty(Boolean(d.permissions?.companies?.create))
+      setPermsLoaded(true)
     }).catch(() => toast('Failed to load user settings', 'error'))
   }, [toast])
 
@@ -729,12 +746,15 @@ function OrdersPageInner() {
         action={
           <div className="flex items-center gap-2">
             <DataHealthAlerts alerts={healthAlerts} label="Order data health" />
-            {canCreateOrder ? (
-              <Button onClick={() => setCreateOpen(true)}>
+            <PermissionTooltip
+              allowed={!permsLoaded || canCreateOrder}
+              reason="Only someone who can create orders can raise one"
+            >
+              <Button onClick={() => setCreateOpen(true)} disabled={!canCreateOrder}>
                 <PlusIcon />
                 Create order
               </Button>
-            ) : null}
+            </PermissionTooltip>
           </div>
         }
         columns={orderColumns(openDetail)}
@@ -763,6 +783,7 @@ function OrdersPageInner() {
       {detailOrder && (
         <OrderDetailDrawer
           order={detailOrder}
+          canEdit={permsLoaded ? canEditOrder : null}
           onClose={() => setDetailOrder(null)}
           onStatusChange={() => {
             setRefreshKey(k => k + 1)

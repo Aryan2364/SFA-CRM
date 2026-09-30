@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import CrudPage, { Column } from '@/components/ui/CrudPage'
+import CrudPage, { Column, masterLocks } from '@/components/ui/CrudPage'
 import Modal from '@/components/ui/Modal'
 import SearchableSelect from '@/components/ui/SearchableSelect'
 import { useCrud } from '@/hooks/useCrud'
@@ -17,9 +17,9 @@ export default function ProductSubcategoriesPage() {
   const crud = useCrud('/api/masters/product-subcategories')
   const me = useMe()
   const { toast } = useToast()
-  const isAdmin = me?.role === 'Administrator'
-  const canEdit = isAdmin || (me?.permissions?.product_subcategories?.edit ?? false)
-  const canDelete = isAdmin || (me?.permissions?.product_subcategories?.delete ?? false)
+  // The real permission map, never a role name — Administrators get every
+  // section from /api/auth/me. Denied actions show disabled with a reason.
+  const locks = masterLocks(me, 'product_subcategories', 'product sub-categories')
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
   const [name, setName] = useState(''); const [catId, setCatId] = useState('')
@@ -48,10 +48,11 @@ export default function ProductSubcategoriesPage() {
     <>
       <CrudPage title="Product Sub-Categories" backHref="/masters" columns={COLS} rows={crud.rows} allRowsCount={crud.allRows.length}
         isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
+        loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
         page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={canEdit ? openAdd : undefined}
-        onEdit={canEdit ? openEdit : undefined}
-        onDelete={canDelete ? r => crud.remove(r.id as string) : undefined} />
+        onAdd={openAdd}
+        onEdit={openEdit}
+        onDelete={r => crud.remove(r.id as string)} deleteMode="hard" />
       <Modal title={editing ? 'Edit Sub-Category' : 'Add Sub-Category'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
         <div>
           <p className="block text-sm font-medium text-text-secondary mb-1">Category <span className="text-danger">*</span></p>

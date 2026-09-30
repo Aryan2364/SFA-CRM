@@ -2,10 +2,9 @@
  * Batch 4 — orders, leads, business-partners, daily-activity, attendance and
  * the three non-storage expenses routes. 17 routes, READ paths against live.
  *
- * expenses/upload is NOT here: it is the only Supabase Storage call site in the
- * codebase and stays on Supabase until Phase B has R2 credentials.
+ * expenses/upload is NOT here: it writes a real object to storage.
  */
-import { db, mintSession, req, ctx } from './lib.mjs'
+import { db, mintSession, req, ctx, viewerPermissions, within } from './lib.mjs'
 
 export const name = 'orders-leads-activity'
 
@@ -95,23 +94,36 @@ export async function run() {
   t.ok('exposes only id and name', tb.every(u => Object.keys(u).sort().join(',') === 'id,name'))
 
   // ---- leads / business-partners -------------------------------------------
-  t.section('leads')
-  const lr = await get('/api/leads')
+  // /api/leads does not exist any more: leads are Companies (the renamed
+  // business_partners table), listed by /api/companies. That list is gated on
+  // companies:view and scoped on owner_user_id, and requireUser() re-resolves
+  // the viewer's real role, so the expected count mirrors both.
+  t.section('companies (formerly leads)')
+  const perm = await viewerPermissions(prisma, admin.id, tid)
+  const coScope = within(await perm.userIds('companies'), 'owner_user_id')
+  const lr = await get('/api/companies')
   const lb = await lr.json()
-  const leadCount = await prisma.companies.count({ where: { tenant_id: tid } })
-  t.ok(`-> 200 with all ${leadCount} partners`, lr.status === 200 && lb.length === leadCount, { status: lr.status, got: lb.length })
-  if (lb.length) {
+  if (!perm.view('companies')) {
+    t.ok('-> 403 without companies:view', lr.status === 403, lr.status)
+  } else {
+  const leadCount = await prisma.companies.count({ where: { tenant_id: tid, ...coScope } })
+  t.ok(`-> 200 with all ${leadCount} companies in scope (${perm.scope('companies')})`, lr.status === 200 && Array.isArray(lb) && lb.length === leadCount, { status: lr.status, got: lb?.length })
+  if (Array.isArray(lb) && lb.length) {
     t.ok('ALIASED embed is exposed as `created_by`, not the relation name',
       lb.every(l => 'created_by' in l && !('users' in l)), Object.keys(lb[0]).filter(k => k === 'users' || k === 'created_by'))
     t.ok('created_by is an OBJECT or null, never an array', lb.every(l => l.created_by === null || (typeof l.created_by === 'object' && !Array.isArray(l.created_by))), lb.find(l => l.created_by)?.created_by)
     t.ok('districts/talukas/villages embeds are objects or null',
       lb.every(l => ['districts', 'talukas', 'villages'].every(k => l[k] === null || (typeof l[k] === 'object' && !Array.isArray(l[k])))))
-    t.ok('latitude/longitude are numbers or null', lb.every(l => (l.latitude === null || typeof l.latitude === 'number') && (l.longitude === null || typeof l.longitude === 'number')))
     t.ok('next_follow_up_date is DATE-ONLY or null', lb.every(l => l.next_follow_up_date === null || DATE_ONLY.test(l.next_follow_up_date)), lb[0].next_follow_up_date)
-    const someType = lb[0].type
-    const tb2 = await (await get(`/api/leads?type=${encodeURIComponent(someType)}`)).json()
-    const expType = await prisma.companies.count({ where: { tenant_id: tid, type: someType } })
-    t.ok(`?type= filters exactly (${expType})`, tb2.length === expType, tb2.length)
+    // A blank type ('') is how "no Company Type" is stored, and `?type=` with an
+    // empty value applies no filter, so the probe uses a non-blank type.
+    const someType = lb.find(l => l.type)?.type
+    if (someType) {
+      const tb2 = await (await get(`/api/companies?type=${encodeURIComponent(someType)}`)).json()
+      const expType = await prisma.companies.count({ where: { tenant_id: tid, type: someType, ...coScope } })
+      t.ok(`?type= filters exactly (${expType})`, tb2.length === expType, tb2.length)
+    } else t.skip('GET /api/companies?type=', 'no company in scope has a non-blank type')
+  }
   }
 
   t.section('business-partners lookup (.neq preserved)')
@@ -125,8 +137,8 @@ export async function run() {
   t.ok(`status=lead -> ${expLead} (the .neq branch)`, bpl.status === 200 && bplb.length === expLead, { status: bpl.status, got: bplb.length })
   t.ok('the two branches are disjoint', !bpeb.some(a => bplb.some(b => b.id === a.id)))
 
-  t.section('leads/bulk-template generates a workbook')
-  const bt = await get('/api/leads/bulk-template')
+  t.section('companies/bulk-template generates a workbook')
+  const bt = await get('/api/companies/bulk-template')
   t.ok('-> 200', bt.status === 200, bt.status)
   const buf = Buffer.from(await bt.arrayBuffer())
   t.ok('body is a real XLSX (PK zip magic)', buf.length > 1000 && buf[0] === 0x50 && buf[1] === 0x4b, { len: buf.length, magic: buf.slice(0, 2) })
@@ -169,7 +181,9 @@ export async function run() {
   const ar = await get('/api/attendance')
   t.ok('-> 200 (null or a row)', ar.status === 200, ar.status)
   if (att) {
-    const attToken = await mintSession({ phone: admin.contact, userId: att.user_id, name: admin.name, role: 'Administrator', tenantId: tid, cv: 1 })
+    // requireUser() enforces cv, so mint with this user's real credentials_version.
+    const attUser = await prisma.users.findUnique({ where: { id: att.user_id }, select: { contact: true, name: true, credentials_version: true } })
+    const attToken = await mintSession({ phone: attUser?.contact ?? admin.contact, userId: att.user_id, name: attUser?.name ?? admin.name, role: 'Administrator', tenantId: tid, cv: attUser?.credentials_version ?? 1 })
     const d = att.date.toISOString().slice(0, 10)
     const ar2 = await req(`/api/attendance?date=${d}`, { token: attToken })
     const ab = await ar2.json()
@@ -206,11 +220,11 @@ export async function run() {
 
   t.section('routes not exercised against live')
   t.skip('POST /api/orders (both flows), PATCH /api/orders/[id]', 'creates real orders and order_items, and the meeting flow upserts on visit_id. Covered on the scratch database.')
-  t.skip('POST /api/leads, PUT+DELETE /api/leads/[id], POST /api/leads/bulk-import', 'create, edit and delete real business_partners rows for a production tenant.')
+  t.skip('POST /api/companies, PUT+DELETE /api/companies/[id], POST /api/companies/bulk-import', 'create, edit and delete real companies rows for a production tenant.')
   t.skip('POST /api/daily-activity, PATCH /api/daily-activity/[id] (start/stop/delete/update_notes)', 'create and mutate real meeting records, and start/stop auto-completes stale visits.')
   t.skip('POST /api/attendance/check-in and check-out', 'write real attendance rows and award points to real users.')
   t.skip('POST /api/expenses, DELETE /api/expenses/[id]', 'create and delete real expense records.')
-  t.skip('POST /api/expenses/upload', 'STILL ON SUPABASE — the only Supabase Storage call site in the codebase, waiting on R2 credentials for Phase B. Not converted, not exercised.')
+  t.skip('POST /api/expenses/upload', 'uploads a real object to R2 storage. Not exercised.')
 
   return t.result()
 }

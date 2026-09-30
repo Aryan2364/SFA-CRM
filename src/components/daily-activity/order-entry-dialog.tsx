@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { PlusIcon, XIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
+import { useMe } from '@/hooks/useMe'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import {
   Dialog,
   DialogBody,
@@ -23,7 +25,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { fmtAmount } from '@/lib/format'
+import { lineTotals, orderTotals, type DiscountType } from '@/lib/order-math'
 import { OrderItem, Product, toDateStr, Visit } from './types'
+
+/**
+ * A line as this dialog holds it. The discount is not edited here (the Orders
+ * screen owns discounts), but a re-punch must CARRY it: this dialog posts the
+ * whole order, and a line posted without its discount is saved without one.
+ */
+type DialogLine = OrderItem & { discount_type?: DiscountType | string; discount_value?: number }
+
+/** The order-level discount of the order being re-punched; none for a new one. */
+type OrderDiscount = { type: DiscountType | string; value: number }
+const NO_DISCOUNT: OrderDiscount = { type: 'none', value: 0 }
 
 /**
  * Order entry against one meeting. Behaviour unchanged from the legacy
@@ -32,6 +46,19 @@ import { OrderItem, Product, toDateStr, Visit } from './types'
  *
  * §5.3 rule 4: it opens for any Active or Completed meeting on the day
  * in view, whether or not the user has checked out.
+ *
+ * RATE: `POST /api/orders` prices every line that carries a `product_id`
+ * from `products.price` and discards a posted rate (see `priceLines()`), so
+ * on those lines the rate is the master's list price, shown read-only — an
+ * editable box there let the rep confirm a total the server then replaced.
+ * Only a free-text line (no product picked) keeps a typed rate, because that
+ * is the one case the server honours it. Totals come from `order-math`, the
+ * same functions the route runs, so the figure on screen is the saved one.
+ *
+ * DISCOUNTS: re-punching an order that already carries line or order
+ * discounts (set on the Orders screen) keeps them — they are loaded with the
+ * order, included in the totals shown here through the same `order-math`, and
+ * posted back, so a quantity fix here no longer strips them.
  */
 export function OrderEntryDialog({
   visit,
@@ -43,10 +70,20 @@ export function OrderEntryDialog({
   onSaved: () => void
 }) {
   const { toast } = useToast()
-  const [items, setItems] = useState<OrderItem[]>([{ product_id: null, product_name: '', qty: 1, rate: 0 }])
+  const [items, setItems] = useState<DialogLine[]>([{ product_id: null, product_name: '', qty: 1, rate: 0 }])
+  const [orderDiscount, setOrderDiscount] = useState<OrderDiscount>(NO_DISCOUNT)
   const [products, setProducts] = useState<Product[]>([])
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  /* POST /api/orders on a meeting that already has an order is a re-punch,
+     and the route checks orders.edit as well as orders.create for it. The
+     Order button that opened this was gated on create; this is the edit half,
+     known only once the existing order has been read. `null` while /me is
+     loading: disabled, no reason yet. */
+  const [hasOrder, setHasOrder] = useState(false)
+  const me = useMe()
+  const canEditOrder = me ? !!me.permissions?.orders?.edit : null
+  const repunchBlocked = hasOrder && canEditOrder !== true
 
   useEffect(() => {
     fetch('/api/masters/products')
@@ -57,22 +94,34 @@ export function OrderEntryDialog({
     fetch(`/api/orders?visitId=${visit.id}`)
       .then(r => r.json())
       .then(d => {
+        setHasOrder(Boolean(d?.id))
         if (d?.order_items?.length) {
           setItems(
-            d.order_items.map((i: { product_id: string | null; product_name: string; qty: number; rate: number }) => ({
+            d.order_items.map((i: {
+              product_id: string | null; product_name: string; qty: number; rate: number
+              discount_type?: string | null; discount_value?: number | string | null
+            }) => ({
               product_id: i.product_id,
               product_name: i.product_name,
               qty: i.qty,
               rate: Number(i.rate),
+              discount_type: i.discount_type ?? 'none',
+              discount_value: Number(i.discount_value) || 0,
             }))
           )
+        }
+        if (d?.id) {
+          setOrderDiscount({
+            type: d.order_discount_type ?? 'none',
+            value: Number(d.order_discount_value) || 0,
+          })
         }
         setLoading(false)
       })
       .catch(() => setLoading(false))
   }, [visit.id])
 
-  function updateRow(idx: number, field: keyof OrderItem, value: string | number | null) {
+  function updateRow(idx: number, field: keyof DialogLine, value: string | number | null) {
     setItems(prev => prev.map((row, i) => (i !== idx ? row : { ...row, [field]: value })))
   }
 
@@ -85,7 +134,32 @@ export function OrderEntryDialog({
     )
   }
 
-  const total = items.reduce((s, i) => s + i.qty * i.rate, 0)
+  /** The rate the server will use: the master's price on a product line. */
+  function rateOf(item: DialogLine): number {
+    if (!item.product_id) return item.rate
+    const p = products.find(p => p.id === item.product_id)
+    // Until the product list lands, the rate saved on the order is the best
+    // preview; the server reprices from the master either way.
+    return p ? Number(p.price) : item.rate
+  }
+
+  /** A line as `order-math` (and so the route) prices it: master rate, own discount. */
+  const priced = (i: DialogLine) => ({
+    qty: i.qty,
+    rate: rateOf(i),
+    discount_type: i.discount_type,
+    discount_value: i.discount_value,
+  })
+
+  // Only named lines are posted, so only named lines are totalled — with the
+  // line and order discounts, exactly as `POST /api/orders` will store them.
+  const totals = orderTotals(
+    items.filter(i => i.product_name.trim()).map(priced),
+    orderDiscount.type,
+    orderDiscount.value,
+  )
+  const total = totals.total_amount
+  const discountTotal = totals.item_discount_total + totals.order_discount_amount
 
   async function handleSave() {
     const validItems = items.filter(i => i.product_name.trim())
@@ -96,8 +170,21 @@ export function OrderEntryDialog({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         visit_id: visit.id,
-        order_date: visit.start_time?.split('T')[0] ?? toDateStr(new Date()),
-        items: validItems,
+        // The meeting's LOCAL calendar date. Slicing the ISO string took the
+        // UTC date, which is the previous day for a meeting started before
+        // 05:30 IST.
+        order_date: toDateStr(visit.start_time ? new Date(visit.start_time) : new Date()),
+        // A product line sends no rate: the server would discard it. Each line
+        // carries its discount, or a re-punch would save it without one.
+        items: validItems.map(i => ({
+          ...(i.product_id
+            ? { product_id: i.product_id, product_name: i.product_name, qty: i.qty }
+            : { product_id: null, product_name: i.product_name, qty: i.qty, rate: i.rate }),
+          discount_type: i.discount_type ?? 'none',
+          discount_value: i.discount_value ?? 0,
+        })),
+        order_discount_type: orderDiscount.type,
+        order_discount_value: orderDiscount.value,
       }),
     })
     if (!r.ok) toast((await r.json()).error ?? 'Failed to save the order', 'error')
@@ -154,24 +241,48 @@ export function OrderEntryDialog({
                       <Input
                         type="number"
                         min="1"
+                        step="1"
                         inputMode="numeric"
+                        aria-label="Quantity"
                         value={item.qty}
-                        onChange={e => updateRow(idx, 'qty', Math.max(1, Number(e.target.value)))}
+                        onChange={e => updateRow(idx, 'qty', Math.max(1, Math.floor(Number(e.target.value) || 1)))}
                         className="text-center"
                       />
                     </div>
                     <div className="sm:col-span-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        inputMode="decimal"
-                        value={item.rate}
-                        onChange={e => updateRow(idx, 'rate', Number(e.target.value))}
-                        className="text-center"
-                      />
+                      {item.product_id ? (
+                        <div className="flex items-baseline justify-between gap-2 sm:flex-col sm:items-center sm:gap-0">
+                          <span className="text-caption text-text-muted">List price</span>
+                          <span className="tabular-nums text-text-secondary">{fmtAmount(rateOf(item))}</span>
+                        </div>
+                      ) : (
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          aria-label="Rate"
+                          value={item.rate}
+                          onChange={e => updateRow(idx, 'rate', Math.max(0, Number(e.target.value) || 0))}
+                          className="text-center"
+                        />
+                      )}
                     </div>
-                    <div className="tabular-nums sm:col-span-2 sm:text-right">{fmtAmount(item.qty * item.rate)}</div>
+                    <div className="tabular-nums sm:col-span-2 sm:text-right">
+                      {(() => {
+                        const line = lineTotals(priced(item))
+                        return (
+                          <>
+                            {fmtAmount(line.amount)}
+                            {line.discount_amount > 0 && (
+                              <span className="block text-caption text-text-muted">
+                                after {fmtAmount(line.discount_amount)} off
+                              </span>
+                            )}
+                          </>
+                        )
+                      })()}
+                    </div>
                     <div className="flex justify-end sm:col-span-1 sm:justify-center">
                       {items.length > 1 && (
                         <Button
@@ -203,10 +314,20 @@ export function OrderEntryDialog({
         <DialogFooter className="justify-between">
           <span className="text-body text-text-secondary">
             Total <span className="font-medium tabular-nums text-text-primary">{fmtAmount(total)}</span>
+            {discountTotal > 0 && (
+              <span className="block text-caption text-text-muted">
+                Includes {fmtAmount(discountTotal)} in discounts
+              </span>
+            )}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save order'}</Button>
+            <PermissionTooltip
+              allowed={!(hasOrder && canEditOrder === false)}
+              reason="Only someone who can edit orders can change this one"
+            >
+              <Button onClick={handleSave} disabled={saving || repunchBlocked}>{saving ? 'Saving…' : 'Save order'}</Button>
+            </PermissionTooltip>
           </div>
         </DialogFooter>
       </DialogContent>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 
 export default function NewCompanyPage() {
   const router = useRouter()
@@ -23,6 +24,7 @@ export default function NewCompanyPage() {
     if (!form.adminPhone.trim()) { setError('Admin phone is required'); return }
     if (!/^\d{10}$/.test(form.adminPhone.trim())) { setError('Admin phone must be exactly 10 digits'); return }
     if (!form.adminPassword.trim()) { setError('Admin password is required'); return }
+    if (passwordTooShort(form.adminPassword.trim())) { setError(PASSWORD_TOO_SHORT); return }
     if (Number(form.license_count) < 1) { setError('License count must be at least 1'); return }
 
     setError('')
@@ -117,7 +119,7 @@ export default function NewCompanyPage() {
           </div>
           <div>
             <label htmlFor="new-co-admin-password" className="block text-sm font-medium text-text-secondary mb-1">Password <span className="text-danger">*</span></label>
-            <input id="new-co-admin-password" name="adminPassword" type="text" value={form.adminPassword} onChange={F('adminPassword')} placeholder="Set a strong password" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+            <input id="new-co-admin-password" name="adminPassword" type="text" value={form.adminPassword} onChange={F('adminPassword')} placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
           </div>
         </div>
 

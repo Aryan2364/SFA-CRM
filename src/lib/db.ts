@@ -48,8 +48,8 @@ const DEFAULT_POOL_MAX = 5
 
 /**
  * Where the CA bundle lives. The Dockerfile bakes the RDS bundle at
- * `/app/certs/rds-global-bundle.pem`; DATABASE_CA_CERT_PATH overrides it, which
- * is how development points at Supabase's CA instead.
+ * `/app/certs/rds-global-bundle.pem`; DATABASE_CA_CERT_PATH overrides it, for
+ * running outside the image (e.g. `certs/rds-global-bundle.pem` locally).
  */
 const DEFAULT_CA_PATH = '/app/certs/rds-global-bundle.pem'
 
@@ -91,12 +91,6 @@ function readCa(path: string): Buffer | null {
  * `sslmode`, so it takes the first branch and needs no CA at all — the
  * write-path suites must keep running with no certificate anywhere.
  *
- * Development against Supabase needs a DIFFERENT CA from production, not a
- * weaker policy: Supabase presents a self-signed chain (`Supabase Root 2021 CA`)
- * which the system trust store rejects with SELF_SIGNED_CERT_IN_CHAIN, so it
- * needs `prod-ca-2021.crt` while RDS needs `global-bundle.pem`. Verified in both
- * directions; see .env.example.
- *
  * NOTE: this cannot be fixed from outside the app. `sslmode` in the URL is a
  * Prisma-engine parameter that node-postgres ignores, and even `sslmode=verify-full`
  * would be stripped here — the `ssl` option below is the ONLY control. Do not
@@ -121,8 +115,8 @@ function buildSslOption(needsSsl: boolean) {
     throw new Error(
       `Refusing to connect: the database URL requires SSL but no CA certificate was found at ` +
         `"${caPath}". Set DATABASE_CA_CERT_PATH to the CA bundle for this database ` +
-        `(RDS: certs/rds-global-bundle.pem, baked into the image at ${DEFAULT_CA_PATH}; ` +
-        `Supabase: prod-ca-2021.crt from the project dashboard). This is deliberate — ` +
+        `(RDS: certs/rds-global-bundle.pem, baked into the image at ${DEFAULT_CA_PATH}). ` +
+        `This is deliberate — ` +
         `connecting without verifying the certificate is not an available fallback.`
     )
   }
@@ -225,7 +219,7 @@ export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
 // ---------------------------------------------------------------------------
 
 /**
- * Supabase returned JSON over HTTP: timestamps arrived as ISO strings and
+ * The previous database client returned JSON over HTTP: timestamps arrived as ISO strings and
  * numerics as JS numbers. Prisma returns `Date` and `Decimal` objects instead.
  * Every route must run its payload through `serialize()` before returning it, so
  * the client keeps receiving exactly the shapes it receives today.
@@ -338,13 +332,121 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 // Error shaping (PLAN.md §5.4)
 // ---------------------------------------------------------------------------
 
+const GENERIC_MESSAGE = 'Something went wrong. Please try again.'
+
 /**
- * Supabase returned failures as a value, and routes answered with
+ * `districts_state_id_fkey` -> `districts`, i.e. the table that still holds a
+ * reference. Postgres' default constraint name is `<table>_<column>_fkey`, and
+ * the column on a foreign key is `<something>_id`, so the two suffixes come off
+ * in that order. Anything that does not match that shape returns null and the
+ * caller stays generic — a confidently wrong table name is worse than none.
+ */
+function dependentTableFromConstraint(constraint: unknown): string | null {
+  if (typeof constraint !== 'string') return null
+  const match = /^([a-z0-9_]+?)_[a-z0-9]+_id_fkey$/.exec(constraint)
+  if (!match) return null
+  return match[1].replace(/_/g, ' ')
+}
+
+/** The field a unique violation names, in plain words, or null. */
+function uniqueFieldFromTarget(target: unknown): string | null {
+  // Only an array of exactly one column names a field. A string target is an
+  // index name (e.g. `states_tenant_name`), which would read as "this states
+  // tenant name" — the caller's generic wording is right for it.
+  if (!Array.isArray(target) || target.length !== 1 || typeof target[0] !== 'string') return null
+  const field = target[0].replace(/_/g, ' ').trim()
+  return field && field.length < 40 ? field : null
+}
+
+/**
+ * The name of the unique index a P2002 violated, e.g. `users_tenant_contact`,
+ * or null. Prisma 7 with a driver adapter leaves `meta.target` unset: the
+ * index name is at `meta.driverAdapterError.cause.constraint.index` (set by
+ * `@prisma/adapter-pg` from the Postgres error), and also in the message as
+ * "Unique constraint failed on the constraint: `<name>`". `meta.target` is
+ * still read first, for the engine-based client.
+ */
+export function uniqueConstraintName(err: unknown): string | null {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return null
+  const meta = err.meta as {
+    target?: unknown
+    driverAdapterError?: { cause?: { constraint?: { index?: unknown } } }
+  } | undefined
+  if (typeof meta?.target === 'string' && meta.target) return meta.target
+  const index = meta?.driverAdapterError?.cause?.constraint?.index
+  if (typeof index === 'string' && index) return index
+  return /constraint: `([^`]+)`/.exec(err.message)?.[1] ?? null
+}
+
+/**
+ * The previous database client returned failures as a value, and routes answered with
  * `{ error: error.message }`. Prisma throws instead, so converted routes catch
  * and run the thrown value through this to keep the same response body.
+ *
+ * **It never returns the thrown message.** A Prisma exception carries the
+ * invocation path inside the container and the database's own constraint name —
+ * `Invalid prisma.states.deleteMany() invocation in /app/.next/server/… Foreign
+ * key constraint violated on districts_state_id_fkey` — and this one function
+ * feeds every master DELETE route, so that text went to end users verbatim.
+ * Known codes are mapped to plain language; everything else is generic, and the
+ * original is logged here so it is still debuggable from the server logs.
  */
 export function dbErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  return dbErrorResult(err).error
+}
+
+/**
+ * The same mapping, with the HTTP status the failure actually is: a unique or
+ * foreign-key violation is a 409, a missing record a 404, an unreachable
+ * database a 503. Routes still returning a blanket 500 can adopt this as
+ * `const { error, status } = dbErrorResult(err)`.
+ */
+export function dbErrorResult(err: unknown): { error: string; status: number } {
+  console.error('[db]', err)
+
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    switch (err.code) {
+      case 'P2002': {
+        const field = uniqueFieldFromTarget(err.meta?.target)
+        return {
+          error: field
+            ? `A record with this ${field} already exists.`
+            : 'A record with this name already exists.',
+          status: 409,
+        }
+      }
+      case 'P2003': {
+        const table = dependentTableFromConstraint(err.meta?.constraint)
+        return {
+          error: table
+            ? `This can't be deleted because ${table} still belong to it.`
+            : "This can't be deleted because other records still use it.",
+          status: 409,
+        }
+      }
+      case 'P2025':
+        return { error: 'This record no longer exists.', status: 404 }
+      case 'P2000':
+        return { error: 'One of the values is too long for its field.', status: 400 }
+      case 'P2011':
+        return { error: 'A required value is missing.', status: 400 }
+      // Postgres 22P02 and kin, e.g. a malformed uuid in a body or a by-id URL.
+      case 'P2007':
+        return { error: 'One of the values is invalid.', status: 400 }
+      default:
+        return { error: GENERIC_MESSAGE, status: 500 }
+    }
+  }
+
+  // P1xxx are connection failures — not the caller's doing, and retryable.
+  if (
+    err instanceof Prisma.PrismaClientInitializationError ||
+    (err instanceof Error && 'errorCode' in err && typeof err.errorCode === 'string' && err.errorCode.startsWith('P1'))
+  ) {
+    return { error: 'The database could not be reached. Please try again.', status: 503 }
+  }
+
+  return { error: GENERIC_MESSAGE, status: 500 }
 }
 
 /**
@@ -352,7 +454,7 @@ export function dbErrorMessage(err: unknown): string {
  *
  * `serialize()` handles this for RESPONSE payloads, but some routes need the
  * string SERVER-SIDE — to compare against a date string, or to use as an object
- * key. Those sites used to work by accident because Supabase already handed back
+ * key. Those sites used to work by accident because the old client already handed back
  * a string; with a `Date` they would compare/index against
  * "Mon Sep 14 2026 …" instead, silently and without throwing.
  */

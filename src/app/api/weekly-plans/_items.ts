@@ -14,8 +14,8 @@
  * ⚠️ THE "OTHERS" DATA-LOSS BUG (P3-T3), and how it is retired.
  *
  * The UI's third per-row count, "Others", had no integer column: this table
- * carried `existing_dealers_goal` (the UI's "Dist.") and `new_dealers_goal`
- * ("Dealer") and nothing else, so Others was stringified into the TEXT column
+ * carried `existing_dealers_goal` (the UI's "Existing", once "Dist.") and
+ * `new_dealers_goal` ("New", once "Dealer") and nothing else, so Others was stringified into the TEXT column
  * `notes` on write and then hardcoded back to 0 on read. Every value a user ever
  * typed was lost on the next reload.
  *

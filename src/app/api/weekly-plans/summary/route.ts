@@ -4,19 +4,11 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { getVisibleUserIds } from '@/lib/visibility'
+import { addDays, businessDate } from '@/lib/business-date'
+import { mondayOf } from '@/lib/weekly-review'
 
 export const dynamic = 'force-dynamic'
 
-function getMondayOf(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r }
-function toDateStr(d: Date) { return d.toISOString().split('T')[0] }
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
@@ -39,10 +31,13 @@ export async function GET(req: NextRequest) {
   if (!subs.length) return NextResponse.json({ weeks: [], subordinates: [] })
 
   // Build week list: weeksBack weeks ago → current week
-  const currentMonday = getMondayOf(new Date())
+  // The Monday of the current BUSINESS week. The old local-clock version
+  // disagreed with the plan screen for 00:00–05:30 IST on a Monday (UTC host),
+  // and on an IST host `toISOString()` of local midnight printed the Sunday.
+  const currentMonday = mondayOf(businessDate())
   const weeks: string[] = []
   for (let i = weeksBack; i >= 0; i--) {
-    weeks.push(toDateStr(addDays(currentMonday, -7 * i)))
+    weeks.push(addDays(currentMonday, -7 * i))
   }
 
   const activeSubIds = subs.map(s => s.id)

@@ -6,7 +6,7 @@ import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { trimmed } from '@/lib/validation'
 import { DEAL_DETAIL_INCLUDE, checkProbability, shapeDeal } from '../_shape'
-import { findScopedDeal, notFound } from '../_access'
+import { findScopedDeal, foreignDealRef, notFound } from '../_access'
 
 /**
  * GET — one Deal with everything the Deal page reads: company, contact, stage,
@@ -35,6 +35,22 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
+}
+
+/**
+ * `expected_value` is `Decimal(12,2)`. `Number('abc')` is NaN and a NaN row
+ * turns every pipeline total that sums the column into null, so anything that
+ * is not a finite, non-negative amount the column can hold is a 400. Blank is
+ * 0, as before. (Same rule as `decimalOrNull` in weekly-plans/_items.ts.)
+ */
+const MAX_DEAL_VALUE = 9_999_999_999.99
+function parseExpectedValue(value: unknown): { value: number } | { error: string } {
+  if (value === undefined || value === null || value === '') return { value: 0 }
+  const n = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isFinite(n)) return { error: 'Expected value must be a number' }
+  if (n < 0) return { error: 'Expected value cannot be negative' }
+  if (n > MAX_DEAL_VALUE) return { error: 'Expected value is too large' }
+  return { value: n }
 }
 
 /**
@@ -67,13 +83,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   const bad = checkProbability(has('probability') ? body.probability : undefined)
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
+  const ev = parseExpectedValue(has('expected_value') ? body.expected_value : undefined)
+  if ('error' in ev) return NextResponse.json({ error: ev.error }, { status: 400 })
 
   const data: Record<string, unknown> = { updated_at: new Date() }
   if (has('name'))                data.name = String(body.name).trim()
   if (has('owner_user_id'))       data.owner_user_id = body.owner_user_id || null
   if (has('company_id'))          data.company_id = body.company_id || null
   if (has('contact_id'))          data.contact_id = body.contact_id || null
-  if (has('expected_value'))      data.expected_value = body.expected_value === '' || body.expected_value == null ? 0 : Number(body.expected_value)
+  if (has('expected_value'))      data.expected_value = ev.value
   if (has('probability'))         data.probability = body.probability === '' || body.probability == null ? 0 : Number(body.probability)
   // @db.Date — "YYYY-MM-DD" in, "YYYY-MM-DD" out via serialize().
   if (has('expected_close_date')) data.expected_close_date = body.expected_close_date ? new Date(body.expected_close_date) : null
@@ -86,6 +104,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   try {
     const found = await findScopedDeal(user, tid, params.id)
     if (!found) return notFound()
+
+    const miss = await foreignDealRef(tid, body)
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
 
     const updated = await prisma.deals.update({
       // tenant_id alongside the primary key even though findScopedDeal() has

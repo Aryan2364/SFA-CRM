@@ -117,20 +117,22 @@ function canView(me: Me, section: string): boolean {
  */
 
 /*
- * THE ONE ROLE CHECK, and why it is not the thing CLAUDE.md forbids.
+ * Access Control is reachable when at least one of its tabs is usable,
+ * and hidden (section 26: a whole area) when none is.
  *
- * Access Control has no row in role_permissions - there is no section
- * key for it. Its API routes authorise with user.role !== 'Administrator'
- * and return 403 to everyone else. Section 26 says never show a control
- * that fails after being clicked, so the interface has to mirror what the
- * server actually enforces, and for this one area that is the role.
+ *   Org Chart               `users` → view — `/api/access-control/org-chart`
+ *                           checks exactly that, scoped by its data_scope.
+ *   Roles & Permissions,    Administrator-only on the server: these routes
+ *   Reporting Schema        have no section key in role_permissions.
  *
- * Mirroring the server is the opposite of inventing a role gate in place
- * of the permission table. If Access Control ever gains a section key,
+ * The role test is not a gate invented in place of the permission table;
+ * it mirrors checkPermission's own Administrator short-circuit, which is
+ * the only thing that admits anyone to the other two tabs. The page itself
+ * applies the same split per tab. If those tabs ever gain a section key,
  * this function is the single place that changes.
  */
 export function canReachAccessControl(me: Me): boolean {
-  return me.role === 'Administrator'
+  return me.role === 'Administrator' || canView(me, 'users')
 }
 
 /**

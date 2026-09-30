@@ -16,8 +16,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const now = new Date()
   const ago30Date = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
   const ago7Date  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000)
-  // The comparison helpers below work on ISO STRINGS, as they did under
-  // Supabase, so keep string copies of both cut-offs.
+  // The comparison helpers below work on ISO STRINGS, as they did under the
+  // old client, so keep string copies of both cut-offs.
   const ago30 = ago30Date.toISOString()
   const ago7  = ago7Date.toISOString()
 
@@ -25,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // Parallel fetch all needed data.
   //
   // NOTE: `user_login_logs` is NOT queried. That table does not exist in the
-  // database (PLAN.md 13.1), so the Supabase call failed and `loginLogs` came
+  // database (PLAN.md 13.1), so the old query failed and `loginLogs` came
   // back null — `loginLogs ?? []` then meant this route still answered 200 with
   // every login metric at zero. An empty array preserves that exactly. This is
   // the graceful-degradation counterpart of the hard 500 in ../users.

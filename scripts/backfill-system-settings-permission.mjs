@@ -37,20 +37,31 @@
  * should have it. `--copy-from <section>` is available if the owner decides
  * otherwise; it is not the default and has to be typed.
  *
- *   node scripts/backfill-system-settings-permission.mjs                 # dry run
- *   node scripts/backfill-system-settings-permission.mjs --commit        # write
- *   node scripts/backfill-system-settings-permission.mjs --copy-from users --commit
+ *   node scripts/backfill-system-settings-permission.mjs                   # dry run, LOCAL db
+ *   node scripts/backfill-system-settings-permission.mjs --apply           # write, LOCAL db
+ *   node scripts/backfill-system-settings-permission.mjs --copy-from users --apply
+ *   node --env-file=.env.rds scripts/backfill-system-settings-permission.mjs --use-database-url
+ *                                                                          # dry run, PRODUCTION (RDS)
+ *   node --env-file=.env.rds scripts/backfill-system-settings-permission.mjs --use-database-url --apply --host <rds-host>
+ *                                                                          # write, PRODUCTION (RDS)
  *
- * The dry run is not an estimate: it runs the identical INSERTs inside a
- * transaction and ROLLBACKs, so its counts are the counts a commit produces.
+ * DRY RUN IS THE DEFAULT. Without `--apply` nothing is kept. The dry run is not
+ * an estimate: it runs the identical INSERTs inside a transaction, prints the
+ * rows they would add, and ROLLBACKs, so its counts are the counts `--apply`
+ * produces.
  *
  * Idempotent. The INSERT is guarded by NOT EXISTS on (tenant_id, profile,
  * section). A second run inserts 0.
  *
  * --- DATABASE -------------------------------------------------------------
- * Reads SCRATCH_DATABASE_URL by default (the LOCAL database). Pass
- * `--use-database-url` to target DATABASE_URL instead — that is production,
- * and the flag exists so nobody can hit it by accident.
+ * Resolved by scripts/release-db.mjs, shared with backfill-can-create and the
+ * other release scripts. SCRATCH_DATABASE_URL (the LOCAL database) by default;
+ * `--use-database-url` targets DATABASE_URL. PRODUCTION IS RDS, and only a
+ * local or AWS RDS host is allowed, so production needs
+ * `--env-file=.env.rds`, whose values win over `.env.local`. A non-local host
+ * is always reached over TLS verified against DATABASE_CA_CERT_PATH, the host
+ * and database name are printed before connecting, and `--apply` against a
+ * non-local host refuses unless `--host` names that host.
  *
  * ⚠️ `role_permissions.section` carries a CHECK constraint in PRODUCTION
  * enumerating 31 values. `system_settings` is almost certainly NOT among them,
@@ -60,46 +71,34 @@
  * would fail in production on the first INSERT. The constraint must be widened
  * there BEFORE this runs. That check is below and it is fatal, not a warning.
  */
-import fs from 'node:fs'
 import pg from 'pg'
-import { URL } from 'node:url'
+import { flagValue, resolveReleaseDb } from './release-db.mjs'
 
 const NEW_SECTION = 'system_settings'
 
-function readEnv(key) {
-  if (process.env[key]) return process.env[key]
-  if (!fs.existsSync('.env.local')) return undefined
-  const m = fs.readFileSync('.env.local', 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'))
-  return m ? m[1].trim().replace(/\r$/, '').replace(/^["']|["']$/g, '') : undefined
+const args = process.argv.slice(2)
+if (args.includes('--commit')) {
+  console.error('--commit is now --apply, matching the other release scripts.')
+  process.exit(1)
 }
-
-function flagValue(name) {
-  const i = process.argv.indexOf(name)
-  return i === -1 ? undefined : process.argv[i + 1]
+const COMMIT = args.includes('--apply')
+const copyIdx = args.indexOf('--copy-from')
+const COPY_FROM = flagValue(args, '--copy-from')
+if (copyIdx >= 0 && (!COPY_FROM || COPY_FROM.startsWith('--'))) {
+  console.error('--copy-from needs a section name, e.g. --copy-from users')
+  process.exit(1)
 }
-
-const COMMIT = process.argv.includes('--commit')
-const USE_LIVE = process.argv.includes('--use-database-url')
-const COPY_FROM = flagValue('--copy-from')
-
-const url = readEnv(USE_LIVE ? 'DATABASE_URL' : 'SCRATCH_DATABASE_URL')
-if (!url) {
-  console.error(`${USE_LIVE ? 'DATABASE_URL' : 'SCRATCH_DATABASE_URL'} is not set (env or .env.local).`)
+const hostIdx = args.indexOf('--host')
+const KNOWN = new Set(['--apply', '--use-database-url', '--copy-from', '--host'])
+const valueAt = new Set([copyIdx, hostIdx].filter(i => i >= 0).map(i => i + 1))
+const unknown = args.filter((a, i) => !KNOWN.has(a) && !valueAt.has(i))
+if (unknown.length) {
+  console.error(`Unknown argument(s): ${unknown.join(' ')}`)
   process.exit(1)
 }
 
-const host = new URL(url).hostname
-const LOCAL = new Set(['localhost', '127.0.0.1', '::1'])
-if (!USE_LIVE && !LOCAL.has(host)) {
-  console.error(`REFUSING TO RUN: SCRATCH_DATABASE_URL points at "${host}", not a local host.`)
-  process.exit(1)
-}
-
-const needsSsl = /[?&]sslmode=(?!disable)/.test(url)
-const client = new pg.Client({
-  connectionString: url.replace(/[?&]sslmode=[^&]*/, '').replace(/[?&]connection_limit=[^&]*/, ''),
-  ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
-})
+const db = resolveReleaseDb({ script: 'backfill-system-settings-permission', args, apply: COMMIT })
+const client = new pg.Client(db.connection)
 
 const pad = n => String(n).padStart(5)
 
@@ -197,8 +196,7 @@ async function backfillCopied(source) {
 
 async function main() {
   await client.connect()
-  console.log(`database : ${url.replace(/:[^:@/]*@/, ':***@')}`)
-  console.log(`mode     : ${COMMIT ? 'COMMIT' : 'DRY RUN (rolled back)'}`)
+  console.log(`mode     : ${COMMIT ? 'APPLY' : 'DRY RUN (rolled back)'}`)
   console.log(`grants   : ${COPY_FROM ? `copied from "${COPY_FROM}"` : 'DENIED (all four flags false)'}`)
 
   await checkConstraint()
@@ -222,7 +220,7 @@ async function main() {
       console.log(`\nCOMMITTED. ${total} rows inserted; role_permissions ${before} -> ${before + total}.`)
     } else {
       await client.query('ROLLBACK')
-      console.log(`\nDRY RUN — rolled back. A --commit run would insert ${total} rows (${before} -> ${before + total}).`)
+      console.log(`\nDRY RUN — rolled back. An --apply run would insert ${total} rows (${before} -> ${before + total}).`)
     }
   } catch (err) {
     await client.query('ROLLBACK')

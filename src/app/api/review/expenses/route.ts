@@ -4,6 +4,8 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import { safePhotoUrl } from '../../expenses/_photo'
+import { businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +25,7 @@ export async function GET(req: NextRequest) {
   if (!await checkPermission(user, 'expenses', 'view')) return forbidden()
 
   const userId = req.nextUrl.searchParams.get('userId')
-  const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
+  const date = req.nextUrl.searchParams.get('date') ?? businessDate()
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 })
 
   const ids = intersectScope(await scopedUserIds(user, 'expenses'), userId)
@@ -42,7 +44,12 @@ export async function GET(req: NextRequest) {
       orderBy: { created_at: 'asc' },
     })
     // amount is NUMERIC — a Decimal stringifies to a string without this.
-    return NextResponse.json(serialize(data, 'expenses'))
+    // photo_url is rendered as an <a href> and <img src> on the review screen;
+    // anything that is not one of our own photo paths goes out as null, as in
+    // `GET /api/expenses`.
+    return NextResponse.json(
+      serialize(data.map(r => ({ ...r, photo_url: safePhotoUrl(r.photo_url) })), 'expenses')
+    )
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

@@ -2,49 +2,81 @@
 /**
  * Stands in front of `npm run dev`.
  *
- * `next dev` loads .env.local, whose DATABASE_URL is the LIVE SUPABASE
- * database. So the most obvious command in the repo — the one every Node
- * developer types without thinking, and the one every README implies — browses
- * and edits production. That is not a trap worth documenting; it is a trap
- * worth removing, so this refuses and names the command that is safe.
+ * `next dev` connects to whatever DATABASE_URL resolves to: the process env
+ * first, then .env.development.local, .env.local, .env.development and .env.
+ * .env.local points it at the local database. This is an allow-list: the dev
+ * server starts only when that host is local (localhost, 127.0.0.1, ::1), and
+ * every other host is refused, with no override, because a dev server on a
+ * hosted database browses and edits that database's data.
  *
- * It was added after `npm run dev` was run by accident and spent several
- * minutes throwing DatabaseNotReachable at production. Nothing was damaged that
- * time, only because the connection failed. The next time it might succeed.
+ * The guard was added after `npm run dev` was run by accident against a hosted
+ * database and spent several minutes throwing DatabaseNotReachable at it.
+ * Nothing was damaged that time, only because the connection failed.
  *
- * To run against production deliberately — which should be close to never —
- * set I_REALLY_WANT_PRODUCTION=1. The length of that name is the point.
+ * DATABASE_URL is resolved with @next/env, the loader `next dev` itself uses,
+ * so the guard judges the same value the server would connect with. The URL,
+ * user and password are never printed; only the host.
  */
 import { spawn } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
+import nextEnv from '@next/env'
 
-const ESCAPE = 'I_REALLY_WANT_PRODUCTION'
+// Same definition as scripts/release-db.mjs.
+const LOCAL = new Set(['localhost', '127.0.0.1', '::1'])
 
-if (!process.env[ESCAPE]) {
-  const say = (s = '') => process.stderr.write(s + '\n')
-  say()
-  say('  REFUSING: `npm run dev` points at the LIVE SUPABASE database.')
-  say()
-  say('  It runs plain `next dev`, which reads DATABASE_URL from .env.local,')
-  say('  and that is production. Browsing with it edits real customer data.')
-  say()
-  say('  Use the local database instead:')
-  say()
-  say('      node scripts/dev-local.mjs 3010')
-  say()
-  say('  (`npm run dev:local` also works, but hardcodes port 3007 — if a')
-  say('   server is already up on 3010, prefer the line above and start')
-  say('   nothing. Two dev servers sharing one .next corrupts the build and')
-  say('   500s every route on both.)')
-  say()
-  say(`  To target production on purpose, set ${ESCAPE}=1.`)
-  say()
-  process.exit(1)
+/**
+ * What `npm run dev` should do with this DATABASE_URL. Pure: no env, no I/O.
+ *
+ * @param {string | undefined} raw  the resolved DATABASE_URL
+ * @returns {{ action: 'start' | 'refuse', reason: 'local' | 'unset' | 'invalid' | 'non-local', host?: string }}
+ */
+export function decide(raw) {
+  if (!raw) return { action: 'refuse', reason: 'unset' }
+  let host
+  try {
+    host = new URL(raw).hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  } catch {
+    return { action: 'refuse', reason: 'invalid' }
+  }
+  if (LOCAL.has(host)) return { action: 'start', reason: 'local', host }
+  return { action: 'refuse', reason: 'non-local', host }
 }
 
-process.stderr.write(
-  `\n  ${ESCAPE} is set. Starting next dev against DATABASE_URL — production.\n\n`
-)
-spawn('next', ['dev', ...process.argv.slice(2)], { stdio: 'inherit', shell: true }).on(
-  'exit',
-  code => process.exit(code ?? 0)
-)
+function main() {
+  const say = (s = '') => process.stderr.write(s + '\n')
+
+  // Snapshot before @next/env writes the loaded files into process.env, so the
+  // child starts with the caller's env and does its own loading as usual.
+  const childEnv = { ...process.env }
+  nextEnv.loadEnvConfig(process.cwd(), true, { info() {}, error: console.error })
+  const verdict = decide(process.env.DATABASE_URL)
+
+  if (verdict.action === 'refuse') {
+    say()
+    switch (verdict.reason) {
+      case 'unset':
+        say('  REFUSING: DATABASE_URL is not set, in the environment or any .env file.')
+        break
+      case 'invalid':
+        say('  REFUSING: DATABASE_URL is not a valid URL. (Its value is not printed.)')
+        break
+      case 'non-local':
+        say(`  REFUSING: DATABASE_URL points at "${verdict.host}", not a local host.`)
+        break
+    }
+    say()
+    say('  npm run dev only runs against a local database. Set DATABASE_URL in')
+    say('  .env.local to it, for example:')
+    say('      DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sfacrm_local')
+    say()
+    process.exit(1)
+  }
+
+  say(`\n  Starting next dev against the local database at "${verdict.host}".\n`)
+  spawn('next', ['dev', ...process.argv.slice(2)], { stdio: 'inherit', shell: true, env: childEnv }).on(
+    'exit',
+    code => process.exit(code ?? 0)
+  )
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main()

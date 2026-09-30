@@ -22,6 +22,7 @@
 import fs from 'node:fs'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { mintSession as mintTestSession } from './test-session.mjs'
 
 const BASE = process.env.WRITE_BASE_URL ?? 'http://127.0.0.1:3012'
 const COOKIE_NAME = 'rgb_session'
@@ -54,16 +55,8 @@ let pass = 0, fail = 0
 const ok = (n, c, got) => { console.log(`  ${c ? 'PASS' : 'FAIL'}  ${n}${c ? '' : `   got: ${JSON.stringify(got)}`}`); c ? pass++ : fail++ }
 const section = n => console.log(`\n-- ${n} --`)
 
-async function mint(payload) {
-  const secret = readEnv('SESSION_SECRET')
-  const enc = new TextEncoder()
-  const data = btoa(JSON.stringify(payload))
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const sig = await crypto.subtle.sign({ name: 'HMAC', hash: 'SHA-256' }, key, enc.encode(data))
-  let s = ''
-  for (const b of new Uint8Array(sig)) s += String.fromCharCode(b)
-  return `${data}.${btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}`
-}
+// Signed by the app's own signSession(), so iat/exp and the encoding match login.
+const mint = payload => mintTestSession(payload, readEnv('SESSION_SECRET'))
 
 let SUB, MGR
 const call = (path, token, method = 'POST', body) => fetch(`${BASE}${path}`, {
@@ -135,15 +128,22 @@ async function main() {
 
   // ===== 2. Update =========================================================
   section('Update — PUT /api/weekly-plans/[id]')
+  // `week_goal` is retired: §5.1's checklist lives in `weekly_goals` and rides
+  // along on PUT as `goals` (src/app/api/weekly-plans/_goals.ts). A `week_goal`
+  // key in the body is ignored, so the assertion moved to the checklist.
   const upd = await call(`/api/weekly-plans/${plan.id}`, SUB, 'PUT', {
-    week_goal: 'revised goal',
+    goals: [{ id: null, text: 'revised goal', is_done: false, sort_order: 0 }, { text: '   ' }],
     day_notes: { mon: 'note' },
     items: [{ plan_date: '2026-03-03', from_place: 'X', to_place: 'Y', mode_of_travel: 'Bus' }],
   })
   const updBody = await upd.json()
   ok('HTTP 200', upd.status === 200, upd.status)
   ok('items were REPLACED (2 -> 1)', (await prisma.weekly_plan_items.count({ where: { weekly_plan_id: plan.id } })) === 1)
-  ok('week_goal updated', updBody.week_goal === 'revised goal', updBody.week_goal)
+  ok('goal checklist saved (blank rows are dropped)',
+    updBody.weekly_goals?.length === 1 && updBody.weekly_goals[0].text === 'revised goal', updBody.weekly_goals)
+  ok('goal row landed in tenant A',
+    (await prisma.weekly_goals.count({ where: { weekly_plan_id: plan.id, tenant_id: SEED.tenantA } })) === 1)
+  ok('retired week_goal column stays null', updBody.week_goal === null, updBody.week_goal)
   ok('day_notes accepts an arbitrary jsonb shape', updBody.day_notes?.mon === 'note', updBody.day_notes)
   ok('status unchanged (still Draft)', updBody.status === 'Draft', updBody.status)
   ok('nested weekly_plan_items[].plan_date is DATE-ONLY', updBody.weekly_plan_items.every(i => /^\d{4}-\d{2}-\d{2}$/.test(i.plan_date)), updBody.weekly_plan_items[0]?.plan_date)
@@ -184,6 +184,20 @@ async function main() {
   ok('manager_comment stored', (await prisma.weekly_plans.findUnique({ where: { id: plan.id }, select: { manager_comment: true } })).manager_comment === 'looks good')
   ok('owner was notified', (await prisma.notifications.count({ where: { context_id: plan.id, recipient_id: SEED.subA } })) >= 1)
 
+  section('Approve is refused once decided, and pays out exactly once')
+  const dblApprove = await call(`/api/weekly-plans/${plan.id}/approve`, MGR, 'POST', {})
+  ok('a second approve -> 409', dblApprove.status === 409, dblApprove.status)
+  ok('status still Approved', (await statusOf(plan.id)).status === 'Approved')
+  // The approval point is awarded fire-and-forget after the commit
+  // (awardOncePerPlan), so give it a moment to land before counting. Tenant A
+  // has no point_config row, so the default value applies.
+  const approvedPoints = () => prisma.point_events.count({
+    where: { tenant_id: SEED.tenantA, user_id: SEED.subA, action_type: 'weekly_plan_approved', ref_type: 'weekly_plan', ref_id: plan.id },
+  })
+  for (let i = 0; i < 20 && (await approvedPoints()) === 0; i++) await new Promise(r => setTimeout(r, 150))
+  await new Promise(r => setTimeout(r, 300))
+  ok('exactly one weekly_plan_approved point for this plan', (await approvedPoints()) === 1, await approvedPoints())
+
   // ===== 6. Reject, then 7. Resubmit =======================================
   section('Reject — Submitted -> Rejected (manager)')
   const p2 = (await newPlan('2026-03-09', '2026-03-15')).plan
@@ -208,18 +222,24 @@ async function main() {
   // ===== 8. Hold ===========================================================
   section('Hold — -> On Hold (manager)')
   const p3 = (await newPlan('2026-03-16', '2026-03-22')).plan
+  // A manager verb from a status that does not allow it is a 409, not a write.
+  const rejDraft = await call(`/api/weekly-plans/${p3.id}/reject`, MGR, 'POST', { comment: 'too early' })
+  ok('rejecting a Draft -> 409', rejDraft.status === 409, rejDraft.status)
+  ok('the Draft is untouched', (await statusOf(p3.id)).status === 'Draft')
   await call(`/api/weekly-plans/${p3.id}/submit`, SUB)
   await expectTransition('Hold', await call(`/api/weekly-plans/${p3.id}/hold`, MGR, 'POST', { comment: 'waiting' }), p3.id,
     { status: 'On Hold', action: 'Hold', from: 'Submitted', to: 'On Hold', role: 'Manager' })
 
   // ===== 9. Suggest ========================================================
-  section('Suggest — -> On Hold (manager)')
+  // Suggest sends the plan back to its owner, editable: 'Edited by Manager',
+  // not 'On Hold' (which the owner cannot edit). See suggest/route.ts.
+  section('Suggest — -> Edited by Manager (manager)')
   const p4 = (await newPlan('2026-03-23', '2026-03-29')).plan
   await call(`/api/weekly-plans/${p4.id}/submit`, SUB)
   const sugNo = await call(`/api/weekly-plans/${p4.id}/suggest`, MGR, 'POST', { comment: '' })
   ok('suggest without a comment -> 400', sugNo.status === 400, sugNo.status)
   await expectTransition('Suggest', await call(`/api/weekly-plans/${p4.id}/suggest`, MGR, 'POST', { comment: 'try a different route' }), p4.id,
-    { status: 'On Hold', action: 'Suggest', from: 'Submitted', to: 'On Hold', role: 'Manager' })
+    { status: 'Edited by Manager', action: 'Suggest', from: 'Submitted', to: 'Edited by Manager', role: 'Manager' })
 
   // ===== 10. EditByManager =================================================
   section('EditByManager — -> Edited by Manager')
@@ -230,7 +250,17 @@ async function main() {
   }), p5.id, { status: 'Edited by Manager', action: 'EditByManager', from: 'Submitted', to: 'Edited by Manager', role: 'Manager' })
   ok('items were replaced by the manager', (await prisma.weekly_plan_items.count({ where: { weekly_plan_id: p5.id } })) === 1)
   const emLog = await lastLog(p5.id)
-  ok('edited_fields jsonb recorded', JSON.stringify((await prisma.weekly_plan_audit_logs.findFirst({ where: { weekly_plan_id: p5.id }, orderBy: { timestamp: 'desc' }, select: { edited_fields: true } })).edited_fields) === '{"items":"manager edited"}', emLog)
+  // edited_fields is the structured before/after diff (src/lib/weekly-plan-diff.ts),
+  // no longer the `{"items":"manager edited"}` marker. newPlan() wrote lines on
+  // 03-30 and 04-05; the manager replaced them with one on 03-31. No party, so
+  // each line keys on its date alone: 1 added, 2 removed, 0 changed.
+  const emDiff = (await prisma.weekly_plan_audit_logs.findFirst({ where: { weekly_plan_id: p5.id }, orderBy: { timestamp: 'desc' }, select: { edited_fields: true } })).edited_fields
+  ok('edited_fields is a plan_items_diff v1', emDiff?.kind === 'plan_items_diff' && emDiff?.v === 1, emDiff)
+  ok('edited_fields: the manager line is ADDED',
+    emDiff?.added?.length === 1 && emDiff.added[0].plan_date === '2026-03-31', emDiff?.added)
+  ok('edited_fields: both original lines are REMOVED',
+    JSON.stringify(emDiff?.removed?.map(l => l.plan_date)) === '["2026-03-30","2026-04-05"]', emDiff?.removed)
+  ok('edited_fields: nothing CHANGED', emDiff?.changed?.length === 0, emDiff?.changed)
 
   section('Submit accepts "Edited by Manager" as a source status')
   await expectTransition('Resubmit(from Edited by Manager)', await call(`/api/weekly-plans/${p5.id}/submit`, SUB), p5.id,
@@ -311,11 +341,16 @@ async function main() {
 
   const summary = await (await call('/api/weekly-plans/summary?weeksBack=60', MGR, 'GET')).json()
   ok('GET /summary lists the subordinate', summary.subordinates?.some(s => s.id === SEED.subA), summary.subordinates?.length)
-  const subRow = summary.subordinates.find(s => s.id === SEED.subA)
-  ok('/summary grid is keyed by "YYYY-MM-DD"', Object.keys(subRow.weeks).every(k => /^\d{4}-\d{2}-\d{2}$/.test(k)), Object.keys(subRow.weeks).slice(0, 2))
-  const cell = subRow.weeks['2026-04-06']
+  const subRow = summary.subordinates?.find(s => s.id === SEED.subA)
+  ok('/summary grid is keyed by "YYYY-MM-DD"', Object.keys(subRow?.weeks ?? {}).every(k => /^\d{4}-\d{2}-\d{2}$/.test(k)), Object.keys(subRow?.weeks ?? {}).slice(0, 2))
+  // ⚠️ KNOWN FAILING, deliberately left as is: /summary returns an empty grid
+  // here (and in the smoke weekly-plans suite). It may be a real app bug in
+  // weekly-plans/summary and is being investigated separately, so this
+  // assertion is NOT relaxed to make it pass. `subRow?.` / `cell?.` below only
+  // stop a missing row from crashing the suite before the isolation checks.
+  const cell = subRow?.weeks?.['2026-04-06']
   ok('/summary cell for a real week is populated, not blank', cell && cell.status === 'Draft', cell)
-  ok('/summary planned_days counts DISTINCT dates, not Date objects', cell.planned_days === 2, cell)
+  ok('/summary planned_days counts DISTINCT dates, not Date objects', cell?.planned_days === 2, cell)
 
   // ===== tenant isolation ==================================================
   section('tenant B untouched')

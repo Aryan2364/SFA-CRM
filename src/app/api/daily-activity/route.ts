@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
-import { awardPoint } from '@/lib/points'
+import { awardPoint, logAwardFailure } from '@/lib/points'
+import { businessDate } from '@/lib/business-date'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import { firstForeignTenantRef } from '@/lib/tenant-fk'
 import {
   attachVisitContacts,
   readVisitContacts,
@@ -21,7 +23,7 @@ export async function GET(req: NextRequest) {
   // route enforced it before P4-T1. A scope filter without a permission check
   // is half a fix.
   if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
-  const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
+  const date = req.nextUrl.searchParams.get('date') ?? businessDate()
   // Was hard-wired `user_id: user.userId` — Self for everyone, so a Team-scoped
   // manager could not see their team at all.
   const ids = intersectScope(
@@ -54,12 +56,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'meetings', 'create')) return forbidden()
   const {
     visit_type, entity_id, entity_name, is_new_entity, visit_date, new_prospect, weekly_plan_item_id,
     is_manual_entry, manual_start_time, manual_end_time, contact_id,
   } = await req.json()
   if (!visit_type) return NextResponse.json({ error: 'visit_type is required' }, { status: 400 })
-  const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  // Business date, not the server's clock: between 00:00 and 05:30 IST the
+  // UTC date is still yesterday and today's meeting read as "future".
+  const todayStr = businessDate()
   const effectiveDate = visit_date ?? todayStr
   if (effectiveDate > todayStr) return NextResponse.json({ error: 'Cannot create meetings for future dates' }, { status: 400 })
   const tid = getTenantId()
@@ -145,6 +150,22 @@ export async function POST(req: NextRequest) {
    * when a company is also named, that the two are actually linked — see that
    * function for why the second check is the one that matters.
    */
+  // Body-sourced ids, looked up in the caller's tenant before anything is
+  // written — see src/lib/tenant-fk.ts.
+  const miss = await firstForeignTenantRef([
+    { value: new_prospect ? null : entity_id, label: 'Company',
+      find: id => prisma.companies.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: new_prospect?.state_id, label: 'State',
+      find: id => prisma.states.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: new_prospect?.district_id, label: 'District',
+      find: id => prisma.districts.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: new_prospect?.taluka_id, label: 'Taluka',
+      find: id => prisma.talukas.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: new_prospect?.village_id, label: 'Village',
+      find: id => prisma.villages.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+  ])
+  if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
   let resolvedContactId: string | null = null
   if (contact_id) {
     if (new_prospect) {
@@ -165,7 +186,13 @@ export async function POST(req: NextRequest) {
       const bp = await prisma.companies.create({
         data: {
           tenant_id: tid,
-          type: visit_type,
+          // The lead's own type, which may be blank ('' — the column is NOT
+          // NULL, as in POST /api/companies); the meeting's `visit_type` is
+          // then 'Other'. A client that sends no `type` key keeps the old
+          // behaviour of typing the lead with the visit type.
+          type: 'type' in new_prospect
+            ? (typeof new_prospect.type === 'string' ? new_prospect.type.trim() : '')
+            : visit_type,
           stage: 'Prospect',
           name: new_prospect.name.trim(),
           mobile_1: new_prospect.mobile_1?.trim() || null,
@@ -173,6 +200,10 @@ export async function POST(req: NextRequest) {
           district_id: new_prospect.district_id || null,
           taluka_id: new_prospect.taluka_id || null,
           village_id: new_prospect.village_id || null,
+          // Every company has an owner: the rep who met the lead, as for a
+          // company created by hand. Unowned, it would sit outside their own
+          // Self/Team scope the moment they created it.
+          owner_user_id: user.userId || null,
           created_by_user_id: user.userId || null,
         },
       })
@@ -186,6 +217,7 @@ export async function POST(req: NextRequest) {
         select: VISIT_SELECT,
       })
       void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${bp.name} on ${effectiveDate}` })
+        .catch(logAwardFailure('meeting_logged'))
       // A lead created here has no contacts yet, so there is never one to name.
       const created = serialize(data, 'daily_visits') as Record<string, unknown>
       return NextResponse.json({ ...created, contact: null }, { status: 201 })
@@ -211,6 +243,7 @@ export async function POST(req: NextRequest) {
      */
     if (resolvedContactId) await writeVisitContact(tid, data.id, resolvedContactId)
     void awardPoint(tid, user.userId!, 'meeting_logged', { refType: 'daily_visit', refId: data.id, description: `Meeting with ${entity_name.trim()} on ${effectiveDate}` })
+      .catch(logAwardFailure('meeting_logged'))
     const row = serialize(data, 'daily_visits') as Record<string, unknown> & { id: string }
     const contacts = await readVisitContacts(tid, [row.id])
     return NextResponse.json(attachVisitContacts([row], contacts)[0], { status: 201 })

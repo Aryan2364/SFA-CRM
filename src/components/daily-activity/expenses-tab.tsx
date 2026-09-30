@@ -17,6 +17,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fmtAmount } from '@/lib/format'
 import { AddExpenseDialog } from './add-expense-dialog'
@@ -35,6 +36,7 @@ export function ExpensesTab({
   isFuture,
   canAdd,
   canDelete,
+  viewerId,
   expenses,
   loading,
   onReload,
@@ -42,8 +44,18 @@ export function ExpensesTab({
 }: {
   selectedDate: string
   isFuture: boolean
-  canAdd: boolean
-  canDelete: boolean
+  /** Real permissions (expenses.create / expenses.delete). `null` while
+   *  they are still loading: the control is shown disabled with no reason,
+   *  because "not known yet" is not "not allowed" (kit §26). */
+  canAdd: boolean | null
+  canDelete: boolean | null
+  /** The viewer's user id, null while /me is loading. DELETE
+   *  /api/expenses/[id] filters on the caller's own user_id, so Delete is
+   *  drawn only on the viewer's own expenses — an ownership rule, like
+   *  VisitCard's `mine`, not a permission. `null` while /me is loading:
+   *  ownership is not known yet, so Delete is drawn disabled with no
+   *  reason rather than hidden. */
+  viewerId: string | null
   expenses: Expense[]
   loading: boolean
   onReload: () => void
@@ -85,11 +97,16 @@ export function ExpensesTab({
           {expenses.length} expense{expenses.length === 1 ? '' : 's'} ·{' '}
           <span className="font-medium tabular-nums text-text-primary">{fmtAmount(total)}</span>
         </span>
-        {canAdd && !isFuture && (
-          <Button size="sm" onClick={() => setShowAdd(true)}>
-            <PlusIcon />
-            Add expense
-          </Button>
+        {!isFuture && (
+          <PermissionTooltip
+            allowed={canAdd !== false}
+            reason="Only someone who can create expenses can add one"
+          >
+            <Button size="sm" onClick={() => setShowAdd(true)} disabled={canAdd !== true}>
+              <PlusIcon />
+              Add expense
+            </Button>
+          </PermissionTooltip>
         )}
       </div>
 
@@ -102,7 +119,7 @@ export function ExpensesTab({
           variant="nothing-yet"
           heading="No expenses on this day"
           actionLabel="Add expense"
-          onAction={canAdd && !isFuture ? () => setShowAdd(true) : undefined}
+          onAction={canAdd === true && !isFuture ? () => setShowAdd(true) : undefined}
         >
           {isFuture
             ? 'Expenses cannot be claimed for a future date.'
@@ -134,16 +151,25 @@ export function ExpensesTab({
                 <Button size="sm" variant="ghost" aria-label="Remarks" onClick={() => onOpenRemarks(exp.id)}>
                   <MessageSquareIcon />
                 </Button>
-                {canDelete && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Delete expense"
-                    className="ml-auto"
-                    onClick={() => setPendingDelete(exp)}
+                {/* The list rows carry the whole expenses row, user_id
+                    included, though `Expense` does not type it. */}
+                {(viewerId === null || (exp as Expense & { user_id?: string }).user_id === viewerId) && (
+                <span className="ml-auto inline-flex">
+                  <PermissionTooltip
+                    allowed={viewerId === null || canDelete !== false}
+                    reason="Only someone who can delete expenses can delete one"
                   >
-                    <Trash2Icon />
-                  </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Delete expense"
+                      disabled={viewerId === null || canDelete !== true}
+                      onClick={() => setPendingDelete(exp)}
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </PermissionTooltip>
+                </span>
                 )}
               </div>
             </div>

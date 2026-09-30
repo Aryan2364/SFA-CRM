@@ -3,7 +3,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { canView } from '@/lib/visibility'
+import { canReadPlan, isPlanId, planNotFound } from '../../_transition'
 import { readItemsDiff } from '@/lib/weekly-plan-diff'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -21,6 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const user = await requireUser()
   if (!await checkPermission(user, 'weekly_plan', 'view')) return forbidden()
   const tid = getTenantId()
+  if (!isPlanId(params.id)) return planNotFound()
 
   try {
     const plan = await prisma.weekly_plans.findFirst({
@@ -29,7 +30,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     })
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
     if (!user.userId) return NextResponse.json({ error: 'User not in DB' }, { status: 400 })
-    if (plan.user_id !== user.userId && !(await canView(user.userId, plan.user_id, tid))) {
+    // Owner, visible, or reviewable — the plan GET's rule (see `canReadPlan`).
+    if (!(await canReadPlan(user, plan.user_id, tid))) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     }
 

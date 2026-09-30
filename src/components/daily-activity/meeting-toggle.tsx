@@ -48,6 +48,7 @@ export function MeetingToggle({
   size = 'sm',
   startLabel = 'Start',
   busy: busyProp = false,
+  disabled = false,
 }: {
   status: 'Pending' | 'Active' | 'Completed'
   startTime?: string | null
@@ -60,6 +61,9 @@ export function MeetingToggle({
   /** For a caller that tracks the press itself (the planned card's create-
    *  then-start). ORed with this component's own pending state. */
   busy?: boolean
+  /** Permission, decided by the caller — who also wraps this in a
+   *  PermissionTooltip, since a disabled button never receives a hover. */
+  disabled?: boolean
 }) {
   const [pressing, setPressing] = useState(false)
   const busy = pressing || busyProp
@@ -93,7 +97,7 @@ export function MeetingToggle({
   const active = status === 'Active'
 
   async function press() {
-    if (busy) return
+    if (busy || disabled) return
     setPressing(true)
     try {
       await (active ? onStop() : onStart())
@@ -110,7 +114,7 @@ export function MeetingToggle({
         size={size}
         variant={active ? 'danger' : 'primary'}
         onClick={press}
-        disabled={busy}
+        disabled={busy || disabled}
         aria-live="polite"
         /* 44px touch target on a phone; the kit's own 32px height on a
            pointer device, where the row would otherwise be half again as

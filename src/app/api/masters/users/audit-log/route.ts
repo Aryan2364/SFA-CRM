@@ -6,8 +6,8 @@ import { forbidden } from '@/lib/permissions'
  * User change auditing is GONE, not migrated — see PLAN.md §13.1.
  *
  * `user_audit_logs` does not exist in the database. It is present only in the
- * obsolete supabase/migrations.sql, so `prisma db pull` produces no model for it
- * and there is nothing to query. Before this migration the Supabase client
+ * obsolete schema file of the old database, so `prisma db pull` produces no model for it
+ * and there is nothing to query. Before this migration the old database client
  * returned the missing-relation error as a value and this route answered 500;
  * the user-visible result was a "Failed to load audit log" toast.
  *

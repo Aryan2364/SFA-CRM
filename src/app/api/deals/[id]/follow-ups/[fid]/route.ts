@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { FOLLOW_UP_MODES, FOLLOW_UP_STATUSES } from '../../../_shape'
 import { findScopedDeal, notFound } from '../../../_access'
+import { firstForeignTenantRef } from '@/lib/tenant-fk'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,6 +62,14 @@ export async function PATCH(
       select: { id: true, status: true, completed_at: true },
     })
     if (!existing) return notFound()
+
+    // `visit_id` has no FK constraint, so nothing stops another tenant's id
+    // landing here; it is looked up in this tenant first (src/lib/tenant-fk.ts).
+    const miss = await firstForeignTenantRef([
+      { value: body.visit_id, label: 'Meeting',
+        find: id => prisma.daily_visits.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    ])
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
 
     const data: Record<string, unknown> = { updated_at: new Date() }
     if (has('due_date')) data.due_date = new Date(body.due_date)

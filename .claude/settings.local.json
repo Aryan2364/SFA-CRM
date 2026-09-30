@@ -11,18 +11,12 @@
       "Bash(mv:*)",
       "Bash(mkdir:*)",
       "Bash(ls:*)",
-      "mcp__supabase__apply_migration",
-      "mcp__supabase__list_tables",
       "Bash(npx tsc:*)",
-      "mcp__supabase__execute_sql",
-      "mcp__supabase__get_logs",
       "Bash(python3:*)",
       "Bash(node:*)",
       "Bash(find C:\\\\Users\\\\Aryan\\\\documents\\\\rgb_software\\\\testing\\\\src\\\\app\\\\\\(protected\\):*)",
       "Bash(xargs grep:*)",
       "Bash(find:*)",
-      "Bash(\"C:/Users/Aryan/documents/rgb_software/testing/supabase/migrations.sql\":*)",
-      "Bash(\"C:\\\\Users\\\\Aryan\\\\documents\\\\rgb_software\\\\testing\\\\supabase\\\\migrations.sql\":*)",
       "Bash(find C:\\\\Users\\\\Aryan\\\\documents\\\\rgb_software\\\\testing\\\\src\\\\app\\\\\\(protected\\)\\\\settings:*)",
       "Bash(grep:*)",
       "Bash(wc:*)",
@@ -47,8 +41,5 @@
       "Bash(sed -i 's/'\\\\''locations'\\\\''/'\\\\''territory_mapping'\\\\''/g' C:/Users/Aryan/documents/rgb_software/testing/src/app/api/masters/territory-mapping/route.ts 'C:/Users/Aryan/documents/rgb_software/testing/src/app/api/masters/territory-mapping/[userId]/route.ts')"
     ]
   },
-  "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "supabase"
-  ]
+  "enableAllProjectMcpServers": true
 }

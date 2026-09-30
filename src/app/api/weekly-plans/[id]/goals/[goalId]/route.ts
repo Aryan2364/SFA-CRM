@@ -19,7 +19,9 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { scopedUserIds } from '@/lib/scope'
 import { canView } from '@/lib/visibility'
+import { isPlanId, planNotFound } from '../../../_transition'
 
 export async function PATCH(
   req: NextRequest,
@@ -28,6 +30,9 @@ export async function PATCH(
   const user = await requireUser()
   if (!await checkPermission(user, 'weekly_plan', 'edit')) return forbidden()
   const tid = getTenantId()
+  if (!isPlanId(params.id)) return planNotFound()
+  // The goal id is a uuid too; a malformed one matches no goal.
+  if (!isPlanId(params.goalId)) return NextResponse.json({ error: 'Goal not found' }, { status: 404 })
 
   try {
     const plan = await prisma.weekly_plans.findFirst({
@@ -36,7 +41,12 @@ export async function PATCH(
     })
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
     if (!user.userId) return NextResponse.json({ error: 'User not in DB' }, { status: 400 })
-    if (plan.user_id !== user.userId && !(await canView(user.userId, plan.user_id, tid))) {
+    // The visibility chain AND the `weekly_plan` data scope, as `../route.ts`.
+    const scoped = await scopedUserIds(user, 'weekly_plan')
+    if (
+      (plan.user_id !== user.userId && !(await canView(user.userId, plan.user_id, tid))) ||
+      (scoped && !scoped.includes(plan.user_id))
+    ) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     }
 

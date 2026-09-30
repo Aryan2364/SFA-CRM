@@ -95,7 +95,7 @@ import {
   type AddressDraft,
 } from '../../address-editor'
 import { ContactDialog, type CreatedContact } from '../../contact-dialog'
-import { usePartyMasters } from '../../party-masters'
+import { useOwnerChoice, usePartyMasters } from '../../party-masters'
 
 /** What `POST /api/companies` answers with, narrowed to what Step 2 needs. */
 type CreatedCompany = {
@@ -140,7 +140,17 @@ export default function NewCompanyPage() {
   // Owner defaults to the signed-in user and stays editable (§3.3). Applied as
   // a fallback at render rather than in an effect, so it cannot race the
   // masters fetch and cannot overwrite a choice the user already made.
-  const ownerValue = form.owner_user_id || masters.currentUserId || ''
+  //
+  // Staff on `own` scope see only the companies they own, so for them Owner is
+  // locked to themselves: another owner would make the company vanish from
+  // their list the moment it saved — and Step 2's address writes, which reach
+  // the company by id under that same scope, then failed against it. The route
+  // refuses it too (403); this keeps the form from offering it.
+  const ownerChoice = useOwnerChoice('companies')
+  const ownerValue =
+    ownerChoice.state === 'self'
+      ? ownerChoice.userId
+      : form.owner_user_id || masters.currentUserId || ''
 
   /**
    * Every field setter also clears that field's error.
@@ -197,10 +207,6 @@ export default function NewCompanyPage() {
       if (isEmptyAddress(a)) continue
       const pin = checkPincode(a.pincode)
       if (pin) next[`${a.key}.pincode`] = pin
-      if (a.latitude.trim() && !Number.isFinite(Number(a.latitude)))
-        next[`${a.key}.latitude`] = 'Latitude must be a number, like 15.8497.'
-      if (a.longitude.trim() && !Number.isFinite(Number(a.longitude)))
-        next[`${a.key}.longitude`] = 'Longitude must be a number, like 74.4977.'
     }
 
     setErrors(next)
@@ -257,8 +263,6 @@ export default function NewCompanyPage() {
               district_id: primaryAddress.district_id || null,
               taluka_id: primaryAddress.taluka_id || null,
               village_id: primaryAddress.village_id || null,
-              latitude: primaryAddress.latitude.trim() || null,
-              longitude: primaryAddress.longitude.trim() || null,
             }
           : {}),
       }),
@@ -433,7 +437,13 @@ export default function NewCompanyPage() {
                     value={ownerValue}
                     onValueChange={set('owner_user_id')}
                     placeholder="Select an employee…"
+                    disabled={ownerChoice.state !== 'any'}
                   />
+                  {/* §26 — a locked field says why, as helper text. While the
+                      scope is still loading it is disabled with no reason. */}
+                  {ownerChoice.state === 'self' && (
+                    <p className="mt-1.5 text-label text-text-muted">{ownerChoice.message}</p>
+                  )}
                 </div>
 
                 <div className="col-span-12 sm:col-span-6">

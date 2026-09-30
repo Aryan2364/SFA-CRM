@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 /**
- * WRITE-PATH tests for Batch 4 — orders, leads, daily-activity, attendance,
+ * WRITE-PATH tests for Batch 4 — orders, daily-activity, attendance,
  * expenses. Local scratch database only. Run the server under TZ=UTC.
  *
  *   npm run test:write:activity
  *
- * expenses/upload is NOT covered: it is still on Supabase Storage and is the
- * one route Phase B is waiting on.
+ * expenses/upload is NOT covered: it writes to R2 storage.
  */
 import fs from 'node:fs'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { mintSession as mintTestSession } from './test-session.mjs'
+// The app's own business-date helper: "today" is the date in APP_TIMEZONE
+// (default Asia/Kolkata), not the UTC date these suites run under.
+import { businessDate } from '../src/lib/business-date.ts'
 
 const BASE = process.env.WRITE_BASE_URL ?? 'http://127.0.0.1:3012'
 const COOKIE_NAME = 'rgb_session'
@@ -49,16 +52,8 @@ const section = n => console.log(`\n-- ${n} --`)
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 const ISO = /^\d{4}-\d{2}-\d{2}T.*Z$/
 
-async function mint(payload) {
-  const secret = readEnv('SESSION_SECRET')
-  const enc = new TextEncoder()
-  const data = btoa(JSON.stringify(payload))
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const sig = await crypto.subtle.sign({ name: 'HMAC', hash: 'SHA-256' }, key, enc.encode(data))
-  let s = ''
-  for (const b of new Uint8Array(sig)) s += String.fromCharCode(b)
-  return `${data}.${btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}`
-}
+// Signed by the app's own signSession(), so iat/exp and the encoding match login.
+const mint = payload => mintTestSession(payload, readEnv('SESSION_SECRET'))
 
 let MGR, SUB
 const call = (path, token, method = 'POST', body) => fetch(`${BASE}${path}`, {
@@ -81,40 +76,20 @@ async function main() {
   }
   console.log(`Server confirmed on scratch DB (tenant "${me.tenantName}")`)
 
-  const today = new Date().toISOString().slice(0, 10)
+  // The server stamps attendance, visits and expenses with the BUSINESS date.
+  // Under TZ=UTC the UTC date is a day behind IST from 18:30 to 00:00 UTC, so
+  // deriving "today" from toISOString() made this suite flake in that window.
+  // Mirror the server's APP_TIMEZONE (env or .env.local) before computing it.
+  if (!process.env.APP_TIMEZONE) { const tz = readEnv('APP_TIMEZONE'); if (tz) process.env.APP_TIMEZONE = tz }
+  const today = businessDate()
 
-  // ===== leads =============================================================
-  section('leads POST/PUT/DELETE')
-  const lr = await call('/api/leads', MGR, 'POST', {
-    name: 'Scratch Lead', type: 'Dealer', mobile_1: '9876543210',
-    state_id: SEED.stateA, district_id: SEED.districtA, taluka_id: SEED.talukaA,
-    latitude: 12.9716, longitude: 77.5946, temperature: 'Warm',
-    next_follow_up_date: '2026-05-04',
-  })
-  const lead = await lr.json()
-  ok('POST -> 201', lr.status === 201, { status: lr.status, lead })
-  ok('stage defaults to Prospect', lead.stage === 'Prospect', lead.stage)
-  ok('latitude is a NUMBER', typeof lead.latitude === 'number', lead.latitude)
-  ok('next_follow_up_date is DATE-ONLY "2026-05-04"', lead.next_follow_up_date === '2026-05-04', lead.next_follow_up_date)
-  ok('created_by_user_id is stamped', lead.created_by_user_id === SEED.adminA)
-  ok('landed in tenant A', lead.tenant_id === SEED.tenantA)
-  ok('bad mobile -> 400', (await call('/api/leads', MGR, 'POST', { name: 'x', type: 'Dealer', mobile_1: '123' })).status === 400)
-
-  const lu = await call(`/api/leads/${lead.id}`, MGR, 'PUT', { name: 'Scratch Lead Renamed', next_follow_up_date: '2026-06-01' })
-  const lub = await lu.json()
-  ok('PUT -> 200', lu.status === 200, lu.status)
-  ok('name updated', lub.name === 'Scratch Lead Renamed', lub.name)
-  ok('next_follow_up_date round-trips DATE-ONLY', lub.next_follow_up_date === '2026-06-01', lub.next_follow_up_date)
-
-  section('leads cross-tenant guards')
-  const bpB = await prisma.companies.findFirst({ where: { tenant_id: SEED.tenantB }, select: { id: true, name: true } })
-  const xPut = await call(`/api/leads/${bpB.id}`, MGR, 'PUT', { name: 'HIJACKED' })
-  ok('PUT on another tenant\'s partner -> 500', xPut.status === 500, xPut.status)
-  ok('that row is unchanged', (await prisma.companies.findUnique({ where: { id: bpB.id } })).name === bpB.name)
-  const xDel = await call(`/api/leads/${bpB.id}`, MGR, 'DELETE')
-  ok('DELETE on another tenant\'s partner -> 200 but NO-OP', xDel.status === 200, xDel.status)
-  ok('that row survives', (await prisma.companies.count({ where: { id: bpB.id } })) === 1)
-  ok('DELETE of a non-existent id -> 200 (no-op, not 500)', (await call('/api/leads/0000000f-0000-4000-8000-0000000000ff', MGR, 'DELETE')).status === 200)
+  // ===== leads (removed) ===================================================
+  // This section drove /api/leads, which does not exist on main or on this
+  // branch: the route answered a 404 HTML page and `lr.json()` crashed the whole
+  // suite before any later section ran. Leads are Companies now (the renamed
+  // business_partners table). Their DATE-ONLY round trip and cross-tenant PUT /
+  // DELETE guards are covered through /api/companies in write-path-tests.mjs.
+  // No later section here depended on the lead it created.
 
   // ===== daily-activity ====================================================
   section('daily-activity POST + the start/stop lifecycle')
@@ -207,13 +182,26 @@ async function main() {
   ok('rate/amount are numbers', sm.order_items.every(i => typeof i.rate === 'number' && typeof i.amount === 'number'))
 
   section('orders PATCH respects visibility')
-  const pt = await call(`/api/orders/${order.id}`, MGR, 'PATCH', { status: 'Confirmed' })
+  // ORDER_STATUSES is ['Draft', 'Placed'] (src/lib/order-math.ts); 'Confirmed',
+  // which this section used to send, was never valid and is now a 400.
+  ok("unknown status 'Confirmed' -> 400",
+    (await call(`/api/orders/${order.id}`, MGR, 'PATCH', { status: 'Confirmed' })).status === 400)
+  // The order was created with entity_id null, so §3.5 refuses to place it and
+  // records why on the row.
+  const pl = await call(`/api/orders/${order.id}`, MGR, 'PATCH', { status: 'Placed' })
+  ok("'Placed' with no saved party -> 400", pl.status === 400, pl.status)
+  ok('blocked_reason is stored on the row',
+    (await prisma.orders.findUnique({ where: { id: order.id } })).blocked_reason === 'Party is not a saved record')
+  // Put the row in 'Placed' directly so the PATCH below is a real change.
+  await prisma.orders.update({ where: { id: order.id }, data: { status: 'Placed' } })
+  const pt = await call(`/api/orders/${order.id}`, MGR, 'PATCH', { status: 'Draft' })
   ok('-> 200', pt.status === 200, pt.status)
-  ok('status updated', (await prisma.orders.findUnique({ where: { id: order.id } })).status === 'Confirmed')
+  ok('status updated', (await prisma.orders.findUnique({ where: { id: order.id } })).status === 'Draft')
   const orderB = await prisma.orders.findFirst({ where: { tenant_id: SEED.tenantB } })
   if (orderB) {
-    await call(`/api/orders/${orderB.id}`, MGR, 'PATCH', { status: 'Confirmed' })
-    ok('cross-tenant PATCH is a no-op', (await prisma.orders.findUnique({ where: { id: orderB.id } })).status !== 'Confirmed')
+    const target = orderB.status === 'Draft' ? 'Placed' : 'Draft'
+    await call(`/api/orders/${orderB.id}`, MGR, 'PATCH', { status: target })
+    ok('cross-tenant PATCH is a no-op', (await prisma.orders.findUnique({ where: { id: orderB.id } })).status === orderB.status)
   }
 
   // ===== attendance ========================================================

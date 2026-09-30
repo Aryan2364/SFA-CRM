@@ -8,7 +8,10 @@
  * several of them mutate role_permissions, which every other route's
  * authorisation depends on.
  */
-import { db, mintSession, req, ctx } from './lib.mjs'
+import { db, mintSession, req, ctx, viewerPermissions, within } from './lib.mjs'
+// Section counts come from the registry, never a literal: a literal went stale
+// every time a master was added or removed.
+import { ALL_SECTIONS, ALL_PERMISSION_KEYS } from '../../src/lib/masters-registry.ts'
 
 export const name = 'ops-and-settings'
 
@@ -39,19 +42,25 @@ export async function run() {
   const sr = await get('/api/dashboard/stats')
   const sb = await sr.json()
   t.ok('-> 200', sr.status === 200, sr.status)
+  // Each total is gated on `view` of the section it counts (null when not
+  // granted), and `users` / `weekly_plan` also apply the viewer's data scope.
+  // The viewer's EFFECTIVE role is what the route sees — requireUser()
+  // re-resolves it from the database, whatever the minted session claims — so
+  // the expectation mirrors checkPermission() / scopedUserIds() over the same
+  // rows. The viewer picked above is often not an Administrator.
+  const perm = await viewerPermissions(prisma, admin.id, tid)
   const expected = {
-    states: await prisma.states.count({ where: { tenant_id: tid } }),
-    districts: await prisma.districts.count({ where: { tenant_id: tid } }),
-    users: await prisma.users.count({ where: { tenant_id: tid } }),
-    dealers: await prisma.companies.count({ where: { tenant_id: tid, type: 'Dealer' } }),
-    distributors: await prisma.companies.count({ where: { tenant_id: tid, type: 'Distributor' } }),
-    products: await prisma.products.count({ where: { tenant_id: tid } }),
-    weeklyPlans: await prisma.weekly_plans.count({ where: { tenant_id: tid } }),
+    states: perm.view('states') ? await prisma.states.count({ where: { tenant_id: tid } }) : null,
+    districts: perm.view('districts') ? await prisma.districts.count({ where: { tenant_id: tid } }) : null,
+    users: perm.view('users') ? await prisma.users.count({ where: { tenant_id: tid, ...within(await perm.userIds('users'), 'id') } }) : null,
+    products: perm.view('products') ? await prisma.products.count({ where: { tenant_id: tid } }) : null,
+    weeklyPlans: perm.view('weekly_plan') ? await prisma.weekly_plans.count({ where: { tenant_id: tid, ...within(await perm.userIds('weekly_plan')) } }) : null,
   }
+  console.log(`    (viewer's effective role: ${perm.role}; users scope ${perm.scope('users')}, weekly_plan scope ${perm.scope('weekly_plan')})`)
   for (const [k, v] of Object.entries(expected)) {
     t.ok(`${k} total is exactly ${v}`, sb[k] === v, { got: sb[k], expected: v })
   }
-  t.ok('every total is a number, not a string', Object.values(sb).every(v => typeof v === 'number'))
+  t.ok('every total is a number (or null where not permitted), never a string', Object.values(sb).every(v => v === null || typeof v === 'number'))
 
   t.section('dashboard/manager — the date-keyed daily grid')
   const dm = await get('/api/dashboard/manager')
@@ -181,11 +190,20 @@ export async function run() {
 
   // ---- points --------------------------------------------------------------
   t.section('points')
+  // points_config has no storable role_permissions row (see POINTS_SECTIONS in
+  // src/lib/masters-registry.ts), so only an Administrator passes its gate. A
+  // non-admin viewer gets 403 on config, config/history and settings by design.
+  const pointsAdmin = perm.role === 'Administrator'
   const pc = await get('/api/points/config')
   const pcb = await pc.json()
-  t.ok('config -> 200 with one row per POINT_ACTION', pc.status === 200 && Array.isArray(pcb) && pcb.length === 7, { status: pc.status, len: pcb?.length })
-  t.ok('points and cap_per_day are numbers or null', pcb.every(c => typeof c.points === 'number' && (c.cap_per_day === null || typeof c.cap_per_day === 'number')))
-  t.ok('is_active is a boolean', pcb.every(c => typeof c.is_active === 'boolean'))
+  if (pointsAdmin) {
+    t.ok('config -> 200 with one row per POINT_ACTION', pc.status === 200 && Array.isArray(pcb) && pcb.length === 7, { status: pc.status, len: pcb?.length })
+    t.ok('points and cap_per_day are numbers or null', Array.isArray(pcb) && pcb.every(c => typeof c.points === 'number' && (c.cap_per_day === null || typeof c.cap_per_day === 'number')))
+    t.ok('is_active is a boolean', Array.isArray(pcb) && pcb.every(c => typeof c.is_active === 'boolean'))
+  } else {
+    t.ok('config -> 403 for a non-Administrator viewer', pc.status === 403, pc.status)
+    t.skip('GET /api/points/config (row shapes)', `viewer's effective role is "${perm.role}", not Administrator`)
+  }
 
   const pm = await get('/api/points/my')
   const pmb = await pm.json()
@@ -210,47 +228,89 @@ export async function run() {
 
   const ps = await get('/api/points/settings')
   const psb = await ps.json()
-  t.ok('settings -> 200 with a reset_period', ps.status === 200 && typeof psb.reset_period === 'string', psb)
   const ph = await get('/api/points/config/history')
-  t.ok('config/history -> 200 array', ph.status === 200 && Array.isArray(await ph.json()), ph.status)
+  if (pointsAdmin) {
+    t.ok('settings -> 200 with a reset_period', ps.status === 200 && typeof psb.reset_period === 'string', psb)
+    t.ok('config/history -> 200 array', ph.status === 200 && Array.isArray(await ph.json()), ph.status)
+  } else {
+    t.ok('settings -> 403 for a non-Administrator viewer', ps.status === 403, ps.status)
+    t.ok('config/history -> 403 for a non-Administrator viewer', ph.status === 403, ph.status)
+  }
 
   // ---- access-control ------------------------------------------------------
   t.section('access-control')
   const oc = await get('/api/access-control/org-chart')
   const ocb = await oc.json()
-  const activeUsers = await prisma.users.count({ where: { tenant_id: tid, status: 'Active' } })
-  t.ok(`org-chart -> 200 with all ${activeUsers} active users`, oc.status === 200 && ocb.length === activeUsers, { status: oc.status, got: ocb.length })
-  t.ok('role resolves from designation or profile', ocb.every(u => typeof u.role === 'string'))
-
-  const va = await get('/api/access-control/visibility/all')
-  const vab = await va.json()
-  const visCount = await prisma.user_visibility.count({ where: { tenant_id: tid } })
-  t.ok(`visibility/all -> 200 with all ${visCount} rows`, va.status === 200 && vab.length === visCount, { status: va.status, got: vab.length })
-  if (vab.length) t.ok('viewer_name and target_name are resolved', vab.every(r => typeof r.viewer_name === 'string' && typeof r.target_name === 'string'))
-
-  t.ok('visibility without viewerId -> 400', (await get('/api/access-control/visibility')).status === 400)
-  if (viewerRow) {
-    const vr = await get(`/api/access-control/visibility?viewerId=${admin.id}`)
-    const vrb = await vr.json()
-    const exp = await prisma.user_visibility.count({ where: { tenant_id: tid, viewer_user_id: admin.id } })
-    t.ok(`visibility?viewerId= -> ${exp} rows`, vr.status === 200 && vrb.length === exp, { status: vr.status, got: vrb.length })
+  // org-chart is governed by users:view, and applies the users data scope.
+  if (perm.view('users')) {
+    const activeUsers = await prisma.users.count({ where: { tenant_id: tid, status: 'Active', ...within(await perm.userIds('users'), 'id') } })
+    t.ok(`org-chart -> 200 with all ${activeUsers} active users in scope (${perm.scope('users')})`, oc.status === 200 && Array.isArray(ocb) && ocb.length === activeUsers, { status: oc.status, got: Array.isArray(ocb) ? ocb.length : ocb })
+    t.ok('role resolves from designation or profile', Array.isArray(ocb) && ocb.every(u => typeof u.role === 'string'), Array.isArray(ocb) ? undefined : ocb)
+  } else {
+    t.ok('org-chart -> 403 without users:view', oc.status === 403, oc.status)
   }
+
+  // visibility and settings/roles are Administrator-only by design: they manage
+  // who sees whom and what each role may do, and no grantable section exists
+  // for them. So they are exercised under a real Administrator's session, and a
+  // non-admin viewer is checked to get 403.
+  const adminUser = perm.role === 'Administrator' ? admin : await prisma.users.findFirst({
+    where: { tenant_id: tid, profile: 'Administrator', status: 'Active' },
+    select: { id: true, name: true, contact: true, tenant_id: true, credentials_version: true },
+  })
+  const adminGet = adminUser === admin ? get : adminUser ? (() => {
+    const tok = mintSession({
+      phone: adminUser.contact, userId: adminUser.id, name: adminUser.name,
+      role: 'Administrator', tenantId: tid, cv: adminUser.credentials_version ?? 1,
+    })
+    return async p => req(p, { token: await tok })
+  })() : null
+  const jsonOrNull = async r => { try { return await r.json() } catch { return null } }
+
+  if (perm.role !== 'Administrator') {
+    t.ok('visibility/all -> 403 for a non-Administrator viewer', (await get('/api/access-control/visibility/all')).status === 403)
+    t.ok('visibility?viewerId= -> 403 for a non-Administrator viewer', (await get(`/api/access-control/visibility?viewerId=${admin.id}`)).status === 403)
+    t.ok('settings/roles -> 403 for a non-Administrator viewer', (await get('/api/settings/roles')).status === 403)
+  }
+
+  if (adminGet) {
+    const va = await adminGet('/api/access-control/visibility/all')
+    const vab = await jsonOrNull(va)
+    const visCount = await prisma.user_visibility.count({ where: { tenant_id: tid } })
+    t.ok(`visibility/all -> 200 with all ${visCount} rows (as Administrator)`, va.status === 200 && Array.isArray(vab) && vab.length === visCount, { status: va.status, got: Array.isArray(vab) ? vab.length : vab })
+    if (Array.isArray(vab) && vab.length) t.ok('viewer_name and target_name are resolved', vab.every(r => typeof r.viewer_name === 'string' && typeof r.target_name === 'string'))
+
+    t.ok('visibility without viewerId -> 400 (as Administrator)', (await adminGet('/api/access-control/visibility')).status === 400)
+    if (viewerRow) {
+      // `admin` is the viewer with visibility rows picked at the top.
+      const vr = await adminGet(`/api/access-control/visibility?viewerId=${admin.id}`)
+      const vrb = await jsonOrNull(vr)
+      const exp = await prisma.user_visibility.count({ where: { tenant_id: tid, viewer_user_id: admin.id } })
+      t.ok(`visibility?viewerId= -> ${exp} rows (as Administrator)`, vr.status === 200 && Array.isArray(vrb) && vrb.length === exp, { status: vr.status, got: Array.isArray(vrb) ? vrb.length : vrb })
+    }
+  } else t.skip('visibility (Administrator)', 'this tenant has no active Administrator')
 
   // ---- settings ------------------------------------------------------------
   t.section('settings — role_permissions is what every other route depends on')
-  const rr2 = await get('/api/settings/roles')
-  const rb2 = await rr2.json()
-  const roleCount = await prisma.roles.count({ where: { tenant_id: tid } })
-  t.ok(`roles -> 200 with all ${roleCount} roles`, rr2.status === 200 && rb2.length === roleCount, { status: rr2.status, got: rb2.length })
-  t.ok('system roles sort first', rb2.every((r, i) => i === 0 || !(r.is_system && !rb2[i - 1].is_system)))
-  t.ok('created_at is a full ISO string', rb2.every(r => ISO.test(r.created_at)))
+  if (adminGet) {
+    const rr2 = await adminGet('/api/settings/roles')
+    const rb2 = await jsonOrNull(rr2)
+    const roleCount = await prisma.roles.count({ where: { tenant_id: tid } })
+    t.ok(`roles -> 200 with all ${roleCount} roles (as Administrator)`, rr2.status === 200 && Array.isArray(rb2) && rb2.length === roleCount, { status: rr2.status, got: Array.isArray(rb2) ? rb2.length : rb2 })
+    // A non-200 is recorded above as a FAIL; the shape checks need an array.
+    if (Array.isArray(rb2)) {
+      t.ok('system roles sort first', rb2.every((r, i) => i === 0 || !(r.is_system && !rb2[i - 1].is_system)))
+      t.ok('created_at is a full ISO string', rb2.every(r => ISO.test(r.created_at)))
+    }
+  } else t.skip('settings/roles (Administrator)', 'this tenant has no active Administrator')
 
   const anyProfile = await prisma.role_permissions.findFirst({ where: { tenant_id: tid }, select: { profile: true } })
-  if (anyProfile) {
-    const rp = await get(`/api/settings/role-permissions?profile=${encodeURIComponent(anyProfile.profile)}`)
-    const rpb = await rp.json()
-    t.ok('role-permissions -> 200', rp.status === 200, rp.status)
-    t.ok('all 23 sections present', Object.keys(rpb).length === 23, Object.keys(rpb).length)
+  // Administrator-only too (settings/role-permissions/route.ts).
+  if (anyProfile && adminGet) {
+    const rp = await adminGet(`/api/settings/role-permissions?profile=${encodeURIComponent(anyProfile.profile)}`)
+    const rpb = (await jsonOrNull(rp)) ?? {}
+    t.ok('role-permissions -> 200 (as Administrator)', rp.status === 200, rp.status)
+    t.ok(`all ${ALL_SECTIONS.length} sections present`, Object.keys(rpb).length === ALL_SECTIONS.length, Object.keys(rpb).length)
     const rows = await prisma.role_permissions.findMany({
       where: { tenant_id: tid, profile: anyProfile.profile },
       select: { section: true, can_view: true, can_create: true, can_edit: true, can_delete: true, data_scope: true },
@@ -270,9 +330,14 @@ export async function run() {
 
   t.section('permissions still resolve identically after the role_permissions conversion')
   // /api/auth/me derives its whole permission payload through the same table.
-  const meBody = await (await get('/api/auth/me')).json()
-  t.ok('/api/auth/me still returns all 25 permission sections', Object.keys(meBody.permissions).length === 25, Object.keys(meBody.permissions).length)
-  t.ok('Administrator still resolves to full access', Object.values(meBody.permissions).every(p => p.view && p.edit && p.delete))
+  // Asked as a real Administrator: the viewer above is often not one, and
+  // requireUser() re-resolves the role from the database.
+  if (adminGet) {
+    const meBody = (await jsonOrNull(await adminGet('/api/auth/me'))) ?? {}
+    const sections = Object.values(meBody.permissions ?? {})
+    t.ok(`/api/auth/me still returns all ${ALL_PERMISSION_KEYS.length} permission sections`, sections.length === ALL_PERMISSION_KEYS.length, sections.length)
+    t.ok('Administrator still resolves to full access', sections.length > 0 && sections.every(p => p.view && p.edit && p.delete))
+  } else t.skip('/api/auth/me as Administrator', 'this tenant has no active Administrator')
 
   t.section('routes not exercised against live')
   t.skip('PUT /api/points/config, PUT /api/points/settings', 'both write point_config / tenant_point_settings and append to point_config_history for a real tenant.')

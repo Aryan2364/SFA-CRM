@@ -4,6 +4,7 @@ import { MapPinIcon, RouteIcon, TargetIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { fmtAmount } from '@/lib/format'
 import { MeetingToggle } from './meeting-toggle'
 import { PlannedItem } from './types'
@@ -36,7 +37,8 @@ import { PlannedItem } from './types'
 export function PlannedCard({
   item,
   showOwner,
-  canStart,
+  offered,
+  canStart: canStartProp,
   starting,
   onStart,
   onAddMeeting,
@@ -44,11 +46,20 @@ export function PlannedCard({
   item: PlannedItem
   /** True when the list spans more than one person (Team/Company scope). */
   showOwner: boolean
-  canStart: boolean
+  /** The line is the viewer's own and the day is not in the future. When it
+   *  is not, there is nothing for this viewer to do here and the action row
+   *  is not drawn. `null` while /me is loading (ownership not known yet):
+   *  the row is drawn, disabled with no reason. */
+  offered: boolean | null
+  /** The permission for this line's action — meetings.create, and
+   *  meetings.edit as well when the line names a party and is started in one
+   *  press. `null` while it is still loading: shown disabled, no reason yet. */
+  canStart: boolean | null
   starting: boolean
   onStart: (item: PlannedItem) => void | Promise<void>
   onAddMeeting: (item: PlannedItem) => void
 }) {
+  const canStart = offered === null ? null : canStartProp
   const route = [item.from_place, item.to_place].filter(Boolean).join(' → ')
   const goals: string[] = []
   if (item.new_dealers_goal) goals.push(`${item.new_dealers_goal} new`)
@@ -97,7 +108,7 @@ export function PlannedCard({
         {item.notes && <p className="text-body text-text-secondary">{item.notes}</p>}
       </div>
 
-      {canStart && (
+      {offered !== false && (
         <div className="flex items-center gap-2 border-t border-border-light px-4 py-2.5">
           {item.party_id && item.party_name ? (
             /* §5.4's one toggle, the same component the meeting card uses,
@@ -106,17 +117,33 @@ export function PlannedCard({
                line is always Pending here: the moment it starts, a meeting
                carries its id and this card gives way to that meeting's own
                card (see `openPlanned` on the page). */
-            <MeetingToggle
-              status="Pending"
-              busy={starting}
-              startLabel="Start meeting"
-              onStart={() => onStart(item)}
-              onStop={() => {}}
-            />
+            <PermissionTooltip
+              allowed={canStart !== false}
+              reason="Only someone who can create and edit meetings can start one"
+            >
+              <MeetingToggle
+                status="Pending"
+                busy={starting}
+                disabled={canStart !== true}
+                startLabel="Start meeting"
+                onStart={() => onStart(item)}
+                onStop={() => {}}
+              />
+            </PermissionTooltip>
           ) : (
-            <Button size="sm" variant="secondary" onClick={() => onAddMeeting(item)}>
-              Log a meeting on this line
-            </Button>
+            <PermissionTooltip
+              allowed={canStart !== false}
+              reason="Only someone who can create meetings can log one"
+            >
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => onAddMeeting(item)}
+                disabled={canStart !== true}
+              >
+                Log a meeting on this line
+              </Button>
+            </PermissionTooltip>
           )}
         </div>
       )}

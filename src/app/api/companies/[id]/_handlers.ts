@@ -5,6 +5,8 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { recomputeCompanyCompleteness } from '@/lib/completeness'
 import { COMPANY_INCLUDE, shapeCompany } from '../_shape'
+import { findScopedCompany, foreignCompanyRef, ownerOutsideScope } from '../_access'
+import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import {
   checkEmail,
   checkGstin,
@@ -35,11 +37,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
+    const ids = await scopedUserIds(user, 'companies')
     // findFirst, not findUnique: the tenant filter is not part of the primary
     // key, and it must be in the `where` or a company id from another tenant
-    // resolves. Dropping it leaks across tenants with nothing crashing.
+    // resolves. Dropping it leaks across tenants with nothing crashing. The
+    // scope predicate is the list's own (§6.6), so a company the caller cannot
+    // see in the list is a 404 here too — see `../_access.ts`.
     const row = await prisma.companies.findFirst({
-      where: { id: params.id, tenant_id: tid },
+      where: { id: params.id, tenant_id: tid, ...scopeWhere(ids, 'owner_user_id') },
       include: {
         ...COMPANY_INCLUDE,
         states: { select: { name: true } },
@@ -65,9 +70,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // serialize() first — it walks relations by their Prisma field names, so the
-    // nested Decimals (company_addresses.latitude/longitude) and @db.Date
-    // columns (contacts.birthday/anniversary) are only converted while the keys
-    // are still the ones Prisma generated.
+    // nested @db.Date columns (contacts.birthday/anniversary) are only converted
+    // while the keys are still the ones Prisma generated.
     const serialised = serialize(row, 'companies') as Record<string, unknown> & {
       company_contacts: { id: string; is_primary: boolean; contacts: Record<string, unknown> }[]
       company_addresses: Record<string, unknown>[]
@@ -106,14 +110,14 @@ const UPDATABLE = [
   'contact_person_name', 'mobile_1', 'mobile_2', 'email', 'website',
   'gst_number', 'pincode', 'address', 'description',
   'state_id', 'district_id', 'taluka_id', 'village_id',
-  'latitude', 'longitude', 'next_follow_up_date',
+  'next_follow_up_date',
   'industry_id', 'owner_user_id', 'distributor_id', 'is_active',
 ] as const
 
 /**
  * The nullable TEXT columns in UPDATABLE: a blank value clears them to NULL.
  * (`name`, `type` and `stage` are NOT NULL and are handled case-by-case; the
- * rest of UPDATABLE is nullable uuid FKs and the two Decimals.)
+ * rest of UPDATABLE is nullable uuid FKs and the follow-up date.)
  */
 const NULLABLE_TEXT = new Set([
   'sub_type', 'temperature', 'contact_person_name', 'mobile_1', 'mobile_2',
@@ -166,10 +170,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       case 'gst_number':
         data.gst_number = normaliseGstin(value)
         break
-      case 'latitude':
-      case 'longitude':
-        data[key] = value != null && value !== '' ? Number(value) : null
-        break
       // @db.Date — the client sends "YYYY-MM-DD", Prisma wants a Date.
       case 'next_follow_up_date':
         data.next_follow_up_date = value ? new Date(String(value)) : null
@@ -184,10 +184,28 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   }
 
+  const tid = getTenantId()
+
   try {
+    const found = await findScopedCompany(user, tid, params.id)
+    if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // Only keys that survived the allow-list reach the check; an absent or
+    // cleared FK is skipped.
+    const miss = await foreignCompanyRef(tid, data)
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
+    // Reassigning (or clearing) the owner is held to the caller's scope, as
+    // POST is: an `own`-scope rep handing a company to someone else would make
+    // it vanish from their own list. Only checked when the owner is written.
+    if ('owner_user_id' in data) {
+      const outside = await ownerOutsideScope(user, 'companies', data.owner_user_id)
+      if (outside) return NextResponse.json({ error: outside }, { status: 403 })
+    }
+
     // update(), not updateMany(): the original ended in .select().single().
     const updated = await prisma.companies.update({
-      where: { id: params.id, tenant_id: getTenantId() },
+      where: { id: found.id, tenant_id: tid },
       data,
     })
     const completeness = await recomputeCompanyCompleteness(updated.id, updated.tenant_id)
@@ -210,10 +228,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'companies', 'delete')) return forbidden()
+  const tid = getTenantId()
   try {
+    // A company outside the caller's scope is a 404, as on GET and PUT —
+    // without this an `own`-scope rep could hard-delete anyone's company.
+    const found = await findScopedCompany(user, tid, params.id)
+    if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
     // deleteMany: a no-match was silent before (PLAN.md 8.4).
     await prisma.companies.deleteMany({
-      where: { id: params.id, tenant_id: getTenantId() },
+      where: { id: found.id, tenant_id: tid },
     })
     return NextResponse.json({ ok: true })
   } catch (err) {

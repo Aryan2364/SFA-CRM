@@ -1,5 +1,5 @@
 /**
- * Batch 2b — masters: org, users, leads, territory, import. 25 routes.
+ * Batch 2b — masters: org, users, leads, territory, import. 23 routes.
  *
  * READ-ONLY against production: GET only. The POST/PUT/DELETE/PATCH handlers are
  * covered by the local write-path harness (npm run test:write), not from here.
@@ -35,8 +35,8 @@ export async function run() {
   for (const [path, model, where] of [
     ['/api/masters/departments', 'departments', {}],
     ['/api/masters/designations', 'designations', {}],
-    ['/api/masters/lead-types', 'lead_types', {}],
-    ['/api/masters/lead-stages', 'lead_stages', {}],
+    ['/api/masters/lead-types', 'company_types', {}],  // lead_types / lead_stages were renamed (a1d43e0)
+    ['/api/masters/lead-stages', 'deal_stages', {}],
     ['/api/masters/lead-temperatures', 'lead_temperatures', {}],
     ['/api/masters/expense-categories', 'expense_categories', { is_active: true }],
   ]) {
@@ -129,27 +129,14 @@ export async function run() {
       prisma.users.count({ where: { tenant_id: tid, manager_user_id: target.id, status: 'Active' } }),
       prisma.daily_visits.count({ where: { tenant_id: tid, user_id: target.id, status: 'In Progress' } }),
       prisma.weekly_plans.count({ where: { tenant_id: tid, user_id: target.id, status: 'Submitted' } }),
-      prisma.orders.count({ where: { tenant_id: tid, user_id: target.id, status: { notIn: ['Delivered', 'Cancelled', 'Rejected'] } } }),
+      // Only Draft is still open (b6cffed): Placed is the other status there is.
+      prisma.orders.count({ where: { tenant_id: tid, user_id: target.id, status: 'Draft' } }),
     ])
     t.ok('GET /deactivation-summary -> 200', ds.status === 200, ds.status)
     t.ok(`direct_reports total is exact (${reports})`, dsBody.direct_reports === reports, dsBody)
     t.ok(`active_meetings total is exact (${meetings})`, dsBody.active_meetings === meetings, dsBody)
     t.ok(`pending_plans total is exact (${plans})`, dsBody.pending_plans === plans, dsBody)
-    t.ok(`open_orders total is exact (${orders}) — the .not(...,'in',...) -> notIn case`, dsBody.open_orders === orders, dsBody)
-  }
-
-  t.section('institutions (business_partners, two types)')
-  const inst = await get('/api/masters/institutions')
-  const instBody = await inst.json()
-  const expectedInst = await prisma.companies.count({
-    where: { tenant_id: tid, type: { in: ['Institution', 'End Consumer'] }, stage: 'Existing' },
-  })
-  t.ok('GET /api/masters/institutions -> 200', inst.status === 200, inst.status)
-  t.ok(`returns all ${expectedInst} rows`, Array.isArray(instBody) && instBody.length === expectedInst, Array.isArray(instBody) ? instBody.length : instBody)
-  if (Array.isArray(instBody) && instBody.length) {
-    t.ok('only Institution / End Consumer types', instBody.every(x => ['Institution', 'End Consumer'].includes(x.type)))
-    t.ok('latitude/longitude are numbers or null', instBody.every(x => (x.latitude === null || typeof x.latitude === 'number') && (x.longitude === null || typeof x.longitude === 'number')))
-    t.ok('next_follow_up_date is date-only or null', instBody.every(x => x.next_follow_up_date === null || /^\d{4}-\d{2}-\d{2}$/.test(x.next_follow_up_date)))
+    t.ok(`open_orders total is exact (${orders} Draft)`, dsBody.open_orders === orders, dsBody)
   }
 
   t.section('audit-log: dead capability still answers 500 (PLAN.md 13.1)')

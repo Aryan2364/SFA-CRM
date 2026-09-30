@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { SEEDED_MASTERS } from '@/lib/masters-registry'
+import bcrypt from 'bcryptjs'
+import { PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 
 async function requireSuperAdmin() {
   const user = await getCurrentUser()
@@ -52,17 +54,12 @@ export async function POST(req: NextRequest) {
   if (!adminName?.trim()) return NextResponse.json({ error: 'Admin name is required' }, { status: 400 })
   if (!adminPhone?.trim()) return NextResponse.json({ error: 'Admin phone is required' }, { status: 400 })
   if (!adminPassword?.trim()) return NextResponse.json({ error: 'Admin password is required' }, { status: 400 })
+  if (passwordTooShort(adminPassword.trim())) return NextResponse.json({ error: PASSWORD_TOO_SHORT }, { status: 400 })
 
-  // Check admin phone is not already in use. Deliberately cross-tenant: phone
-  // numbers are globally unique for login, which is why /api/auth/login also
-  // looks users up by contact with no tenant filter.
-  const existingUser = await prisma.users.findFirst({
-    where: { contact: adminPhone.trim() },
-    select: { id: true },
-  })
-  if (existingUser) {
-    return NextResponse.json({ error: 'A user with this phone number already exists' }, { status: 400 })
-  }
+  // No phone-uniqueness check: a phone is unique per company only — `users` is
+  // unique on (tenant_id, contact) (prisma/schema.prisma) — and this company is
+  // being created now, so it has no users yet. The same number may already hold
+  // an account in another company; /api/auth/login resolves that by password.
 
   let tenant
   try {
@@ -130,7 +127,9 @@ export async function POST(req: NextRequest) {
     )
   )
 
-  // Create admin user
+  // Create admin user. The password is never stored in cleartext — same library
+  // and cost factor as /api/masters/users and /api/auth/reset-password.
+  const hashedPassword = await bcrypt.hash(adminPassword.trim(), 12)
   let adminUser
   try {
     adminUser = await prisma.users.create({
@@ -139,7 +138,7 @@ export async function POST(req: NextRequest) {
         name: adminName.trim(),
         email: adminEmail?.trim() || `admin@${name.trim().toLowerCase().replace(/\s+/g, '')}.local`,
         contact: adminPhone.trim(),
-        password: adminPassword.trim(),
+        password: hashedPassword,
         profile: 'Administrator',
         status: 'Active',
       },
@@ -150,8 +149,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
 
+  // The stored credential never goes back over the wire. Before hashing this
+  // returned the admin's password in cleartext; now it would return the hash,
+  // and neither belongs in a response body.
+  const { password: _password, ...adminUserSafe } = adminUser
+
   return NextResponse.json({
     tenant: serialize(tenant, 'tenants'),
-    user: serialize(adminUser, 'users'),
+    user: serialize(adminUserSafe, 'users'),
   }, { status: 201 })
 }

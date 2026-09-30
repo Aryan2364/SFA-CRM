@@ -67,7 +67,7 @@ export function DecisionDialog({
           <DialogTitle>{spec?.label ?? ''}</DialogTitle>
           <DialogDescription>
             {spec
-              ? `${spec.label} the weekly plan for ${ownerName}. It moves to ${spec.resultStatus}.`
+              ? `Weekly plan for ${ownerName}. ${spec.outcome}`
               : ''}
           </DialogDescription>
         </DialogHeader>

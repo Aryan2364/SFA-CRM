@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { SessionUser } from '@/lib/auth'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
+import { firstForeignTenantRef } from '@/lib/tenant-fk'
 
 /**
  * "May this user touch THIS Deal?" — used by every single-Deal route.
@@ -38,4 +39,33 @@ export async function findScopedDeal(
 
 export function notFound() {
   return NextResponse.json({ error: 'Not found' }, { status: 404 })
+}
+
+/**
+ * The body-supplied foreign keys a Deal write may carry, each looked up in the
+ * caller's tenant before POST or PUT writes it — see `src/lib/tenant-fk.ts`.
+ * The row guard (`where: { id, tenant_id }`) protects the Deal; this protects
+ * the VALUES, which Postgres would otherwise accept from any tenant and which
+ * `DEAL_*_INCLUDE` would then read back by name. An absent or blank key is
+ * skipped, so PUT can pass the body as it came.
+ */
+export function foreignDealRef(
+  tenantId: string,
+  body: Record<string, unknown>
+): Promise<string | null> {
+  const tid = tenantId
+  return firstForeignTenantRef([
+    { value: body.owner_user_id, label: 'Owner',
+      find: id => prisma.users.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: body.company_id, label: 'Company',
+      find: id => prisma.companies.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: body.contact_id, label: 'Contact',
+      find: id => prisma.contacts.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: body.deal_stage_id, label: 'Deal stage',
+      find: id => prisma.deal_stages.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: body.product_id, label: 'Product',
+      find: id => prisma.products.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    { value: body.product_category_id, label: 'Product category',
+      find: id => prisma.product_categories.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+  ])
 }

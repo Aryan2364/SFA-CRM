@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { CircleDashed, Flag, Info } from 'lucide-react'
-import CrudPage, { Column } from '@/components/ui/CrudPage'
+import CrudPage, { Column, masterLocks } from '@/components/ui/CrudPage'
 import Modal from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/badge'
 import { Banner, BannerDescription, BannerTitle } from '@/components/ui/banner'
@@ -66,14 +66,9 @@ export default function LeadStagesPage() {
   const crud = useCrud('/api/masters/lead-stages')
   const me = useMe()
 
-  // Gated on the real permission row, not on a role name (CLAUDE.md: never gate
-  // on a hardcoded role). `permissions` is absent only on a response from
-  // before that field existed, which is the one case the role check covers.
-  const perm = me?.permissions?.lead_stages
-  const isAdmin = me?.role === 'Administrator'
-  const canCreate = perm ? (perm.create ?? perm.edit) : isAdmin
-  const canEdit   = perm ? perm.edit   : isAdmin
-  const canDelete = perm ? perm.delete : isAdmin
+  // The real permission map, never a role name — Administrators get every
+  // section from /api/auth/me. Denied actions show disabled with a reason.
+  const locks = masterLocks(me, 'lead_stages', 'lead stages', 'create')
 
   const [open, setOpen]         = useState(false)
   const [editing, setEditing]   = useState<Record<string, unknown> | null>(null)
@@ -115,18 +110,15 @@ export default function LeadStagesPage() {
     if (ok !== false && ok !== null) setOpen(false)
   }
 
-  async function handleReorder(newRows: Record<string, unknown>[]) {
-    await Promise.all(
-      newRows.map((row, idx) =>
-        crud.update(row.id as string, {
-          name: row.name,
-          sort_order: idx,
-          is_active: row.is_active,
-          // `stage_type` is omitted deliberately: reordering is not a change of
-          // meaning, and the route leaves an absent key alone.
-        })
-      )
-    )
+  // One PUT per moved row, one toast, one refetch; the order is put back if
+  // any of them fails. `sort_order` is assigned by the hook.
+  function handleReorder(newRows: Record<string, unknown>[]) {
+    return crud.reorder(newRows, row => ({
+      name: row.name,
+      is_active: row.is_active,
+      // `stage_type` is omitted deliberately: reordering is not a change of
+      // meaning, and the route leaves an absent key alone.
+    }))
   }
 
   return (
@@ -135,14 +127,24 @@ export default function LeadStagesPage() {
         title="Lead Stages" backHref="/masters" columns={COLS}
         rows={crud.rows} allRowsCount={crud.allRows.length}
         isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
+        loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
         page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={canCreate ? openAdd : undefined}
+        onAdd={openAdd}
         // A fixed stage keeps its name and its position, but whether it ends
         // the deal is still the admin's call — so Edit opens for it too, with
         // the name locked. Previously the button was there and did nothing.
-        onEdit={canEdit ? openEdit : undefined}
-        onDelete={canDelete ? (r => { if (!r.is_fixed) crud.remove(r.id as string) }) : undefined}
-        onReorder={canEdit ? handleReorder : undefined}
+        onEdit={openEdit}
+        // Delete is a soft delete. The toggle is how a deleted stage comes
+        // back — without it the row is listed but can never be restored.
+        // Fixed stages may be switched off and on too; the route only locks
+        // their name and position. `stage_type` is left out: absent means
+        // unchanged.
+        onToggleActive={(r, v) => crud.update(r.id as string, { name: r.name, sort_order: r.sort_order, is_active: v })}
+        // Returned so the confirm dialog waits for the delete and CrudPage can
+        // toast its failure.
+        onDelete={r => crud.remove(r.id as string)} deleteMode="soft"
+        deleteDisabledReason={r => r.is_fixed ? "Fixed stages can't be deleted" : null}
+        onReorder={handleReorder}
         filterBar={typeUnavailable ? (
           <Banner>
             <Info />

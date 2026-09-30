@@ -60,7 +60,7 @@ build), or the phone experience is the dedicated-mobile-screens work §9 rule 6 
 
 ### A4 — `role_permissions.section` may be CHECK-constrained in live · **CONFLICT / BLOCKER**
 `prisma/schema.prisma:295` marks `role_permissions` as carrying check constraints.
-`supabase/migrations.sql` (lines 16-18) warns its own copy *"allows 5 values while live data holds
+The old schema file (`migrations.sql`, since deleted) warned its own copy *"allows 5 values while live data holds
 23 distinct ones"*. **The real constraint exists only in the live database and in no file in this
 repo.** If it still constrains `section`, every new permission section fails at runtime.
 Phase 1 alone needs `companies`, `contacts` and three master sections.

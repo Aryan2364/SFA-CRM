@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { attachVisitContacts, readVisitContacts, VISIT_SELECT } from '@/lib/visit-contact'
+import { businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
   if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
 
   const userId = req.nextUrl.searchParams.get('userId')
-  const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
+  const date = req.nextUrl.searchParams.get('date') ?? businessDate()
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 })
 
   // intersectScope NARROWS: an id outside the caller's scope collapses to

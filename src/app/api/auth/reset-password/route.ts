@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { getTenantId } from '@/lib/tenant'
+import { getPublicTenantId } from '@/lib/tenant'
 import bcrypt from 'bcryptjs'
+import { PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 
 export async function POST(req: NextRequest) {
   const { token, password, confirmPassword } = await req.json()
@@ -10,10 +11,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Token and password are required' }, { status: 400 })
   if (password !== confirmPassword)
     return NextResponse.json({ error: 'Passwords do not match' }, { status: 400 })
-  if (password.length < 6)
-    return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
+  if (typeof password !== 'string' || passwordTooShort(password))
+    return NextResponse.json({ error: PASSWORD_TOO_SHORT }, { status: 400 })
 
-  const tid = getTenantId()
+  const tid = getPublicTenantId()
 
   // password_reset_token carries no unique constraint, so findFirst is the
   // faithful counterpart of .maybeSingle(): first match, or null.
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
   if (!user)
     return NextResponse.json({ error: 'Invalid or expired reset link' }, { status: 400 })
 
-  // Prisma already returns a Date here, where Supabase returned an ISO string.
+  // Prisma already returns a Date here, where the old client returned an ISO string.
   if (!user.password_reset_expires || user.password_reset_expires < new Date())
     return NextResponse.json({ error: 'Reset link has expired. Please request a new one.' }, { status: 400 })
 
@@ -36,6 +37,11 @@ export async function POST(req: NextRequest) {
       password: hashedPassword,
       password_reset_token: null,
       password_reset_expires: null,
+      // Every session minted under the OLD password carries the old
+      // credentials_version in its token. requireUser() compares the two, so
+      // this one increment logs out every device already holding the account —
+      // which is the whole reason someone resets a password they think is known.
+      credentials_version: { increment: 1 },
     },
   })
 

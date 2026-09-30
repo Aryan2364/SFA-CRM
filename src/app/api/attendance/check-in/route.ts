@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
-import { awardPoint } from '@/lib/points'
+import { awardPoint, logAwardFailure } from '@/lib/points'
+import { businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +12,8 @@ export async function POST(req: NextRequest) {
   if (!user.userId) return NextResponse.json({ error: 'User not found' }, { status: 400 })
 
   const { latitude, longitude, address } = await req.json()
-  const today = new Date().toISOString().split('T')[0]
+  // Business date, not the server's UTC date — see src/lib/business-date.ts.
+  const today = businessDate()
   const tid = getTenantId()
   const todayDate = new Date(today)
 
@@ -42,6 +44,7 @@ export async function POST(req: NextRequest) {
       : await prisma.attendance.create({ data: payload })
 
     void awardPoint(tid, user.userId, 'daily_checkin', { description: `Daily check-in on ${today}` })
+      .catch(logAwardFailure('daily_checkin'))
     return NextResponse.json(serialize(data, 'attendance'), { status: 201 })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

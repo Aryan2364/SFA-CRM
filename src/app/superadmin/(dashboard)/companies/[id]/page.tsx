@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -495,6 +496,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
     if (!createAdminForm.name.trim()) { setCreateAdminError('Name is required'); return }
     if (!/^\d{10}$/.test(createAdminForm.contact.trim())) { setCreateAdminError('Phone must be exactly 10 digits'); return }
     if (!createAdminForm.password.trim()) { setCreateAdminError('Password is required'); return }
+    if (passwordTooShort(createAdminForm.password.trim())) { setCreateAdminError(PASSWORD_TOO_SHORT); return }
     setCreateAdminError(''); setCreateAdminSaving(true)
     const res = await fetch(`/api/superadmin/companies/${id}/admin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(createAdminForm) })
     const data = await res.json()
@@ -716,7 +718,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
               </div>
               <div>
                 <label htmlFor="ca-password" className="block text-sm font-medium text-text-secondary mb-1">Password <span className="text-danger">*</span></label>
-                <input id="ca-password" name="ca_password" type="text" value={createAdminForm.password} onChange={CAF('password')} placeholder="Set a strong password" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+                <input id="ca-password" name="ca_password" type="text" value={createAdminForm.password} onChange={CAF('password')} placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
               </div>
               <div className="flex gap-3 pt-1">
                 <button type="submit" disabled={createAdminSaving} className="flex-1 bg-gray-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">

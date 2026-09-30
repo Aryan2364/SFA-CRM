@@ -1,13 +1,25 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { TriangleAlertIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { Banner, BannerAction, BannerDescription, BannerTitle } from '@/components/ui/banner'
+import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { useMeStatus } from '@/hooks/useMe'
+import { installSessionExpiryHandler } from '@/lib/session-expiry'
 
 import { Sidebar } from './sidebar'
 import { TopBar } from './top-bar'
 import { useSidebar } from './use-sidebar'
+
+// At module load, not in an effect. React runs a child's effects BEFORE its
+// parent's, so an effect here would install the handler after the first
+// screen's own data fetch had already gone out - and that first fetch is
+// exactly the one most likely to be the 401 that proves the session is over.
+// The call is a no-op on the server and idempotent thereafter.
+installSessionExpiryHandler()
 
 /**
  * Section 12. The frame every page sits inside, which never changes
@@ -32,6 +44,7 @@ import { useSidebar } from './use-sidebar'
 
 export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = useSidebar()
+  const meStatus = useMeStatus()
 
   return (
     <div className="flex h-dvh overflow-hidden bg-surface-sunken">
@@ -75,6 +88,32 @@ export function AppShell({ children }: { children: ReactNode }) {
           onToggleSidebar={sidebar.toggle}
           toggleLabel={sidebar.toggleLabel}
         />
+
+        {/*
+          Section 7.1: a banner, because the condition persists until it is
+          resolved and the user can carry on meanwhile. When /api/auth/me
+          fails (anything but a 401, which signs out), every
+          permission-gated control is disabled with no reason given, and
+          this is the one place that says why and offers the way out
+          (section 13). It sits above the scroll container, not inside it,
+          so a list page's height budget is untouched.
+        */}
+        {meStatus.error && (
+          <div className="shrink-0 px-6 pt-4">
+            <Banner variant="warning" className="mx-auto max-w-content-max">
+              <TriangleAlertIcon />
+              <BannerTitle>We couldn&apos;t load your permissions</BannerTitle>
+              <BannerDescription>
+                Some actions are unavailable until they load. Check your connection, then try again.
+              </BannerDescription>
+              <BannerAction>
+                <Button size="sm" variant="secondary" onClick={meStatus.retry} disabled={meStatus.pending}>
+                  {meStatus.pending ? 'Retrying…' : 'Retry'}
+                </Button>
+              </BannerAction>
+            </Banner>
+          </div>
+        )}
 
         {/*
           Section 12.3: 24px padding on all sides, capped at 1600px and

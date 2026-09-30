@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * WRITE-PATH tests (PLAN.md §8.3). These run against a dev server pointed at the
- * LOCAL scratch database — never live Supabase, never RDS. They exist because
+ * LOCAL scratch database — never RDS. They exist because
  * POST/PUT/DELETE cannot be exercised against production without creating rows
  * in real customers' tenants.
  *
@@ -16,6 +16,7 @@
 import fs from 'node:fs'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { mintSession as mintTestSession, readSession } from './test-session.mjs'
 
 const BASE = process.env.WRITE_BASE_URL ?? 'http://127.0.0.1:3012'
 const COOKIE_NAME = 'rgb_session'
@@ -55,16 +56,8 @@ let pass = 0, fail = 0
 const ok = (n, c, got) => { console.log(`  ${c ? 'PASS' : 'FAIL'}  ${n}${c ? '' : `   got: ${JSON.stringify(got)}`}`); c ? pass++ : fail++ }
 const section = n => console.log(`\n-- ${n} --`)
 
-async function mintSession(payload) {
-  const secret = readEnv('SESSION_SECRET')
-  const enc = new TextEncoder()
-  const data = btoa(JSON.stringify(payload))
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const sig = await crypto.subtle.sign({ name: 'HMAC', hash: 'SHA-256' }, key, enc.encode(data))
-  let s = ''
-  for (const b of new Uint8Array(sig)) s += String.fromCharCode(b)
-  return `${data}.${btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}`
-}
+// Signed by the app's own signSession(), so iat/exp and the encoding match login.
+const mintSession = payload => mintTestSession(payload, readEnv('SESSION_SECRET'))
 
 let TOKEN
 const call = (path, method, body) => fetch(`${BASE}${path}`, {
@@ -115,37 +108,31 @@ async function main() {
   ok('cross-tenant product DELETE -> 200 { ok: true }', rDelProdB.status === 200)
   ok('tenant B product STILL EXISTS', (await prisma.products.count({ where: { id: SEED.productB } })) === 1)
 
-  // === 2. PUT cross-tenant -> 500, row untouched ============================
-  section("PUT with ANOTHER TENANT's id -> 500, row untouched")
+  // === 2. PUT cross-tenant -> 404, row untouched ============================
+  // 404, not 500: the master routes map Prisma's P2025 (no row matched the
+  // tenant-scoped update) to 404 through dbErrorResult(). The old 500 was the
+  // .single() error path, carried over unchanged until that mapping existed.
+  section("PUT with ANOTHER TENANT's id -> 404, row untouched")
   const beforeName = (await prisma.states.findUnique({ where: { id: SEED.stateB } })).name
   const rPutB = await call(`/api/masters/states/${SEED.stateB}`, 'PUT', { name: 'HIJACKED' })
-  ok('cross-tenant PUT -> 500 (matches the old .single() error path)', rPutB.status === 500, rPutB.status)
+  ok('cross-tenant PUT -> 404 (P2025 mapped by dbErrorResult)', rPutB.status === 404, rPutB.status)
   const afterName = (await prisma.states.findUnique({ where: { id: SEED.stateB } })).name
   ok('tenant B state name UNCHANGED', afterName === beforeName, { beforeName, afterName })
 
-  section('PUT with a non-existent id -> 500')
-  ok('non-existent id -> 500', (await call(`/api/masters/states/${ghost}`, 'PUT', { name: 'x' })).status === 500)
+  section('PUT with a non-existent id -> 404')
+  ok('non-existent id -> 404', (await call(`/api/masters/states/${ghost}`, 'PUT', { name: 'x' })).status === 404)
 
-  // === 3. business_partners `type` guard ====================================
-  section('business_partners type guard: a dealers endpoint cannot touch a distributor')
-  const distBefore = (await prisma.companies.findUnique({ where: { id: SEED.distributorB } })).name
-  const rTypePut = await call(`/api/masters/dealers/${SEED.distributorB}`, 'PUT', { name: 'HIJACKED VIA DEALERS' })
-  ok('PUT distributor id via /dealers -> 500', rTypePut.status === 500, rTypePut.status)
-  ok('distributor name UNCHANGED', (await prisma.companies.findUnique({ where: { id: SEED.distributorB } })).name === distBefore)
+  // A by-id URL whose id is not a UUID fails Postgres's uuid cast. That is
+  // Prisma P2007, which dbErrorResult() maps to a 400 (it used to be a 500).
+  section('malformed (non-UUID) id in the URL -> 400, not 500')
+  const rBadPut = await call('/api/masters/states/not-a-uuid', 'PUT', { name: 'x' })
+  const bBadPut = await rBadPut.json().catch(() => null)
+  ok('PUT /states/not-a-uuid -> 400', rBadPut.status === 400, { status: rBadPut.status, b: bBadPut })
+  ok('error is "One of the values is invalid."', bBadPut?.error === 'One of the values is invalid.', bBadPut)
+  const rBadDel = await call('/api/masters/states/not-a-uuid', 'DELETE')
+  ok('DELETE /states/not-a-uuid -> 400', rBadDel.status === 400, rBadDel.status)
 
-  // Same-tenant distributor, to prove the guard is about `type`, not tenancy.
-  const distA = await prisma.companies.create({
-    data: { tenant_id: SEED.tenantA, type: 'Distributor', stage: 'Existing', name: 'Scratch Distributor A' },
-  })
-  const rTypeSame = await call(`/api/masters/dealers/${distA.id}`, 'PUT', { name: 'HIJACKED SAME TENANT' })
-  ok('PUT same-tenant distributor via /dealers -> 500 (type guard, not tenancy)', rTypeSame.status === 500, rTypeSame.status)
-  ok('same-tenant distributor name UNCHANGED',
-    (await prisma.companies.findUnique({ where: { id: distA.id } })).name === 'Scratch Distributor A')
-  const rTypeDel = await call(`/api/masters/dealers/${distA.id}`, 'DELETE')
-  ok('DELETE same-tenant distributor via /dealers -> 200 but NO-OP', rTypeDel.status === 200)
-  ok('distributor SURVIVES the dealers DELETE', (await prisma.companies.count({ where: { id: distA.id } })) === 1)
-
-  // === 4. POST serialisation: Decimal + Date ================================
+  // === 3. POST serialisation: Decimal + Date ================================
   section('POST responses serialise Decimal and Date correctly (§5.1)')
   const rProd = await call('/api/masters/products', 'POST', {
     name: 'Scratch Product', category_id: SEED.catA, subcategory_id: SEED.subcatA,
@@ -160,25 +147,72 @@ async function main() {
   const dbPrice = (await prisma.products.findUnique({ where: { id: prod.id } })).price
   ok('DB value matches what was returned', Number(dbPrice) === 1234.56, String(dbPrice))
 
-  const rDist = await call('/api/masters/distributors', 'POST', {
-    name: 'Scratch Distributor Decimal', latitude: 12.9716, longitude: 77.5946,
-    state_id: SEED.stateA, district_id: SEED.districtA, taluka_id: SEED.talukaA,
-  })
-  const dist = await rDist.json()
-  ok('POST /distributors -> 201', rDist.status === 201, { status: rDist.status, dist })
-  ok('latitude is a NUMBER', typeof dist.latitude === 'number', { v: dist.latitude, t: typeof dist.latitude })
-  ok('longitude is a NUMBER', typeof dist.longitude === 'number', { v: dist.longitude, t: typeof dist.longitude })
-  ok('latitude value exact', dist.latitude === 12.9716, dist.latitude)
+  // @db.Date round trip. This replaces the check that went through the deleted
+  // /api/masters/distributors: same table (companies, the renamed
+  // business_partners) and same column, now through the Party routes.
+  section('@db.Date serialises as "YYYY-MM-DD" (companies.next_follow_up_date)')
+  const rCo = await call('/api/companies', 'POST', { name: 'Scratch Company Date', next_follow_up_date: '2026-03-04' })
+  const co = await rCo.json()
+  ok('POST /companies -> 201', rCo.status === 201, { status: rCo.status, co })
+  ok('POST response: next_follow_up_date is DATE-ONLY "2026-03-04"', co.next_follow_up_date === '2026-03-04', co.next_follow_up_date)
+  ok('created_at stays a full ISO timestamp', /^\d{4}-\d{2}-\d{2}T.*Z$/.test(co.created_at), co.created_at)
+  ok('company landed in tenant A', co.tenant_id === SEED.tenantA, co.tenant_id)
+  // No owner in the body: the creator owns it, so it is inside their own
+  // Self/Team scope. It used to be NULL, which no one below Company scope sees.
+  ok('owner_user_id defaults to the creator', co.owner_user_id === SEED.adminA, co.owner_user_id)
+  const dbDate = (await prisma.companies.findUnique({ where: { id: co.id } })).next_follow_up_date
+  ok('DB holds 2026-03-04 (no timezone shift on write)', dbDate instanceof Date && dbDate.toISOString().startsWith('2026-03-04'), dbDate)
+  const rCoPut = await call(`/api/companies/${co.id}`, 'PUT', { next_follow_up_date: '2026-12-31' })
+  ok('PUT /companies/[id] -> 200', rCoPut.status === 200, rCoPut.status)
+  const coGot = await (await call(`/api/companies/${co.id}`, 'GET')).json()
+  ok('GET /companies/[id]: next_follow_up_date is DATE-ONLY "2026-12-31"', coGot.next_follow_up_date === '2026-12-31', coGot.next_follow_up_date)
+  const coListed = (await (await call('/api/companies', 'GET')).json()).find(c => c.id === co.id)
+  ok('GET /companies list: next_follow_up_date is DATE-ONLY "2026-12-31"', coListed?.next_follow_up_date === '2026-12-31', coListed?.next_follow_up_date)
 
-  // next_follow_up_date is DATE — set it directly, then read it back through the API.
-  await prisma.companies.update({
-    where: { id: dist.id }, data: { next_follow_up_date: new Date('2026-03-04T00:00:00.000Z') },
-  })
-  const listed = await (await call('/api/masters/distributors', 'GET')).json()
-  const withDate = listed.find(d => d.id === dist.id)
-  ok('next_follow_up_date is DATE-ONLY "2026-03-04"', withDate?.next_follow_up_date === '2026-03-04', withDate?.next_follow_up_date)
+  // Carried over from the retired /api/leads section of write-path-activity.mjs.
+  // A company outside the caller's tenant is not found (findScopedCompany), so
+  // both verbs answer 404 and touch nothing.
+  section("companies: ANOTHER TENANT's id -> 404, row untouched")
+  const coPutB = await call(`/api/companies/${SEED.distributorB}`, 'PUT', { name: 'HIJACKED' })
+  ok('cross-tenant PUT /companies/[id] -> 404', coPutB.status === 404, coPutB.status)
+  const coDelB = await call(`/api/companies/${SEED.distributorB}`, 'DELETE')
+  ok('cross-tenant DELETE /companies/[id] -> 404', coDelB.status === 404, coDelB.status)
+  ok('tenant B company survives both, name unchanged',
+    (await prisma.companies.findUnique({ where: { id: SEED.distributorB } }))?.name === 'TENANT B DISTRIBUTOR — MUST NEVER BE TOUCHED')
 
-  // === 5. POST/PUT happy paths + tenant stamping ============================
+  // Body FKs (src/lib/tenant-fk.ts). A value that is present but is not a bare
+  // UUID string is "<Label> is invalid" before any lookup. Prisma would write
+  // `{ "set": "<uuid>" }` exactly like the bare id, so skipping non-strings
+  // would be a bypass. A well-formed uuid from another tenant is "<Label> not found".
+  section('body FK guard: non-UUID values are "is invalid", foreign ids "not found"')
+  const coCountBefore = await prisma.companies.count({ where: { tenant_id: SEED.tenantA } })
+  for (const [label, value] of [
+    ['{ set: <uuid> }', { set: SEED.stateA }],
+    ['a number', 12345],
+    ['a uuid with surrounding spaces', ` ${SEED.stateA} `],
+  ]) {
+    const r = await call('/api/companies', 'POST', { name: 'Scratch FK Probe', state_id: value })
+    const b = await r.json().catch(() => null)
+    ok(`POST /companies state_id = ${label} -> 400 "State is invalid"`, r.status === 400 && b?.error === 'State is invalid', { status: r.status, b })
+  }
+  const rFkB = await call('/api/companies', 'POST', { name: 'Scratch FK Probe', state_id: SEED.stateB })
+  const bFkB = await rFkB.json().catch(() => null)
+  ok('POST /companies state_id = tenant B state -> 400 "State not found"', rFkB.status === 400 && bFkB?.error === 'State not found', { status: rFkB.status, b: bFkB })
+  const rOwnSet = await call(`/api/companies/${co.id}`, 'PUT', { owner_user_id: { set: SEED.adminA } })
+  const bOwnSet = await rOwnSet.json().catch(() => null)
+  ok('PUT /companies/[id] owner_user_id = { set: <uuid> } -> 400 "Owner is invalid"', rOwnSet.status === 400 && bOwnSet?.error === 'Owner is invalid', { status: rOwnSet.status, b: bOwnSet })
+  ok('no company was created by any refused POST',
+    (await prisma.companies.count({ where: { tenant_id: SEED.tenantA } })) === coCountBefore)
+
+  // A contact with no owner in the body and no company to inherit one from
+  // falls back to its creator, for the same scope reason as companies.
+  section('contacts POST: owner falls back to the caller')
+  const rCt = await call('/api/contacts', 'POST', { name: 'Scratch Contact Owner', mobile: '9876543210' })
+  ok('POST /contacts -> 201', rCt.status === 201, { status: rCt.status, b: await rCt.clone().json().catch(() => null) })
+  const ct = await prisma.contacts.findFirst({ where: { tenant_id: SEED.tenantA, name: 'Scratch Contact Owner' }, select: { owner_user_id: true } })
+  ok('contact owner_user_id is the caller', ct?.owner_user_id === SEED.adminA, ct)
+
+  // === 4. POST/PUT happy paths + tenant stamping ============================
   section('POST/PUT happy paths, and every created row is stamped with the session tenant')
   const rState = await call('/api/masters/states', 'POST', { name: 'Scratch Created State' })
   const st = await rState.json()
@@ -201,10 +235,8 @@ async function main() {
   ok('POST /products with bad price -> 400', (await call('/api/masters/products', 'POST', { name: 'x', category_id: SEED.catA, subcategory_id: SEED.subcatA, price: 'abc' })).status === 400)
   ok('POST /products with mismatched subcategory -> 400',
     (await call('/api/masters/products', 'POST', { name: 'x', category_id: SEED.stateA, subcategory_id: SEED.subcatA, price: 1 })).status === 400)
-  ok('POST /distributors with bad mobile -> 400', (await call('/api/masters/distributors', 'POST', { name: 'x', mobile_1: '123' })).status === 400)
-  ok('POST /distributors with bad latitude -> 400', (await call('/api/masters/distributors', 'POST', { name: 'x', latitude: 999 })).status === 400)
 
-  // === 6. auth write paths, retro-covering Batch 1 ==========================
+  // === 5. auth write paths, retro-covering Batch 1 ==========================
   section('auth write paths (Batch 1 retro-coverage)')
   const scratchUser = await prisma.users.create({
     data: {
@@ -253,6 +285,34 @@ async function main() {
     body: JSON.stringify({ phone: '9000009999', password: 'newpass123-wrong' }),
   })).status === 401)
 
+  // POST /api/auth/change-password bumps credentials_version, so every session
+  // minted under the old password dies, and re-issues THIS device a cookie
+  // carrying the new version. The cookie from the login above is the "old" one.
+  section('change-password: new cookie carries the new cv, the old cookie is dead')
+  const cookieOf = res => /rgb_session=([^;]+)/.exec(res.headers.get('set-cookie') ?? '')?.[1]
+  const oldCookie = cookieOf(rLogin)
+  ok('the login cookie works before the change', (await fetch(`${BASE}/api/auth/me`, { headers: { cookie: `${COOKIE_NAME}=${oldCookie}` } })).status === 200)
+  const changePw = body => fetch(`${BASE}/api/auth/change-password`, {
+    method: 'POST', redirect: 'manual',
+    headers: { cookie: `${COOKIE_NAME}=${oldCookie}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const cvBefore = (await prisma.users.findUnique({ where: { id: scratchUser.id } })).credentials_version
+  const rWrongPw = await changePw({ currentPassword: 'not-the-password', newPassword: 'changed456' })
+  ok('wrong current password -> 400', rWrongPw.status === 400, rWrongPw.status)
+  ok('...and credentials_version is unchanged',
+    (await prisma.users.findUnique({ where: { id: scratchUser.id } })).credentials_version === cvBefore)
+  const rChanged = await changePw({ currentPassword: 'newpass123', newPassword: 'changed456' })
+  ok('correct current password -> 200', rChanged.status === 200, rChanged.status)
+  const newCookie = cookieOf(rChanged)
+  const cvAfter = (await prisma.users.findUnique({ where: { id: scratchUser.id } })).credentials_version
+  ok('credentials_version went up by one', cvAfter === cvBefore + 1, { cvBefore, cvAfter })
+  const newPayload = newCookie ? await readSession(newCookie, readEnv('SESSION_SECRET')) : null
+  ok("a NEW cookie was issued, and its cv equals the DB's credentials_version",
+    Boolean(newCookie) && newCookie !== oldCookie && newPayload?.cv === cvAfter, { cv: newPayload?.cv, cvAfter })
+  ok('the new cookie works', (await fetch(`${BASE}/api/auth/me`, { headers: { cookie: `${COOKIE_NAME}=${newCookie}` } })).status === 200)
+  ok('the OLD cookie is rejected -> 401', (await fetch(`${BASE}/api/auth/me`, { headers: { cookie: `${COOKIE_NAME}=${oldCookie}` } })).status === 401)
+
   section('reset-password expiry branch')
   await prisma.users.update({
     where: { id: scratchUser.id },
@@ -269,11 +329,38 @@ async function main() {
   await prisma.users.update({ where: { id: scratchUser.id }, data: { status: 'Inactive' } })
   const rInactive = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ phone: '9000009999', password: 'newpass123' }),
+    // The password set by change-password above, so only the status can refuse it.
+    body: JSON.stringify({ phone: '9000009999', password: 'changed456' }),
   })
   ok('inactive user login -> 403', rInactive.status === 403, rInactive.status)
 
-  // === 7. tenant B is completely untouched by everything above ==============
+  // Phone numbers are unique per company (users_tenant_contact), not globally:
+  // one person may hold an account in two firms. Tenant B has no administrator
+  // to call the API as, so its side is written directly; tenant A's goes
+  // through POST /api/masters/users.
+  // ⚠️ Needs a local DB whose users.contact constraint is the per-tenant one;
+  // a database still carrying a global unique on contact answers 400 here.
+  section('phone uniqueness is per company')
+  const SHARED_PHONE = '9000008888'
+  await prisma.users.create({
+    data: { tenant_id: SEED.tenantB, name: 'Tenant B Phone Holder', email: 'b-phone@example.invalid',
+      contact: SHARED_PHONE, password: '', profile: 'Standard', status: 'Active' },
+  })
+  const newUser = (email) => call('/api/masters/users', 'POST', {
+    name: 'Scratch Phone User', email, contact: SHARED_PHONE, password: 'phone123', profile: 'Standard',
+  })
+  const rPhoneA = await newUser('a-phone@example.invalid')
+  ok("tenant A may use a number tenant B already has -> 201", rPhoneA.status === 201, { status: rPhoneA.status, b: await rPhoneA.clone().json().catch(() => null) })
+  ok('both tenants now hold that number',
+    (await prisma.users.count({ where: { contact: SHARED_PHONE, tenant_id: { in: [SEED.tenantA, SEED.tenantB] } } })) === 2)
+  const rPhoneDup = await newUser('a-phone-2@example.invalid')
+  const bPhoneDup = await rPhoneDup.json().catch(() => null)
+  ok('the same number twice within tenant A -> 400', rPhoneDup.status === 400, rPhoneDup.status)
+  ok('message names the company rule', bPhoneDup?.error === 'This phone number is already used by another user in this company.', bPhoneDup)
+  ok('no second tenant A row was written',
+    (await prisma.users.count({ where: { tenant_id: SEED.tenantA, contact: SHARED_PHONE } })) === 1)
+
+  // === 6. tenant B is completely untouched by everything above ==============
   section('FINAL ISOLATION CHECK — tenant B must be byte-identical')
   ok('tenant B still has exactly 1 state', (await prisma.states.count({ where: { tenant_id: SEED.tenantB } })) === 1)
   ok('tenant B still has exactly 1 product', (await prisma.products.count({ where: { tenant_id: SEED.tenantB } })) === 1)

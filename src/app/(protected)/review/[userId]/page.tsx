@@ -8,6 +8,14 @@ import { useToast } from '@/contexts/ToastContext'
 import CalendarPicker from '@/components/ui/CalendarPicker'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { RemarkThread } from '@/components/remark-thread'
+import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import {
+  DECISIONS,
+  NOT_REVIEWER_REASON,
+  notActionableReason,
+  type DecisionKey,
+} from '@/components/weekly-plan/approval-types'
 
 // ---- Helpers ----
 function getMondayOf(date: Date): Date {
@@ -52,9 +60,32 @@ type Plan = {
   id: string; status: string; submitted_at: string | null; manager_comment: string | null
   reopen_requested: boolean; reopen_request_message: string | null
   week_start_date: string; week_end_date: string;
-  weekly_plan_items: { plan_date: string; from_place: string; existing_dealers_goal: number; new_dealers_goal: number; notes: string }[]
+  weekly_plan_items: { plan_date: string; from_place: string; existing_dealers_goal: number; new_dealers_goal: number; others_goal: number; notes: string | null }[]
   day_notes?: Record<string, string>
   users: { id: string; name: string; contact: string }
+  /** Server-derived: the `weekly_plan` EDIT every manager verb checks first. */
+  canDecide: boolean
+  /** Server-derived: whether the caller may act on this owner's plan (`canReview`). */
+  canReview: boolean
+  /**
+   * The version the plan was read at. A decision sends it back as
+   * `expected_version`, so one made on a plan that has moved on since this
+   * list loaded (an owner save, another manager) is refused with a 409.
+   */
+  version: string | null
+}
+
+/** The order the four decisions sit in, as on the approval panel. */
+const DECISION_ORDER: DecisionKey[] = ['approve', 'reject', 'hold', 'suggest']
+
+/**
+ * Why a manager verb is unavailable on `plan`, or null when it is available —
+ * the same two gates the routes apply: who (`canReview`, a 403) and the plan's
+ * status (the allowed-from table in `approval-types.ts`, a 409).
+ */
+function verbLock(plan: Plan, allowedFrom: readonly string[]): string | null {
+  if (!plan.canReview) return NOT_REVIEWER_REASON
+  return allowedFrom.includes(plan.status) ? null : notActionableReason(plan.status)
 }
 
 type Visit = {
@@ -141,7 +172,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
   const [filterStatus, setFilterStatus] = useState('')
   const [filterWeek, setFilterWeek] = useState('')
   const [selected, setSelected] = useState<Plan | null>(null)
-  const [commentModal, setCommentModal] = useState<{ action: string; planId: string } | null>(null)
+  const [commentModal, setCommentModal] = useState<{ action: string; planId: string; version: string | null } | null>(null)
   const [comment, setComment] = useState('')
   const [acting, setActing] = useState(false)
 
@@ -159,8 +190,10 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
     if (filterWeek) p.set('weekStart', filterWeek)
     const r = await fetch(`/api/weekly-plans/review?${p}`)
     const d = await r.json()
-    setPlans(Array.isArray(d) ? d : [])
+    const list: Plan[] = Array.isArray(d) ? d : []
+    setPlans(list)
     setLoading(false)
+    return list
   }, [userId, filterStatus, filterWeek])
 
   useEffect(() => { loadPlans() }, [loadPlans])
@@ -169,7 +202,17 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
     setActing(true)
     const r = await fetch(`/api/weekly-plans/${planId}/${type}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const d = await r.json()
-    if (!r.ok) { toast(d.error, 'error') } else { toast(`Done`); loadPlans(); setSelected(null); setCommentModal(null) }
+    if (!r.ok) {
+      toast(d.error, 'error')
+      // 409: the plan moved on since this list loaded. Reload it and show the
+      // plan as it is now (or close it if the filters no longer match it),
+      // rather than leave the stale copy up to be decided on again.
+      if (r.status === 409) {
+        setCommentModal(null)
+        const fresh = await loadPlans()
+        setSelected(fresh.find(p => p.id === planId) ?? null)
+      }
+    } else { toast(`Done`); loadPlans(); setSelected(null); setCommentModal(null) }
     setActing(false)
   }
 
@@ -256,15 +299,18 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
             )}
             <div className="overflow-x-auto px-6 py-4 flex-1 overflow-y-auto space-y-4">
               <table className="w-full text-xs">
-                <thead className="bg-surface-sunken"><tr>{['Date', 'Place', 'Dist.', 'Dealer', 'Others'].map(h => <th key={h} className="px-3 py-2 text-left font-medium text-text-secondary">{h}</th>)}</tr></thead>
+                <thead className="bg-surface-sunken"><tr>{['Date', 'Place', 'Existing', 'New', 'Others'].map(h => <th key={h} className="px-3 py-2 text-left font-medium text-text-secondary">{h}</th>)}</tr></thead>
                 <tbody>
                   {selected.weekly_plan_items.sort((a, b) => a.plan_date.localeCompare(b.plan_date)).map((item, i) => (
                     <tr key={i} className="border-t border-border-light">
                       <td className="px-3 py-2 font-medium">{formatDayHeader(item.plan_date)}</td>
-                      <td className="px-3 py-2">{item.from_place || '—'}</td>
-                      <td className="px-3 py-2">{item.existing_dealers_goal}</td>
-                      <td className="px-3 py-2">{item.new_dealers_goal}</td>
-                      <td className="px-3 py-2">{item.notes || '0'}</td>
+                      <td className="px-3 py-2">
+                        {item.from_place || '—'}
+                        {item.notes?.trim() && <p className="mt-0.5 text-text-secondary whitespace-pre-line">{item.notes}</p>}
+                      </td>
+                      <td className="px-3 py-2">{item.existing_dealers_goal ?? 0}</td>
+                      <td className="px-3 py-2">{item.new_dealers_goal ?? 0}</td>
+                      <td className="px-3 py-2">{item.others_goal ?? 0}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -286,12 +332,32 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
                 </div>
               )}
             </div>
-            {['Submitted', 'Resubmitted', 'On Hold'].includes(selected.status) && (
+            {/*
+              The decision row appears for every plan, but only for a caller
+              holding `weekly_plan` EDIT (as on the approval panel): without it
+              no decision exists for them, so the row is an area they cannot
+              use and is hidden. Each button is then gated on the same who and
+              status rules the route enforces, and shown disabled with the
+              reason — an Approved plan shows all four, each saying why —
+              rather than hidden, or offered to fail with a 403 or 409.
+            */}
+            {selected.canDecide && (
               <div className="px-6 py-4 border-t border-border-light flex flex-wrap gap-2">
-                <button disabled={acting} onClick={() => { setCommentModal({ action: 'approve', planId: selected.id }); setComment('') }} className="bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Approve</button>
-                <button disabled={acting} onClick={() => { setCommentModal({ action: 'reject', planId: selected.id }); setComment('') }} className="bg-danger hover:bg-danger-hover text-primary-foreground text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Reject</button>
-                <button disabled={acting} onClick={() => { setCommentModal({ action: 'hold', planId: selected.id }); setComment('') }} className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Hold</button>
-                <button disabled={acting} onClick={() => { setCommentModal({ action: 'suggest', planId: selected.id }); setComment('') }} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">Suggest Changes</button>
+                {DECISION_ORDER.map(key => {
+                  const lock = verbLock(selected, DECISIONS[key].allowedFrom)
+                  return (
+                    <PermissionTooltip key={key} allowed={lock === null} reason={lock ?? ''}>
+                      <Button
+                        size="sm"
+                        variant={key === 'approve' ? 'primary' : key === 'reject' ? 'danger' : 'secondary'}
+                        disabled={acting || lock !== null}
+                        onClick={() => { setCommentModal({ action: key, planId: selected.id, version: selected.version }); setComment('') }}
+                      >
+                        {DECISIONS[key].label}
+                      </Button>
+                    </PermissionTooltip>
+                  )
+                })}
               </div>
             )}
             {/* Item 8: Accept / Decline reopen request */}
@@ -301,16 +367,23 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
                 {selected.reopen_request_message && (
                   <p className="text-xs text-warning mb-3 bg-surface rounded-lg px-3 py-2 border border-warning-border">{selected.reopen_request_message}</p>
                 )}
-                <div className="flex gap-2">
-                  <button disabled={acting} onClick={() => action(selected.id, 'accept-reopen')}
-                    className="bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">
-                    Accept (Allow Edit)
-                  </button>
-                  <button disabled={acting} onClick={() => action(selected.id, 'decline-reopen')}
-                    className="bg-danger hover:bg-danger-hover text-primary-foreground text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50">
-                    Decline
-                  </button>
-                </div>
+                {/* Both routes gate on `weekly_plan` EDIT and `canReview`, as the decisions do. */}
+                {selected.canDecide && (
+                  <div className="flex gap-2">
+                    <PermissionTooltip allowed={selected.canReview} reason={NOT_REVIEWER_REASON}>
+                      <Button size="sm" variant="primary" disabled={acting || !selected.canReview}
+                        onClick={() => action(selected.id, 'accept-reopen')}>
+                        Accept (Allow Edit)
+                      </Button>
+                    </PermissionTooltip>
+                    <PermissionTooltip allowed={selected.canReview} reason={NOT_REVIEWER_REASON}>
+                      <Button size="sm" variant="danger" disabled={acting || !selected.canReview}
+                        onClick={() => action(selected.id, 'decline-reopen')}>
+                        Decline
+                      </Button>
+                    </PermissionTooltip>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -320,7 +393,13 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
       <Modal
         title={commentModal?.action === 'approve' ? 'Approve Plan' : commentModal?.action === 'reject' ? 'Reject Plan' : commentModal?.action === 'hold' ? 'Put On Hold' : 'Suggest Changes'}
         isOpen={!!commentModal} onClose={() => setCommentModal(null)}
-        onSave={() => { if (commentModal) action(commentModal.planId, commentModal.action, { comment }) }}
+        onSave={() => {
+          if (commentModal) {
+            action(commentModal.planId, commentModal.action, {
+              comment, expected_version: commentModal.version ?? undefined,
+            })
+          }
+        }}
         isSaving={acting} saveLabel="Confirm">
         <div>
           <label htmlFor="review-comment" className="block text-sm font-medium text-text-secondary mb-1">
@@ -343,10 +422,6 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
   const [locationOpen, setLocationOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
 
-  const typeColor = (t: string) =>
-    t === 'Dealer' ? 'bg-blue-100 text-blue-700' :
-    t === 'Distributor' ? 'bg-green-100 text-green-700' :
-    'bg-purple-100 text-purple-700'
   const statusColor = (s: string) => s === 'Active' ? 'bg-warning-bg text-warning' : s === 'Completed' ? 'bg-success-bg text-success' : 'bg-surface-control text-text-secondary'
 
   const hasNotes = !!v.notes?.trim()
@@ -375,11 +450,11 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
   return (
     <div className={`bg-surface rounded-2xl border overflow-hidden ${v.status === 'Active' ? 'border-amber-300' : 'border-gray-200'}`}>
       {v.status === 'Active' && <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-400 animate-pulse" />}
-      {v.status === 'Completed' && <div className="h-1 bg-emerald-400" />}
+      {v.status === 'Completed' && <div className="h-1 bg-success-border" />}
       <div className="px-5 py-4">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${typeColor(v.visit_type)}`}>{v.visit_type}</span>
-          {v.is_new_entity && <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">New</span>}
+          <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full bg-surface-control text-text-secondary`}>{v.visit_type}</span>
+          {v.is_new_entity && <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-primary-subtle text-primary">New</span>}
           <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${statusColor(v.status)}`}>{v.status}</span>
         </div>
         <p className="font-medium text-text-primary">{v.entity_name}</p>

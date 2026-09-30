@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorMessage, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { ALL_SECTIONS } from '@/lib/masters-registry'
 
@@ -35,32 +35,39 @@ export async function POST(req: NextRequest) {
   const tid = getTenantId()
 
   try {
-    const data = await prisma.roles.create({
-      data: { tenant_id: tid, name: name.trim(), is_system: false },
-    })
+    // One transaction: a role whose permission rows failed to seed would exist
+    // with no rows at all, and checkPermission denies a missing row.
+    const data = await prisma.$transaction(async tx => {
+      const role = await tx.roles.create({
+        data: { tenant_id: tid, name: name.trim(), is_system: false },
+      })
 
-    // Seed an empty permission row per section, from the one registry.
-    // ALL_SECTIONS deliberately excludes leaderboard/points_config: they are
-    // not in the role_permissions_section_check constraint, and inserting
-    // either one would fail the whole createMany and abort role creation.
-    // ignoreDuplicates: true -> skipDuplicates, against the real
-    // @@unique([tenant_id, profile, section]).
-    await prisma.role_permissions.createMany({
-      data: ALL_SECTIONS.map(s => ({
-        tenant_id: tid,
-        profile: name.trim(),
-        section: s,
-        can_view: false,
-        can_create: false,
-        can_edit: false,
-        can_delete: false,
-        data_scope: 'own',
-      })),
-      skipDuplicates: true,
+      // Seed an empty permission row per section, from the one registry.
+      // ALL_SECTIONS deliberately excludes leaderboard/points_config: they are
+      // not in the role_permissions_section_check constraint, and inserting
+      // either one would fail the whole createMany and abort role creation.
+      // ignoreDuplicates: true -> skipDuplicates, against the real
+      // @@unique([tenant_id, profile, section]).
+      await tx.role_permissions.createMany({
+        data: ALL_SECTIONS.map(s => ({
+          tenant_id: tid,
+          profile: name.trim(),
+          section: s,
+          can_view: false,
+          can_create: false,
+          can_edit: false,
+          can_delete: false,
+          data_scope: 'own',
+        })),
+        skipDuplicates: true,
+      })
+      return role
     })
 
     return NextResponse.json(serialize(data, 'roles'), { status: 201 })
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    // dbErrorResult: a duplicate role name is a 409 with a readable message.
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { sweepAutoCheckout } from '@/lib/auto-checkout'
+import { addDays, businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
   if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
   if (!user.userId) return NextResponse.json(null)
 
-  const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().split('T')[0]
+  const date = req.nextUrl.searchParams.get('date') ?? businessDate()
 
   // ⚠️ This route answers ONE row, and Daily Activity reads it to decide whether
   // the caller has punched in. Widening it to the whole team would hand a
@@ -59,6 +60,31 @@ export async function GET(req: NextRequest) {
         date: new Date(date),
       },
     })
+
+    /*
+      The caller's own TODAY, with no row yet: a session still open from
+      yesterday is what they are in the middle of. Someone who checked in at
+      18:00 and is still working at 00:20 IST must be offered Check out — which
+      closes exactly that row (`check-out/route.ts`) — not a Check in that
+      would open a second day beside it. The sweep above has already closed it
+      if its auto check-out time has passed, so what is left here is a
+      session the tenant's own setting still considers running.
+
+      Only for the caller's own current day: a manager reading `?userId=`, or
+      anyone reading a past date, gets that date's row and nothing else.
+    */
+    if (!data && !requested && date === businessDate()) {
+      const carried = await prisma.attendance.findFirst({
+        where: {
+          tenant_id: getTenantId(),
+          user_id: user.userId,
+          date: new Date(addDays(date, -1)),
+          check_in_time: { not: null },
+          check_out_time: null,
+        },
+      })
+      if (carried) return NextResponse.json(serialize(carried, 'attendance'))
+    }
 
     return NextResponse.json(data ? serialize(data, 'attendance') : null)
   } catch (err) {

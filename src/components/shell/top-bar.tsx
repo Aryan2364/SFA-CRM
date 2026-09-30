@@ -363,6 +363,10 @@ function UserMenu() {
           <TrophyIcon />
           My Points
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push('/profile')}>
+          <UserIcon />
+          My profile
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={signOut}>
           <LogOutIcon />
           Sign out

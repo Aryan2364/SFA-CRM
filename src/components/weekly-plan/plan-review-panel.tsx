@@ -23,7 +23,16 @@ import StatusBadge from '@/components/ui/StatusBadge'
 import { useToast } from '@/contexts/ToastContext'
 import { fmtAmount, fmtDate, fmtDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { DECISIONS, type DecisionKey, type PlanDetail, type PlanItem } from './approval-types'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import {
+  DECISIONS,
+  EDIT_ALLOWED_FROM,
+  NOT_REVIEWER_REASON,
+  notActionableReason,
+  type DecisionKey,
+  type PlanDetail,
+  type PlanItem,
+} from './approval-types'
 import { DecisionDialog } from './decision-dialog'
 import { ManagerChanges, changeCountLabel } from './manager-changes'
 import { PartyCombobox, usePartyOptions, type PartyOption } from './party-combobox'
@@ -154,8 +163,8 @@ function NumberCell({
 /** One line, read-only — what a reviewer sees before touching anything. */
 function ReadLine({ item }: { item: PlanItem }) {
   const parts = [
-    `Dealer ${item.new_dealers_goal ?? 0}`,
-    `Dist. ${item.existing_dealers_goal ?? 0}`,
+    `New ${item.new_dealers_goal ?? 0}`,
+    `Existing ${item.existing_dealers_goal ?? 0}`,
     `Others ${item.others_goal ?? 0}`,
   ]
   return (
@@ -234,6 +243,13 @@ export function PlanReviewPanel({
 
   const dates = useMemo(() => (plan ? weekDates(plan.week_start_date) : []), [plan])
 
+  /** Why a manager verb is unavailable on this plan, or null when it is not. */
+  const verbLock = (allowedFrom: readonly string[]): string | null => {
+    if (!plan) return null
+    if (!plan.canReview) return NOT_REVIEWER_REASON
+    return allowedFrom.includes(plan.status) ? null : notActionableReason(plan.status)
+  }
+
   const byDay = useMemo(() => {
     const map = new Map<string, PlanItem[]>()
     for (const item of plan?.weekly_plan_items ?? []) {
@@ -290,15 +306,23 @@ export function PlanReviewPanel({
       const r = await fetch(`/api/weekly-plans/${plan.id}/${spec.path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment }),
+        body: JSON.stringify({ comment, expected_version: plan.version ?? undefined }),
       })
       const body = await r.json().catch(() => ({}))
       if (!r.ok) {
         // The API's own message, rendered in-app. Never an alert().
         toast(body?.error ?? `Could not ${spec.label.toLowerCase()} the plan`, 'error')
+        // A 409 is the plan having moved on (a decision elsewhere, an owner
+        // save): show what it is now rather than leave the stale plan up to
+        // be decided on again. Never retried behind the manager's back.
+        if (r.status === 409) {
+          setDecision(null)
+          onChanged()
+          await load()
+        }
         return
       }
-      toast(`Plan ${spec.resultStatus.toLowerCase()}`, 'success')
+      toast(spec.done, 'success')
       setDecision(null)
       onChanged()
       onClose()
@@ -316,11 +340,23 @@ export function PlanReviewPanel({
       const r = await fetch(`/api/weekly-plans/${plan.id}/edit-by-manager`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: toPayload(lines), comment: editNote.trim() || undefined }),
+        body: JSON.stringify({
+          items: toPayload(lines),
+          comment: editNote.trim() || undefined,
+          expected_version: plan.version ?? undefined,
+        }),
       })
       const body = await r.json().catch(() => ({}))
       if (!r.ok) {
         toast(body?.error ?? 'Could not save the plan', 'error')
+        // The plan changed under the edit: reload it, and the edit with it —
+        // these lines were drawn over a version that no longer exists.
+        if (r.status === 409) {
+          setSaveOpen(false)
+          setEditing(false)
+          onChanged()
+          await load()
+        }
         return
       }
       // The route answers with the diff it froze, so the count reported here is
@@ -514,12 +550,12 @@ export function PlanReviewPanel({
                                     </div>
                                     <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                                       <NumberCell
-                                        label="Dealer"
+                                        label="New"
                                         value={line.dealer}
                                         onChange={n => patch(line.key, { dealer: n })}
                                       />
                                       <NumberCell
-                                        label="Dist."
+                                        label="Existing"
                                         value={line.distributor}
                                         onChange={n => patch(line.key, { distributor: n })}
                                       />
@@ -628,24 +664,43 @@ export function PlanReviewPanel({
             <Button variant="secondary" onClick={onClose} disabled={busy}>
               Close
             </Button>
+            {/*
+              Each verb is also gated on WHO (the server's `canReview` — a
+              Self-scope manager can read a report's plan but not act on it)
+              and on the plan's STATUS, from the same allowed-from table the
+              routes enforce — so every button that would 403 or 409 is shown
+              disabled with the reason instead.
+            */}
             {plan && canDecide && !editing && (
               <>
-                <Button variant="secondary" onClick={() => setEditing(true)}>
-                  <PencilIcon />
-                  Edit plan
-                </Button>
-                <Button variant="secondary" onClick={() => setDecision('hold')}>
-                  Hold
-                </Button>
-                <Button variant="secondary" onClick={() => setDecision('suggest')}>
-                  Suggest changes
-                </Button>
-                <Button variant="danger" onClick={() => setDecision('reject')}>
-                  Reject
-                </Button>
-                <Button variant="primary" onClick={() => setDecision('approve')}>
-                  Approve
-                </Button>
+                <PermissionTooltip
+                  allowed={verbLock(EDIT_ALLOWED_FROM) === null}
+                  reason={verbLock(EDIT_ALLOWED_FROM) ?? ''}
+                >
+                  <Button
+                    variant="secondary"
+                    disabled={verbLock(EDIT_ALLOWED_FROM) !== null}
+                    onClick={() => setEditing(true)}
+                  >
+                    <PencilIcon />
+                    Edit plan
+                  </Button>
+                </PermissionTooltip>
+                {(['hold', 'suggest', 'reject', 'approve'] as const).map(key => {
+                  const lock = verbLock(DECISIONS[key].allowedFrom)
+                  const allowed = lock === null
+                  return (
+                    <PermissionTooltip key={key} allowed={allowed} reason={lock ?? ''}>
+                      <Button
+                        variant={key === 'approve' ? 'primary' : key === 'reject' ? 'danger' : 'secondary'}
+                        disabled={!allowed}
+                        onClick={() => setDecision(key)}
+                      >
+                        {DECISIONS[key].label}
+                      </Button>
+                    </PermissionTooltip>
+                  )
+                })}
               </>
             )}
             {plan && canDecide && editing && (
@@ -694,7 +749,7 @@ export function PlanReviewPanel({
           <DialogHeader>
             <DialogTitle>Save changes to this plan</DialogTitle>
             <DialogDescription>
-              {`The plan moves to Edited by Manager and ${ownerName} is notified. They will see exactly which lines you changed.`}
+              {`The plan moves to Edited by Manager and ${ownerName} is notified. They will see exactly which lines you changed. You can still approve or reject it afterwards.`}
             </DialogDescription>
           </DialogHeader>
           <DialogBody>

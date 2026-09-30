@@ -1,8 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
+import { LoadError } from '@/components/ui/load-error'
+import { loadJson, loadList } from '@/lib/load-list'
 
 type ConfigRow = {
   action_type: string; label: string; points: number; cap_per_day: number | null; is_active: boolean
@@ -35,21 +37,32 @@ export default function PointsConfigPage() {
   const [saving, setSaving] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [loading, setLoading] = useState(true)
+  // The rules list is the page. History and the reset period are extras
+  // that fail quietly. Before the guard a 403 on any of the three left
+  // the Promise.all unhandled, the page stuck on "Loading…" for ever,
+  // and config.map below throwing on an { error } body.
+  const [error, setError] = useState<{ forbidden: boolean } | null>(null)
+  const [historyFailed, setHistoryFailed] = useState(false)
 
   const canEdit = me?.role === 'Administrator' || (me?.permissions?.points_config?.edit ?? false)
 
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/points/config').then(r => r.json()),
-      fetch('/api/points/config/history').then(r => r.json()),
-      fetch('/api/points/settings').then(r => r.json()),
-    ]).then(([cfg, hist, settings]) => {
-      setConfig(cfg)
-      setHistory(hist)
-      setResetPeriod(settings.reset_period ?? 'monthly')
-      setLoading(false)
-    })
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    const [cfgRes, histRes, setRes] = await Promise.all([
+      loadList<ConfigRow>('/api/points/config'),
+      loadList<HistoryRow>('/api/points/config/history'),
+      loadJson<{ reset_period?: string }>('/api/points/settings'),
+    ])
+    if (cfgRes.ok) setConfig(cfgRes.data)
+    else setError({ forbidden: cfgRes.forbidden })
+    setHistory(histRes.ok ? histRes.data : [])
+    setHistoryFailed(!histRes.ok)
+    if (setRes.ok) setResetPeriod(setRes.data?.reset_period ?? 'monthly')
+    setLoading(false)
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   function updateRow(actionType: string, field: keyof ConfigRow, value: unknown) {
     setConfig(prev => prev.map(r => r.action_type === actionType ? { ...r, [field]: value } : r))
@@ -57,15 +70,23 @@ export default function PointsConfigPage() {
 
   async function saveConfig() {
     setSaving(true)
-    const res = await fetch('/api/points/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
-    })
+    let res: Response
+    try {
+      res = await fetch('/api/points/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      })
+    } catch {
+      toast('The rules could not be saved. Check your connection and try again.', 'error')
+      setSaving(false)
+      return
+    }
     if (res.ok) {
       toast('Point configuration saved')
-      const hist = await fetch('/api/points/config/history').then(r => r.json())
-      setHistory(hist)
+      const histRes = await loadList<HistoryRow>('/api/points/config/history')
+      setHistory(histRes.ok ? histRes.data : [])
+      setHistoryFailed(!histRes.ok)
     } else {
       toast('Failed to save', 'error')
     }
@@ -74,14 +95,19 @@ export default function PointsConfigPage() {
 
   async function saveResetPeriod() {
     setSavingSettings(true)
-    const res = await fetch('/api/points/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reset_period: resetPeriod }),
-    })
-    if (res.ok) toast('Settings saved')
-    else toast('Failed to save settings', 'error')
-    setSavingSettings(false)
+    try {
+      const res = await fetch('/api/points/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset_period: resetPeriod }),
+      })
+      if (res.ok) toast('Settings saved')
+      else toast('The reset period could not be saved. Try again.', 'error')
+    } catch {
+      toast('The reset period could not be saved. Check your connection and try again.', 'error')
+    } finally {
+      setSavingSettings(false)
+    }
   }
 
   function formatDate(iso: string) {
@@ -112,6 +138,10 @@ export default function PointsConfigPage() {
         </div>
       </div>
 
+      {error ? (
+        <LoadError forbidden={error.forbidden} what="the point rules" onRetry={load} />
+      ) : (
+      <>
       {/* Reset Period */}
       <div className="bg-surface border border-border-light rounded-xl p-4 shadow-sm mb-5 flex items-center gap-4">
         <div className="flex-1">
@@ -202,7 +232,9 @@ export default function PointsConfigPage() {
       {/* History */}
       {tab === 'history' && (
         <div className="space-y-3">
-          {history.length === 0 ? (
+          {historyFailed ? (
+            <LoadError forbidden={false} what="the change history" onRetry={load} />
+          ) : history.length === 0 ? (
             <p className="text-text-muted text-sm text-center py-10">No changes recorded yet.</p>
           ) : history.map(row => (
             <div key={row.id} className="bg-surface border border-border-light rounded-xl px-4 py-3 shadow-sm">
@@ -225,6 +257,8 @@ export default function PointsConfigPage() {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   )

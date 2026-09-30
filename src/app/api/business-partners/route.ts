@@ -34,6 +34,11 @@ export const dynamic = 'force-dynamic'
  * G4 — it previously called `requireUser()` and discarded the result, leaving
  * any authenticated user free to enumerate every company in the tenant).
  *
+ * No data scope, deliberately: this is the meeting picker, and a rep logs
+ * visits against parties a colleague owns, or nobody owns. Scoping it on
+ * `companies` `owner_user_id` was tried and blocked that field work; narrowing
+ * it is a product decision, not a security fix.
+ *
  * Phase 3 owns the Daily Activity screen and may fold this into the meeting
  * flow; until then it stays, response shape unchanged.
  */

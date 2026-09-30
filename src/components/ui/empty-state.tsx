@@ -3,6 +3,7 @@ import { CircleAlertIcon, InboxIcon, SearchIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { PermissionTooltip } from "@/components/ui/permission-tooltip"
 
 /**
  * Section 13. There are three empty states, not one, and using the
@@ -52,6 +53,7 @@ function EmptyState({
   children,
   actionLabel,
   onAction,
+  actionDisabledReason,
   ...props
 }: Omit<React.ComponentProps<"div">, "children"> & {
   variant: EmptyStateVariant
@@ -66,6 +68,14 @@ function EmptyState({
    */
   actionLabel?: string
   onAction?: () => void
+  /**
+   * Section 26 for the one action an empty state offers. A string: the
+   * user may not take it, so it renders disabled with this reason ("Only
+   * someone who can create companies can add them") on a focusable
+   * wrapper. `null`: not known yet - disabled with no reason, because
+   * "not known yet" is not "not allowed". Absent: the action as always.
+   */
+  actionDisabledReason?: string | null
 }) {
   const spec = VARIANTS[variant]
 
@@ -89,9 +99,19 @@ function EmptyState({
       <p className="text-card-heading font-medium text-text-primary">{heading}</p>
       <p className="max-w-[46ch] text-body text-text-secondary">{children}</p>
       <div className="mt-1">
-        <Button variant={spec.actionVariant} size="sm" onClick={onAction}>
-          {actionLabel ?? spec.actionLabel}
-        </Button>
+        <PermissionTooltip
+          allowed={typeof actionDisabledReason !== "string"}
+          reason={actionDisabledReason ?? ""}
+        >
+          <Button
+            variant={spec.actionVariant}
+            size="sm"
+            onClick={onAction}
+            disabled={actionDisabledReason !== undefined}
+          >
+            {actionLabel ?? spec.actionLabel}
+          </Button>
+        </PermissionTooltip>
       </div>
     </div>
   )

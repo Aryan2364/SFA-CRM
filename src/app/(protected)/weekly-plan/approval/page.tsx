@@ -28,7 +28,8 @@ import { fmtDate, fmtDateTime } from '@/lib/format'
  * ---------------------------------------------------------------------------
  * EVERY AUTHORISATION ANSWER COMES FROM THE SERVER
  *
- * The queue route applies `checkPermission` and `scopedUserIds`, and returns
+ * The queue route applies `checkPermission` and `reviewableUserIds` — the
+ * same rule every decision route enforces, so no row here 403s — and returns
  * `canDecide` — the result of `checkPermission(user, 'weekly_plan', 'edit')`.
  * This file never looks at a role name. Three consequences that are the point
  * of the design rather than side effects:
@@ -37,8 +38,11 @@ import { fmtDate, fmtDateTime } from '@/lib/format'
  *     caller from their own reviewable set. The screen says so in words.
  *   - A viewer with view-but-not-edit gets a readable queue and NO decision
  *     buttons, instead of five buttons that 403.
- *   - A manager gets exactly their visible subordinates, by `data_scope`, not
- *     by the manual visibility grant `/review` leans on.
+ *   - A manager gets exactly the people below them in `user_visibility` —
+ *     Company scope does not widen it to the whole tenant, because the
+ *     decision routes would refuse every plan outside that set. An
+ *     Administrator gets everyone in the tenant but themself, so no plan is
+ *     left without someone who can approve it.
  */
 
 const TABS = [

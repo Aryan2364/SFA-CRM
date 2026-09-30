@@ -129,6 +129,12 @@ type Plan = {
   week_start_date: string; week_end_date: string
   day_notes?: Record<string, string>
   weekly_goals?: { id: string; text: string; is_done: boolean; sort_order: number }[]
+  /**
+   * The version the plan was read at. Save and Submit send it back as
+   * `expected_version`, so a save from a screen loaded before a manager edit
+   * is refused (409) instead of silently replacing the manager's lines.
+   */
+  version?: string | null
 }
 
 /**
@@ -500,10 +506,21 @@ function MyPlanTab({ userId }: { userId: string }) {
     if (plan && plan.status === 'Edited by Manager') void fetchLogs(plan.id)
   }, [plan, fetchLogs])
 
-  const latestManagerEdit = useMemo(
-    () => logs.find(l => l.action_type === 'EditByManager' && l.changes)?.changes ?? null,
+  /*
+    Two manager verbs return a plan as 'Edited by Manager': an edit of its
+    lines (EditByManager) and "Suggest changes" (Suggest), which changes no line
+    and carries its request in `manager_comment`. The newest log that moved the
+    plan INTO that status says which one this is — and only an edit's
+    before/after belongs on the banner; an older edit's diff, already
+    resubmitted, must not reappear under a later suggestion.
+  */
+  const latestReturn = useMemo(
+    () => logs.find(l => l.new_status === 'Edited by Manager') ?? null,
     [logs],
   )
+  const returnedAsSuggestion = latestReturn?.action_type === 'Suggest'
+  const latestManagerEdit =
+    latestReturn?.action_type === 'EditByManager' ? latestReturn.changes ?? null : null
 
   /** Blank rows are form, not data — only goals with text are sent. */
   function goalsPayload() {
@@ -550,11 +567,22 @@ function MyPlanTab({ userId }: { userId: string }) {
     } else {
       const r = await fetch(`/api/weekly-plans/${plan.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload() })
+        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload(), expected_version: plan.version ?? undefined })
       })
-      if (!r.ok) { toast((await r.json()).error, 'error') } else { toast('Saved'); loadPlan(true) }
+      if (!r.ok) { await refuse(r) } else { toast('Saved'); loadPlan(true) }
     }
     setSaving(false)
+  }
+
+  /**
+   * A refused write, in-app. A 409 means the plan moved on since this screen
+   * loaded it (a manager edit or decision, another tab): the message says so
+   * and the plan is reloaded to show what it is now — never retried over it.
+   */
+  async function refuse(r: Response) {
+    const body = await r.json().catch(() => ({}))
+    toast(body?.error ?? 'Could not save the plan', 'error')
+    if (r.status === 409) loadPlan(true)
   }
 
   async function handleSubmit() {
@@ -577,22 +605,31 @@ function MyPlanTab({ userId }: { userId: string }) {
     }
     setSaving(true)
     let planId = plan?.id ?? null
+    // The version Submit claims: the one this screen shows, or the one the
+    // create / save just below left — so Submit sends exactly what was saved.
+    let version = plan?.version ?? undefined
     if (!plan) {
       const r = await fetch('/api/weekly-plans', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, goals: goalsPayload() })
       })
       if (!r.ok) { toast((await r.json()).error, 'error'); setSaving(false); return }
-      planId = (await r.json()).id
+      const created = await r.json()
+      planId = created.id
+      version = created.version ?? undefined
     } else if (['Draft', 'Rejected', 'Edited by Manager'].includes(plan.status)) {
       const r = await fetch(`/api/weekly-plans/${plan.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload() })
+        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload(), expected_version: version })
       })
-      if (!r.ok) { toast((await r.json()).error, 'error'); setSaving(false); return }
+      if (!r.ok) { await refuse(r); setSaving(false); return }
+      version = (await r.json())?.version ?? undefined
     }
-    const r = await fetch(`/api/weekly-plans/${planId}/submit`, { method: 'POST' })
-    if (!r.ok) { toast((await r.json()).error, 'error') } else { toast('Submitted for review!'); loadPlan(true) }
+    const r = await fetch(`/api/weekly-plans/${planId}/submit`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expected_version: version }),
+    })
+    if (!r.ok) { await refuse(r) } else { toast('Submitted for review!'); loadPlan(true) }
     setSaving(false)
   }
 
@@ -919,7 +956,11 @@ function MyPlanTab({ userId }: { userId: string }) {
       )}
       {plan && plan.status === 'Edited by Manager' && (
         <div className="mb-3 max-h-40 shrink-0 overflow-y-auto rounded-xl border border-primary-border bg-primary-subtle px-4 py-2.5">
-          <span className="text-label font-medium text-primary">Plan Edited by Manager — review the changes and resubmit</span>
+          <span className="text-label font-medium text-primary">
+            {returnedAsSuggestion
+              ? 'Your manager suggested changes — update your plan and resubmit'
+              : 'Plan Edited by Manager — review the changes and resubmit'}
+          </span>
           {plan.manager_comment && <p className="mt-1 text-label text-primary">{plan.manager_comment}</p>}
           {/*
             §5.2: "The User must be able to see what changes his Manager made."

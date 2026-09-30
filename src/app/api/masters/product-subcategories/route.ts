@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { firstForeignTenantRef } from '@/lib/tenant-fk'
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
@@ -23,7 +24,8 @@ export async function GET(req: NextRequest) {
     })
     return NextResponse.json(serialize(data, 'product_subcategories'))
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }
 
@@ -33,16 +35,26 @@ export async function POST(req: NextRequest) {
   const { name, category_id } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   if (!category_id) return NextResponse.json({ error: 'Category is required' }, { status: 400 })
+  const tid = getTenantId()
   try {
+    // The FK references a bare primary key, so another tenant's category would
+    // be accepted — see src/lib/tenant-fk.ts.
+    const miss = await firstForeignTenantRef([
+      { value: category_id, label: 'Category',
+        find: id => prisma.product_categories.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    ])
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
     const data = await prisma.product_subcategories.create({
       data: {
         name: name.trim(),
         category_id: category_id,
-        tenant_id: getTenantId(),
+        tenant_id: tid,
       },
     })
     return NextResponse.json(serialize(data, 'product_subcategories'), { status: 201 })
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

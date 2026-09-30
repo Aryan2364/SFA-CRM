@@ -9,6 +9,9 @@
 
 export type NewProspectPayload = {
   name: string
+  /** The new lead's own type; null saves it untyped (the meeting is then
+   *  'Other'). Absent keeps the old rule: the lead is typed as the visit. */
+  type?: string | null
   mobile_1: string | null
   state_id: string | null
   district_id: string | null

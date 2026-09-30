@@ -1,14 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { getTenantId } from '@/lib/tenant'
+import { getPublicTenantId } from '@/lib/tenant'
 import { createTransport, MAIL_FROM } from '@/lib/mailer'
+
+const IS_PROD = process.env.NODE_ENV === 'production'
+
+/**
+ * The base URL reset links are built from.
+ *
+ * NEVER derive this from the request's Host / X-Forwarded-Host header: anyone
+ * can forge those, and the resulting link is emailed to the victim — a
+ * one-click account takeover. It comes from APP_URL or it does not exist.
+ *
+ * APP_URL is server-only. Do not rename it to NEXT_PUBLIC_APP_URL; that would
+ * inline it into the browser bundle at build time (CLAUDE.md, DEPLOYMENT.md).
+ */
+function resolveAppUrl(): string | null {
+  const raw = process.env.APP_URL?.trim()
+  if (!raw) return IS_PROD ? null : 'http://localhost:3007'
+
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+  return raw.replace(/\/+$/, '')
+}
 
 export async function POST(req: NextRequest) {
   const { phone } = await req.json()
   if (!phone?.trim())
     return NextResponse.json({ error: 'Phone number is required' }, { status: 400 })
 
-  const tid = getTenantId()
+  // Configuration is checked BEFORE the user lookup, so the answer depends on
+  // the deployment and never on whether the account exists — the refusal below
+  // is identical for every caller and leaks nothing.
+  const appUrl = resolveAppUrl()
+  const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER)
+  const missing = [
+    appUrl ? null : 'APP_URL (unset or not an absolute http(s) URL)',
+    smtpConfigured || !IS_PROD ? null : 'SMTP_HOST / SMTP_USER',
+  ].filter(Boolean)
+
+  if (!appUrl || missing.length) {
+    console.error(
+      '[auth/forgot-password] ACTION REQUIRED — password reset is not configured; ' +
+        `no email can be sent and no link is generated. Missing: ${missing.join(', ')}.`,
+    )
+    return NextResponse.json(
+      { error: 'Password reset is not available. Please contact your administrator.' },
+      { status: 503 },
+    )
+  }
+
+  const tid = getPublicTenantId()
 
   const user = await prisma.users.findFirst({
     where: { contact: phone.trim(), tenant_id: tid },
@@ -31,8 +78,6 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL
-    ?? `${req.nextUrl.protocol}//${req.nextUrl.host}`
   const resetLink = `${appUrl}/reset-password?token=${token}`
 
   const emailHtml = `
@@ -68,14 +113,10 @@ export async function POST(req: NextRequest) {
     </div>
   `
 
-  // If SMTP is not configured, log to console (dev mode) and still succeed
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
-    console.log('\n========== PASSWORD RESET (no SMTP configured) ==========')
-    console.log(`To:    ${user.email}`)
-    console.log(`Name:  ${user.name}`)
-    console.log(`Phone: ${user.contact}`)
-    console.log(`Link:  ${resetLink}`)
-    console.log('==========================================================\n')
+  // Development convenience only — the guard above already refused this branch
+  // in production. The link alone; never the email, name or phone.
+  if (!smtpConfigured) {
+    console.log(`[auth/forgot-password] dev — no SMTP configured. Reset link: ${resetLink}`)
     return NextResponse.json({ ok: true })
   }
 
@@ -88,9 +129,11 @@ export async function POST(req: NextRequest) {
       html: emailHtml,
     })
   } catch (err) {
+    // Server-side only. Returning this to the caller would both leak server
+    // internals and break enumeration resistance — a send is only ever
+    // attempted when the account exists, so any error reply confirms it.
     const message = err instanceof Error ? err.message : String(err)
-    console.error('Failed to send reset email:', message)
-    return NextResponse.json({ error: `Failed to send email: ${message}` }, { status: 500 })
+    console.error('[auth/forgot-password] Failed to send reset email:', message)
   }
 
   return NextResponse.json({ ok: true })

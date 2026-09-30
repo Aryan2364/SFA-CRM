@@ -29,7 +29,7 @@
 >    `role_permissions.section` and `contextual_remarks.context_type` must be widened or
 >    dropped. `context_type` now needs `deal` AND `order` — P3-T9 added `order`. Local has no
 >    CHECK constraints, so this passes every local test and fails at runtime on live.
->    Nobody has ever read the real constraint bodies; Supabase is off limits and Prisma drops
+>    Nobody has ever read the real constraint bodies; the old database is off limits and Prisma drops
 >    them on introspection. Target is the new empty RDS, so the cheap fix is to set the schema
 >    correctly there rather than migrate. **Recommendation: drop them rather than widen them**
 >    — they live in no file, so they will drift again.
@@ -70,14 +70,14 @@ Read this, then `08-EXECUTION-SEQUENCE.md` for the task queue and the phase plan
 | | |
 |---|---|
 | **LOCAL dev database** | `SCRATCH_DATABASE_URL` = `localhost:5432/sfacrm_local` — **work here** |
-| **`DATABASE_URL` in `.env.local`** | **LIVE SUPABASE PRODUCTION.** Off limits entirely — no reads, no writes |
+| **`DATABASE_URL` in `.env.local`** | **The old hosted database.** Off limits entirely — no reads, no writes |
 | **RDS** | production target, empty. Not in use |
 | **Start the app** | `node scripts/dev-local.mjs 3010` — prints a banner naming the database |
 | **NEVER** | `npm run dev` (plain) — it reads `DATABASE_URL` and hits **production** |
 | **Login** | `9000000100` / `dev1234` (Administrator). Field is **`phone`**, not `contact` |
 | **Other users** | `9000000101` Priya (Sales Manager, team scope) · `…102/03/04` executives (own scope) |
 
-Earlier in this project I wrote to Supabase believing it was a dev database. It took a
+Earlier in this project I wrote to the old database believing it was a dev database. It took a
 rehearsed, targeted reversal to undo — see §7. **Do not repeat it.**
 
 ### Demo data baseline (local)

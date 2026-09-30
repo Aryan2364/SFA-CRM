@@ -3,17 +3,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { POINT_ACTIONS } from '@/lib/points'
-
-const DEFAULT_CONFIG: Record<string, { label: string; points: number; cap_per_day: number | null }> = {
-  weekly_plan_submitted: { label: 'Weekly Plan Submitted On Time', points: 10, cap_per_day: null },
-  weekly_plan_approved:  { label: 'Weekly Plan Approved (No Rejection)', points: 5, cap_per_day: null },
-  daily_checkin:         { label: 'Daily Check-In', points: 3, cap_per_day: 1 },
-  daily_checkout:        { label: 'Daily Check-Out', points: 3, cap_per_day: 1 },
-  meeting_logged:        { label: 'Meeting / Visit Logged', points: 2, cap_per_day: 5 },
-  expense_submitted:     { label: 'Expense Submitted', points: 2, cap_per_day: 1 },
-  weekly_streak:         { label: 'Full Week Consistency Bonus', points: 15, cap_per_day: null },
-}
+import { POINT_ACTIONS, POINT_DEFAULTS } from '@/lib/points'
 
 export async function GET() {
   const user = await requireUser()
@@ -30,10 +20,11 @@ export async function GET() {
     // objects below are plain data and need no conversion.
     const data = serialize(rows, 'point_config') as Record<string, unknown>[]
 
-    // Merge DB rows with defaults for any missing action types
+    // Merge DB rows with defaults for any missing action types. These are the
+    // same defaults awardPoint applies, so a synthesised row is genuinely live.
     const result = POINT_ACTIONS.map(action => {
       const row = data.find(r => r.action_type === action)
-      const def = DEFAULT_CONFIG[action]
+      const def = POINT_DEFAULTS[action]
       return row ?? { action_type: action, tenant_id: tid, is_active: true, ...def }
     })
 
@@ -62,7 +53,7 @@ export async function PUT(req: NextRequest) {
         select: { points: true, cap_per_day: true, is_active: true, label: true },
       })
 
-      const label = old?.label ?? DEFAULT_CONFIG[u.action_type]?.label ?? u.action_type
+      const label = old?.label ?? POINT_DEFAULTS[u.action_type as keyof typeof POINT_DEFAULTS]?.label ?? u.action_type
 
       const values = {
         label,

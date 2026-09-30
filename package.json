@@ -15,6 +15,7 @@
     "audit:tenant": "node scripts/audit-tenant-scope.mjs",
     "scratch:push": "node scripts/scratch-push.mjs",
     "scratch:seed": "node scripts/seed-scratch.mjs",
+    "backfill:people": "node scripts/backfill-people-memberships.mjs",
     "dev:scratch": "next dev -p 3012",
     "test:write": "node scripts/seed-scratch.mjs && node scripts/write-path-tests.mjs",
     "test:write:plans": "node scripts/seed-scratch.mjs && node scripts/write-path-weekly-plans.mjs",

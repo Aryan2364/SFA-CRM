@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { businessDayStart, businessMonth } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,12 +15,15 @@ export async function GET(req: NextRequest) {
 
   // Determine date range
   let fromDate: Date | null = null
-  const now = new Date()
+  // Month and quarter begin at midnight in the business timezone, not at the
+  // server's (UTC) midnight — otherwise points earned before 05:30 IST on the
+  // 1st count towards the previous month.
+  const [year, month] = businessMonth().split('-').map(Number)
   if (period === 'month') {
-    fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
+    fromDate = businessDayStart(`${year}-${String(month).padStart(2, '0')}-01`)
   } else if (period === 'quarter') {
-    const q = Math.floor(now.getMonth() / 3)
-    fromDate = new Date(now.getFullYear(), q * 3, 1)
+    const qStart = Math.floor((month - 1) / 3) * 3 + 1
+    fromDate = businessDayStart(`${year}-${String(qStart).padStart(2, '0')}-01`)
   }
   // period === 'all' -> no date filter
 

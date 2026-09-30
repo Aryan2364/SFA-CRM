@@ -63,7 +63,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { DEFAULT_COUNTRY_CODE, joinPhone } from '@/lib/country-codes'
 import { checkEmail, checkPhone } from '@/lib/validation'
 
-import type { NamedRef, UserRef } from './party-masters'
+import { useOwnerChoice, type NamedRef, type UserRef } from './party-masters'
 
 export type CreatedContact = { id: string; name: string; mobile: string }
 
@@ -123,6 +123,9 @@ export function ContactDialog({
   onCreated: (contact: CreatedContact) => void
 }) {
   const [form, setForm] = useState(BLANK)
+  /* Own scope: Owner is the user, locked (see the Owner field below). */
+  const ownerChoice = useOwnerChoice('contacts')
+  const ownerValue = ownerChoice.state === 'self' ? ownerChoice.userId : form.owner_user_id
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [pickedCompanyId, setPickedCompanyId] = useState('')
@@ -236,7 +239,7 @@ export function ContactDialog({
         email: form.email.trim() || null,
         designation: form.designation.trim() || null,
         contact_type_id: form.contact_type_id || null,
-        owner_user_id: form.owner_user_id || null,
+        owner_user_id: ownerValue || null,
         notes: form.notes.trim() || null,
         // §3.4 is plural on the wire even when it is one company here — and
         // EMPTY when the user picked none, which the route already accepts.
@@ -447,6 +450,10 @@ export function ContactDialog({
             default when a contact is created against exactly one company, so
             sending an explicit value would override the rule rather than use
             it. Setting it here is the override.
+
+            On `own` scope it is locked to the user instead, as on the company
+            form: a contact owned by anyone else would vanish from their list,
+            and `POST /api/contacts` refuses it (403).
           */}
           <div className="col-span-12 sm:col-span-6">
             <Label htmlFor="cd-owner">Owner</Label>
@@ -454,10 +461,14 @@ export function ContactDialog({
               id="cd-owner"
               className="mt-1.5"
               options={Object.fromEntries(users.map(u => [u.id, u.name]))}
-              value={form.owner_user_id}
+              value={ownerValue}
               onValueChange={set('owner_user_id')}
               placeholder="Same as the company’s owner"
+              disabled={ownerChoice.state !== 'any'}
             />
+            {ownerChoice.state === 'self' && (
+              <p className="mt-1.5 text-label text-text-muted">{ownerChoice.message}</p>
+            )}
           </div>
 
           <div className="col-span-12">

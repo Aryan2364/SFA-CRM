@@ -16,6 +16,7 @@ import { S3Client, ListObjectsV2Command, DeleteObjectCommand, GetObjectCommand }
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { mintSession as mintTestSession } from './test-session.mjs'
 
 const BASE = process.env.WRITE_BASE_URL ?? 'http://127.0.0.1:3012'
 const COOKIE_NAME = 'rgb_session'
@@ -49,6 +50,14 @@ const s3 = new S3Client({
 })
 
 const scratchUrl = readEnv('SCRATCH_DATABASE_URL')
+if (!scratchUrl) { console.error('SCRATCH_DATABASE_URL not set'); process.exit(1) }
+// The same local-only guard every write-path suite carries: this script writes
+// expense rows, so it must never see a hosted database.
+const dbHost = new URL(scratchUrl).hostname
+if (!['localhost', '127.0.0.1', '::1'].includes(dbHost)) {
+  console.error(`REFUSING TO RUN: SCRATCH_DATABASE_URL points at "${dbHost}", not local PostgreSQL.`)
+  process.exit(1)
+}
 const u = new URL(scratchUrl)
 u.searchParams.delete('sslmode'); u.searchParams.delete('connection_limit')
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: u.toString(), max: 5 }) })
@@ -57,16 +66,8 @@ let pass = 0, fail = 0
 const ok = (n, c, got) => { console.log(`  ${c ? 'PASS' : 'FAIL'}  ${n}${c ? '' : `   got: ${JSON.stringify(got)}`}`); c ? pass++ : fail++ }
 const section = n => console.log(`\n-- ${n} --`)
 
-async function mint(payload) {
-  const secret = readEnv('SESSION_SECRET')
-  const enc = new TextEncoder()
-  const data = btoa(JSON.stringify(payload))
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const sig = await crypto.subtle.sign({ name: 'HMAC', hash: 'SHA-256' }, key, enc.encode(data))
-  let s = ''
-  for (const b of new Uint8Array(sig)) s += String.fromCharCode(b)
-  return `${data}.${btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}`
-}
+// Signed by the app's own signSession(), so iat/exp and the encoding match login.
+const mint = payload => mintTestSession(payload, readEnv('SESSION_SECRET'))
 
 const listAll = async () => {
   const r = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET }))
@@ -113,7 +114,9 @@ async function main() {
       ub.url.startsWith('/api/expenses/photo/') && !ub.url.includes('r2.cloudflarestorage.com') && !ub.url.includes(BUCKET),
       ub.url)
     const photoFile = ub.url.replace('/api/expenses/photo/', '')
-    ok('url ends in <uuid>.png', /^[0-9a-f-]{36}\.png$/.test(photoFile), photoFile)
+    // `<uuid>_<tag>.<ext>`: the tag is a 32-hex HMAC binding the name to its
+    // uploader (src/app/api/expenses/_photo.ts, photoNameFor()).
+    ok('url ends in <uuid>_<hmac>.png', /^[0-9a-f-]{36}_[0-9a-f]{32}\.png$/.test(photoFile), photoFile)
 
     section('the object landed at exactly receipts/{tenantId}/{uuid}.{ext}')
     const after = await listAll()

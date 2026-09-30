@@ -6,6 +6,7 @@ import { PlusIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { Button } from '@/components/ui/button'
 import {
@@ -30,7 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { AddMeetingDialog, type MeetingDraft } from '@/components/daily-activity/add-meeting-dialog'
+import { AddMeetingDialog, OTHER_VISIT_TYPE, type MeetingDraft } from '@/components/daily-activity/add-meeting-dialog'
 import { AttendanceCard } from '@/components/daily-activity/attendance-card'
 import { ExpensesTab } from '@/components/daily-activity/expenses-tab'
 import { OrderEntryDialog } from '@/components/daily-activity/order-entry-dialog'
@@ -117,11 +118,27 @@ function DailyActivityInner() {
   // Permissions come from role_permissions through /api/auth/me. Never a
   // role name: `users.profile` reads "Standard" for everyone in this
   // database, and the effective role lives in `roles.name`.
+  //
+  // Each gate is the action its route checks, and nothing wider: POST
+  // /api/daily-activity checks meetings.create; PATCH …/[id] checks
+  // meetings.edit for start, stop and update_notes and meetings.delete for
+  // delete. Attendance check-in/check-out check no permission at all, only
+  // the session, and the card's own data loads under meetings.view — so
+  // that is the most the buttons may ask for.
   const perms = me?.permissions
-  const canLogMeeting = !!perms?.meetings?.edit
+  const canLogMeeting = !!perms?.meetings?.create
+  const canEditMeeting = !!perms?.meetings?.edit
   const canDeleteMeeting = !!perms?.meetings?.delete
-  const canAddExpense = !!perms?.expenses?.edit
+  const canMarkAttendance = !!perms?.meetings?.view
+  const canAddExpense = !!perms?.expenses?.create
   const canDeleteExpense = !!perms?.expenses?.delete
+  // A meeting's Order button POSTs /api/orders with its visit_id, which
+  // checks orders.create (and orders.edit as well on a re-punch, which the
+  // card cannot see from the day's list).
+  const canTakeOrder = !!perms?.orders?.create
+  // What the cards are handed: `null` until /me has answered, so a control
+  // is shown disabled with no reason rather than refused (kit §26).
+  const known = (allowed: boolean) => (me ? allowed : null)
 
   const isFuture = selectedDate > toDateStr(new Date())
 
@@ -237,7 +254,9 @@ function DailyActivityInner() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         visit_date: selectedDate,
-        visit_type: item.party_visit_type ?? item.party_type ?? 'Dealer',
+        // The party's own type; an untyped party is 'Other', never a guessed
+        // 'Dealer'. `||`, not `??`: an untyped company stores '' (NOT NULL).
+        visit_type: item.party_visit_type || item.party_type || OTHER_VISIT_TYPE,
         entity_id: item.party_id,
         entity_name: item.party_name,
         is_new_entity: false,
@@ -382,16 +401,26 @@ function DailyActivityInner() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {/* Attendance and its buttons sit next to the day they
                 describe, not in a panel of their own. */}
-            <AttendanceCard selectedDate={selectedDate} canMark={canLogMeeting} />
-            {canLogMeeting && !isFuture && (
-              <Button
-                onClick={() => setMeetingDialog({ open: true, planItem: null })}
-                className="min-h-11 flex-1 sm:min-h-0 sm:flex-none"
-                size="sm"
+            <AttendanceCard selectedDate={selectedDate} canMark={known(canMarkAttendance)} />
+            {!isFuture && (
+              /* Shown and disabled rather than hidden for a role without
+                 meetings.create; while /me is still loading it is disabled
+                 with no reason, because "not known yet" is not "not
+                 allowed". */
+              <PermissionTooltip
+                allowed={!me || canLogMeeting}
+                reason="Only someone who can create meetings can log one"
               >
-                <PlusIcon />
-                Log a meeting
-              </Button>
+                <Button
+                  onClick={() => setMeetingDialog({ open: true, planItem: null })}
+                  disabled={!canLogMeeting}
+                  className="min-h-11 flex-1 sm:min-h-0 sm:flex-none"
+                  size="sm"
+                >
+                  <PlusIcon />
+                  Log a meeting
+                </Button>
+              </PermissionTooltip>
             )}
           </div>
         </div>
@@ -445,7 +474,16 @@ function DailyActivityInner() {
                       key={item.id}
                       item={item}
                       showOwner={multiUser}
-                      canStart={canLogMeeting && !isFuture && item.user_id === me?.userId}
+                      /* A line naming a party is started in one press,
+                         which creates the meeting and then PATCHes it to
+                         start, so it needs both; a line without one only
+                         opens the create dialog. */
+                      /* null = ownership not known yet (/me loading):
+                         drawn disabled, not hidden. */
+                      offered={isFuture ? false : me ? item.user_id === me.userId : null}
+                      canStart={known(
+                        canLogMeeting && (!(item.party_id && item.party_name) || canEditMeeting)
+                      )}
                       starting={startingPlanItem === item.id}
                       onStart={handleStartPlanned}
                       onAddMeeting={p => setMeetingDialog({ open: true, planItem: p })}
@@ -467,8 +505,10 @@ function DailyActivityInner() {
                       ownerName={visit.user_id ? userNames[visit.user_id] : null}
                       /* A manager may read the team's meetings and may not
                          drive someone else's stopwatch. */
-                      canEdit={canLogMeeting && (!visit.user_id || visit.user_id === me?.userId)}
-                      canDelete={canDeleteMeeting && (!visit.user_id || visit.user_id === me?.userId)}
+                      mine={!visit.user_id ? true : me ? visit.user_id === me.userId : null}
+                      canEdit={known(canEditMeeting)}
+                      canDelete={known(canDeleteMeeting)}
+                      canOrder={known(canTakeOrder)}
                       onStart={handleStart}
                       onStop={handleStop}
                       onDelete={setPendingDelete}
@@ -486,8 +526,9 @@ function DailyActivityInner() {
             <ExpensesTab
               selectedDate={selectedDate}
               isFuture={isFuture}
-              canAdd={canAddExpense}
-              canDelete={canDeleteExpense}
+              canAdd={known(canAddExpense)}
+              canDelete={known(canDeleteExpense)}
+              viewerId={me?.userId ?? null}
               expenses={expenses}
               loading={expensesLoading}
               onReload={loadExpenses}

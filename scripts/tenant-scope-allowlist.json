@@ -20,16 +20,16 @@
     {
       "id": "login-lookup-by-contact",
       "table": "users",
-      "queryPattern": "SELECT[\\s\\S]*FROM \"public\"\\.\"users\"[\\s\\S]*WHERE \"public\"\\.\"users\"\\.\"contact\" = ",
+      "queryPattern": "^SELECT [^;]*\"password\"[^;]*FROM \"public\"\\.\"users\" WHERE \"public\"\\.\"users\"\\.\"contact\" = ",
       "source": "src/app/api/auth/login/route.ts",
-      "reason": "Login is deliberately cross-tenant: the caller has no session yet, so there is no tenant to scope to. The tenant is DERIVED from the matched row and then signed into the session. This was the pre-existing behaviour and the original code documents it. No row data is returned to the caller -- the response is {ok:true} plus a cookie -- so a wrong match cannot leak another tenant's data; it would simply fail the password check."
+      "reason": "Login is deliberately cross-tenant: the caller has no session yet, so there is no tenant to scope to. The tenant is DERIVED from the row the password selects and then signed into the session. The lookup is a findMany returning every row with that contact, oldest first, capped at MAX_CANDIDATES + 1 (11) rows, of which at most 10 are bcrypt-compared. Each password match then passes the account/firm-health gate (inactive account, disabled or suspended firm -> 403). No password match is a 401; if every match is gated, the oldest match's 403 is returned. If exactly one live company matches, that row is signed in. If MORE THAN ONE eligible account matches (same phone and same password in several live firms) the route no longer picks one: it logs [AMBIGUOUS-DUPLICATE-PHONE] and returns 200 {chooseCompany: [{tenantId, companyName}]} with NO cookie. Only tenants whose own row just matched this password and passed the health gate are listed, so the names reveal nothing to a caller without valid credentials. A second POST carrying tenantId (shape-checked, else 400) re-runs this same lookup and full password verification from scratch -- nothing from the first call is trusted -- and tenantId only selects among that request's matched rows: a tenantId not among them gets the same flat 401 as a wrong password, and a matched but gated row gets its own 403. So a session is only ever issued for a row whose phone and password the caller has just proven. Beyond chooseCompany, no row data is returned -- the response is {ok:true} plus a cookie, or a 400/401/403 -- so a non-matching row leaks nothing. Pattern is pinned to the projection containing \"password\", which only this query selects, so it cannot cover an unrelated unfiltered users query."
     },
     {
       "id": "me-credentials-version-pk",
       "table": "users",
       "queryPattern": "SELECT[\\s\\S]*\"credentials_version\"[\\s\\S]*FROM \"public\"\\.\"users\" WHERE \\(?\"public\"\\.\"users\"\\.\"id\" = ",
-      "source": "src/app/api/auth/me/route.ts",
-      "reason": "Primary-key lookup of the session's own user id (signed JWT) to compare credentials_version. Returns a single integer that is compared, never returned."
+      "source": "src/lib/auth.ts requireUser(), reached from src/app/api/auth/me/route.ts and every route that calls requireUser()",
+      "reason": "Primary-key lookup of the session's own user id (signed JWT) that reads credentials_version, alongside profile, status and role, to compare against the token's cv. /api/auth/me no longer issues its own query -- it calls requireUser() -- and that statement is also matched by auth-requireuser-pk, which is listed first and so is the entry the audit reports. This entry is therefore currently redundant; it stays pinned to the credentials_version projection so it covers nothing auth-requireuser-pk does not. The value is compared, never returned."
     },
     {
       "id": "me-subordinate-count",
@@ -42,8 +42,8 @@
       "id": "login-password-rehash-pk",
       "table": "users",
       "queryPattern": "UPDATE \"public\"\\.\"users\"[\\s\\S]*WHERE[\\s\\S]*\"id\" (IN|=) ",
-      "source": "src/app/api/auth/login/route.ts and reset-password/route.ts",
-      "reason": "Writes by primary key to the row this request already authenticated (login rehash) or already resolved through a tenant-scoped token lookup (password reset). The id is server-derived in both cases, never taken from the request body."
+      "source": "src/app/api/auth/login/route.ts, forgot-password/route.ts and reset-password/route.ts",
+      "reason": "Writes by primary key to a row the request already resolved: login's cleartext-to-bcrypt rehash targets the row whose password just matched; forgot-password writes the reset token to the row found by a tenant_id-scoped contact lookup; reset-password writes the new hash and bumps credentials_version on the row found by a tenant_id-scoped token lookup. The id is server-derived in every case, never taken from the request body."
     },
     {
       "id": "prisma-to-one-relation-fetch",
@@ -60,21 +60,21 @@
       ],
       "queryPattern": "^SELECT [^;]*FROM \"public\"\\.\"__TABLE__\" WHERE \"public\"\\.\"__TABLE__\"\\.\"id\" (IN \\(|= )[^)]*\\)? ?OFFSET",
       "source": "Prisma relation loading for `include: { <parent>: { select: { name: true } } }` in src/lib/auth.ts and the Batch 2 master routes",
-      "reason": "How Prisma resolves a to-one relation: a second statement fetching the related rows by PRIMARY KEY, using FK values already present on parent rows that were themselves selected under a tenant_id filter. No request input reaches these ids. PostgREST resolved the equivalent embeds the same way, with no tenant filter, so this is not a regression. The reliance on referential integrity was checked against live across the whole database: 39 FK pairs where both sides are tenant-scoped, zero cross-tenant references. Nothing at the DB level ENFORCES it -- a composite FK including tenant_id would make it structural -- and that is recorded as follow-up in PLAN.md 8.2. Tables are enumerated rather than matched by shape on purpose: a plain findMany({ where: { id: { in: ... } } }) emits identical SQL, so a blanket rule would silently swallow a genuinely missing filter."
+      "reason": "How Prisma resolves a to-one relation: a second statement fetching the related rows by PRIMARY KEY, using FK values already present on parent rows that were themselves selected under a tenant_id filter. No request input reaches these ids at read time. Cross-tenant FK values are prevented at WRITE time, not merely measured as absent: every route that takes one of these ids from a request body looks it up in the caller's own tenant through firstForeignTenantRef (src/lib/tenant-fk.ts) and refuses the write with a 400 on a miss, and the routes that write them without a body id (the location and product CSV imports, the bulk company import) derive the id from a tenant_id-scoped lookup. The database still does not ENFORCE it -- every FK references a bare primary key, not (tenant_id, id) -- so a write path added without the guard would reopen the hole with nothing failing; composite FKs including tenant_id are the pending structural fix recorded in PLAN.md 8.2. Tables are enumerated rather than matched by shape on purpose: a plain findMany({ where: { id: { in: ... } } }) emits identical SQL, so a blanket rule would silently swallow a genuinely missing filter."
     },
     {
       "id": "prisma-manager-self-relation-fetch",
       "table": "users",
       "queryPattern": "^SELECT \"public\"\\.\"users\"\\.\"id\", \"public\"\\.\"users\"\\.\"name\" FROM \"public\"\\.\"users\" WHERE \"public\"\\.\"users\"\\.\"id\" IN ",
-      "source": "src/app/api/masters/users/route.ts \u2014 include: { users: { select: { id, name } } }, the manager embed",
-      "reason": "Prisma loading the users self-relation (manager_user_id -> users.id) for the aliased `manager` embed. Same class as prisma-to-one-relation-fetch, kept as its own entry because `users` is queried in many other places and a loose pattern here would be dangerous: the pattern is pinned to the exact id+name projection this embed emits. The manager ids come from rows already selected under tenant_id, and the FK check against live found zero cross-tenant references across all 39 tenant-scoped FK pairs. Note the other id-IN query on users (the scope=manage visibility filter in the same route) DOES carry tenant_id and so is never flagged."
+      "source": "src/app/api/masters/users/route.ts — include: { users: { select: { id, name } } }, the manager embed",
+      "reason": "Prisma loading the users self-relation (manager_user_id -> users.id) for the aliased `manager` embed. Same class as prisma-to-one-relation-fetch, kept as its own entry because `users` is queried in many other places and a loose pattern here would be dangerous: the pattern is pinned to the exact id+name projection this embed emits. The manager ids come from rows already selected under tenant_id, and manager_user_id is written only by /api/masters/users POST, /api/masters/users/[id] PUT and its PATCH reactivate action, all of which validate it in the caller's tenant through firstForeignTenantRef (userFkChecks) before the write. The DB FK references users.id alone, so this rests on that write-side guard until the composite FKs in PLAN.md 8.2 land. Note the other id-IN query on users (the scope=manage visibility filter in the same route) DOES carry tenant_id and so is never flagged."
     },
     {
       "id": "weekly-plans-owner-embed",
       "table": "users",
       "queryPattern": "^SELECT \"public\"\\.\"users\"\\.\"id\", \"public\"\\.\"users\"\\.\"name\", \"public\"\\.\"users\"\\.\"contact\" FROM \"public\"\\.\"users\" WHERE \"public\"\\.\"users\"\\.\"id\" IN ",
-      "source": "src/app/api/weekly-plans/review/route.ts \u2014 the users!user_id(id, name, contact) embed",
-      "reason": "Prisma loading the plan owner for the review list. Pinned to the exact id+name+contact projection this embed emits, so it cannot match an unrelated unfiltered users query. The owner ids come from weekly_plans rows already selected under tenant_id, and weekly_plans.user_id -> users.id is an enforced FK; the live check across all 39 tenant-scoped FK pairs found zero cross-tenant references. Same class as prisma-to-one-relation-fetch and prisma-manager-self-relation-fetch, listed separately only because the projection differs."
+      "source": "src/app/api/weekly-plans/review/route.ts — the users!user_id(id, name, contact) embed",
+      "reason": "Prisma loading the plan owner for the review list. Pinned to the exact id+name+contact projection this embed emits, so it cannot match an unrelated unfiltered users query. The owner ids come from weekly_plans rows already selected under tenant_id, and weekly_plans.user_id is never taken from a request body: it is the session's own user id when the plan is created. The FK references users.id alone, so the guarantee is that server-side derivation, not the database; composite FKs are pending (PLAN.md 8.2). Same class as prisma-to-one-relation-fetch and prisma-manager-self-relation-fetch, listed separately only because the projection differs."
     },
     {
       "id": "prisma-to-many-relation-fetch",
@@ -84,8 +84,8 @@
         "order_items"
       ],
       "queryPattern": "^SELECT [^;]*FROM \"public\"\\.\"__TABLE__\" WHERE \"public\"\\.\"__TABLE__\"\\.\"(weekly_plan_id|order_id)\" IN ",
-      "source": "Prisma relation loading for include: { weekly_plan_items: \u2026 } and similar to-many embeds",
-      "reason": "The to-MANY counterpart of prisma-to-one-relation-fetch, and a genuinely different SQL shape: children are fetched by their PARENT FOREIGN KEY rather than by their own primary key. The parent ids come from a query already filtered by tenant_id, and the child-to-parent FK is enforced by the database, so a child of another tenant cannot be reached this way. Tables and FK columns are both enumerated rather than matched by shape, for the same reason as the to-one rule: an ordinary findMany filtered on a FK column emits identical SQL and must keep being flagged. Note these child tables carry their own tenant_id, so a future explicit query on them is still expected to filter it."
+      "source": "Prisma relation loading for include: { weekly_plan_items: … } and similar to-many embeds",
+      "reason": "The to-MANY counterpart of prisma-to-one-relation-fetch, and a genuinely different SQL shape: children are fetched by their PARENT FOREIGN KEY rather than by their own primary key. The parent ids come from a query already filtered by tenant_id. A child's parent id is never taken from a request body: order_items get the id of the order the same transaction just created, and weekly_plan_items / weekly_plan_audit_logs get a plan id the route has just created or looked up under tenant_id, and are written with the caller's tenant_id. The FK references the parent's bare id, so the database alone would accept a child in another tenant; the guarantee is that server-side derivation until the composite FKs in PLAN.md 8.2 land. Tables and FK columns are both enumerated rather than matched by shape, for the same reason as the to-one rule: an ordinary findMany filtered on a FK column emits identical SQL and must keep being flagged. These child tables carry their own tenant_id, so a future explicit query on them is still expected to filter it."
     }
   ]
 }

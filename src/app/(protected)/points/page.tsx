@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useMe } from '@/hooks/useMe'
+import { LoadError } from '@/components/ui/load-error'
+import { loadJson, loadList, type LoadResult } from '@/lib/load-list'
 
 type PointEvent = {
   id: string; action_type: string; points: number; description: string | null; earned_at: string
@@ -45,21 +47,43 @@ export default function PointsPage() {
   const [leaderboard, setLeaderboard] = useState<LeaderEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'activity' | 'breakdown' | 'leaderboard'>('activity')
+  // Before the guard a 403 on either request resolved, its { error }
+  // body landed in state typed as an array, and leaderboard.find below
+  // threw - or, where the request simply failed, the page sat on
+  // "Loading…" for ever because nothing cleared the flag.
+  const [error, setError] = useState<{ forbidden: boolean } | null>(null)
+  const [leaderboardFailed, setLeaderboardFailed] = useState(false)
+  // Switching period twice quickly used to render whichever response
+  // arrived last. Only the newest request is allowed to write state.
+  const requestSeq = useRef(0)
 
   const canSeeLeaderboard = me?.role === 'Administrator' || (me?.permissions?.leaderboard?.view ?? false)
 
   const load = useCallback(async () => {
+    const seq = ++requestSeq.current
     setLoading(true)
+    setError(null)
+    setLeaderboardFailed(false)
     const [myRes, lbRes] = await Promise.all([
-      fetch(`/api/points/my?period=${period}`).then(r => r.json()),
+      loadJson<{ total?: number; events?: PointEvent[]; breakdown?: Record<string, BreakdownEntry> }>(`/api/points/my?period=${period}`),
       canSeeLeaderboard
-        ? fetch(`/api/points/leaderboard?period=${period}`).then(r => r.json())
-        : Promise.resolve([]),
+        ? loadList<LeaderEntry>(`/api/points/leaderboard?period=${period}`)
+        : Promise.resolve<LoadResult<LeaderEntry[]>>({ ok: true, data: [] }),
     ])
-    setTotal(myRes.total ?? 0)
-    setEvents(myRes.events ?? [])
-    setBreakdown(myRes.breakdown ?? {})
-    setLeaderboard(lbRes ?? [])
+    if (seq !== requestSeq.current) return
+    if (myRes.ok) {
+      const d = myRes.data ?? {}
+      setTotal(typeof d.total === 'number' ? d.total : 0)
+      setEvents(Array.isArray(d.events) ? d.events : [])
+      setBreakdown(d.breakdown && typeof d.breakdown === 'object' ? d.breakdown : {})
+    } else {
+      setTotal(0)
+      setEvents([])
+      setBreakdown({})
+      setError({ forbidden: myRes.forbidden })
+    }
+    setLeaderboard(lbRes.ok ? lbRes.data : [])
+    setLeaderboardFailed(!lbRes.ok)
     setLoading(false)
   }, [period, canSeeLeaderboard])
 
@@ -88,6 +112,10 @@ export default function PointsPage() {
         </div>
       </div>
 
+      {error ? (
+        <LoadError forbidden={error.forbidden} what="your points" onRetry={load} />
+      ) : (
+      <>
       {/* Score cards */}
       <div className={`grid gap-4 mb-6 ${canSeeLeaderboard && myRank ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <div className="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl p-5 text-white shadow-lg">
@@ -179,6 +207,8 @@ export default function PointsPage() {
         <div className="space-y-2">
           {loading ? (
             <p className="text-text-muted text-sm text-center py-10">Loading…</p>
+          ) : leaderboardFailed ? (
+            <LoadError forbidden={false} what="the leaderboard" onRetry={load} />
           ) : leaderboard.length === 0 ? (
             <p className="text-text-muted text-sm text-center py-10">No data for selected period.</p>
           ) : leaderboard.map(entry => (
@@ -202,6 +232,8 @@ export default function PointsPage() {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   )

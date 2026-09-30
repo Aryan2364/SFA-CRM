@@ -35,6 +35,24 @@ export function JournalBox({ kind, weekStart }: { kind: Kind; weekStart: string 
   const [saving, setSaving] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  /*
+    Saves are SERIALISED: one request in flight, and the newest text waiting
+    behind it — last write wins. The box saves on a 600ms debounce and again
+    on blur, and nothing used to stop the second POST leaving while the first
+    was still out: the two raced on the server (see the journal route's
+    header) and could land in either order, reverting the later text.
+
+    Refs, not state, because the debounce timer's closure would otherwise
+    compare against the `savedText` of the render that scheduled it. Each
+    queued save carries its own week, so text typed just before the week
+    changes still lands on the week it was typed into.
+  */
+  const savedRef = useRef<{ weekStart: string; text: string }>({ weekStart, text: '' })
+  const inFlight = useRef(false)
+  const queued = useRef<{ weekStart: string; text: string } | null>(null)
+  const currentWeek = useRef(weekStart)
+  currentWeek.current = weekStart
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -43,6 +61,7 @@ export function JournalBox({ kind, weekStart }: { kind: Kind; weekStart: string 
       .then((rows: { body: string | null }[]) => {
         if (cancelled) return
         const body = rows[0]?.body ?? ''
+        savedRef.current = { weekStart, text: body }
         setText(body)
         setSavedText(body)
       })
@@ -55,31 +74,51 @@ export function JournalBox({ kind, weekStart }: { kind: Kind; weekStart: string 
   function scheduleSave(next: string) {
     setText(next)
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => save(next), 600)
+    const week = weekStart
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null
+      save(week, next)
+    }, 600)
   }
 
-  async function save(value: string) {
-    if (value === savedText) return
+  function save(week: string, value: string) {
+    queued.current = { weekStart: week, text: value }
+    if (!inFlight.current) void drain()
+  }
+
+  async function drain() {
+    inFlight.current = true
     setSaving(true)
     try {
-      const res = await fetch('/api/journal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weekStart, kind, text: value }),
-      })
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.error || 'Could not save')
-      setSavedText(value)
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not save entry', 'error')
+      while (queued.current) {
+        const next = queued.current
+        queued.current = null
+        const saved = savedRef.current
+        if (saved.weekStart === next.weekStart && saved.text === next.text) continue
+        try {
+          const res = await fetch('/api/journal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ weekStart: next.weekStart, kind, text: next.text }),
+          })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(body.error || 'Could not save entry')
+          savedRef.current = next
+          if (next.weekStart === currentWeek.current) setSavedText(next.text)
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : 'Could not save entry', 'error')
+        }
+      }
     } finally {
+      inFlight.current = false
       setSaving(false)
     }
   }
 
   function handleBlur() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    save(text)
+    saveTimer.current = null
+    save(weekStart, text)
   }
 
   return (

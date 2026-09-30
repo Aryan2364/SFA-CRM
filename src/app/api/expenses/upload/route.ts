@@ -2,13 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { requireUser } from '@/lib/auth'
 import { getTenantId } from '@/lib/tenant'
+import { checkPermission, forbidden } from '@/lib/permissions'
 import { isConfigured, putObject, receiptKey } from '@/lib/r2'
+import { PHOTO_PATH_PREFIX, photoNameFor } from '../_photo'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png']
 const MAX_SIZE = 5 * 1024 * 1024 // 5 MB
 
 export async function POST(req: NextRequest) {
-  await requireUser()
+  const user = await requireUser()
+  // Uploading a receipt is the first half of filing an expense, so it carries
+  // the same permission as the second half (`POST /api/expenses`).
+  if (!await checkPermission(user, 'expenses', 'create')) return forbidden()
+  // The name is bound to the uploader (see ../_photo.ts); a session with no
+  // user row has nobody to bind it to, and could not file the expense anyway.
+  if (!user.userId) return NextResponse.json({ error: 'User not in DB' }, { status: 400 })
 
   const form = await req.formData()
   const file = form.get('file') as File | null
@@ -26,7 +34,9 @@ export async function POST(req: NextRequest) {
   const ext = file.type === 'image/png' ? 'png' : 'jpg'
   // The photo's own id. The tenant half of the key is taken from the session,
   // never from the request, so one tenant cannot write into another's prefix.
-  const photoFile = `${randomUUID()}.${ext}`
+  // It also carries an HMAC binding it to this tenant and this uploader, which
+  // is what `POST /api/expenses` checks before it will store the url.
+  const photoFile = photoNameFor(tenantId, user.userId, randomUUID(), ext)
 
   try {
     await putObject(receiptKey(tenantId, photoFile), Buffer.from(await file.arrayBuffer()), file.type)
@@ -53,5 +63,5 @@ export async function POST(req: NextRequest) {
   // exactly: the value is app-relative, never an R2 address, no bucket or
   // account is exposed, and the reader still authorises per-expense and derives
   // the real key server-side from the owning row's tenant_id.
-  return NextResponse.json({ url: `/api/expenses/photo/${photoFile}` })
+  return NextResponse.json({ url: `${PHOTO_PATH_PREFIX}${photoFile}` })
 }

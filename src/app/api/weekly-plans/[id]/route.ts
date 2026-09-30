@@ -3,11 +3,14 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { canView } from '@/lib/visibility'
 import { readItemsDiff } from '@/lib/weekly-plan-diff'
 import { readOthers, carriedNote, toItemRows } from '../_items'
-import { loadGoals, saveGoals } from '../_goals'
+import { loadGoals, migrateWeekGoal, saveGoals } from '../_goals'
 import { loadPartyLabels } from '../_diff'
+import {
+  CHANGED_SINCE_OPENED, StaleStatus, badVersion, canReadPlan, canReview, claimStatus, expectedVersion,
+  isPlanId, planNotFound, readPlanVersion,
+} from '../_transition'
 
 /**
  * One plan, everything a reviewer needs to decide on it: the lines with their
@@ -19,16 +22,38 @@ import { loadPartyLabels } from '../_diff'
  * week, so a manager cannot reach a subordinate's plan through it, and `/review`
  * returns every plan of every subordinate to read one.
  *
- * Authorisation is the owner-or-visible rule the write verbs use, over the view
- * permission — the same pair `logs` settled on after it was found calling
- * neither.
+ * Authorisation is the view permission, then `canReadPlan`: owner, visible, or
+ * reviewable — the same rule `logs` and `goals` read through.
  */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'weekly_plan', 'view')) return forbidden()
   const tid = getTenantId()
+  if (!isPlanId(params.id)) return planNotFound()
 
   try {
+    const head = await prisma.weekly_plans.findFirst({
+      where: { id: params.id, tenant_id: tid },
+      select: { user_id: true, week_goal: true },
+    })
+    if (!head) return planNotFound()
+    if (!user.userId) return NextResponse.json({ error: 'User not in DB' }, { status: 400 })
+    // Asked once: it gates the read (the Administrator backstop, see
+    // `canReadPlan`) and travels back as `canReview`, so the panel disables the
+    // manager verbs from the server's own answer rather than re-deriving it.
+    const reviewable = await canReview(user, head.user_id, tid)
+    if (!(await canReadPlan(user, head.user_id, tid, reviewable))) {
+      return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    }
+
+    // The legacy `week_goal` fold `/my` does, done here too and BEFORE the
+    // version: it writes the plan row, which moves the version (see
+    // `PLAN_VERSION`). Otherwise a manager who opened an older plan before its
+    // owner did would have their decision 409 the moment the owner looked.
+    await migrateWeekGoal(params.id, tid, head.week_goal)
+
+    // Then the version, then the plan — never the plan first: see `readPlanVersion`.
+    const version = await readPlanVersion(params.id, tid)
     const plan = await prisma.weekly_plans.findFirst({
       where: { id: params.id, tenant_id: tid },
       include: {
@@ -36,11 +61,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         users_weekly_plans_user_idTousers: { select: { id: true, name: true, contact: true } },
       },
     })
-    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-    if (!user.userId) return NextResponse.json({ error: 'User not in DB' }, { status: 400 })
-    if (plan.user_id !== user.userId && !(await canView(user.userId, plan.user_id, tid))) {
-      return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
-    }
+    if (!plan) return planNotFound()
 
     const [labels, logs, goals] = await Promise.all([
       loadPartyLabels(
@@ -66,6 +87,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({
       ...serialised,
       owner: users_weekly_plans_user_idTousers ?? null,
+      // Whether the caller may act on this plan at all — the rule every
+      // manager verb enforces. Status is a separate gate (`allowedFrom`).
+      canReview: reviewable,
+      // What every manager decision and edit sends back as `expected_version`,
+      // so one made on this screen after the plan moved on is refused.
+      version,
       // The party's name travels with the line so the screen renders it without
       // loading the whole company master, and a line whose party has since been
       // deleted reads as blank rather than as a uuid.
@@ -97,18 +124,26 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'weekly_plan', 'edit')) return forbidden()
-  const { items, day_notes, goals } = await req.json()
+  if (!isPlanId(params.id)) return planNotFound()
+  const body = await req.json()
+  const { items, day_notes, goals } = body
+  const expected = expectedVersion(body)
+  if (expected === false) return badVersion()
   const tid = getTenantId()
 
   try {
     // Every write below carries tenant_id as well as the plan id. The id alone
     // is a global key: without the tenant predicate a guessed uuid would let one
     // tenant rewrite another's plan, and nothing would crash.
+    // The version the owner's screen showed. Without one (an older client),
+    // the version read here, before the plan — which still stops an
+    // overlapping write, just not a stale screen. See `readPlanVersion`.
+    const version = expected ?? (await readPlanVersion(params.id, tid))
     const target = await prisma.weekly_plans.findFirst({
       where: { id: params.id, tenant_id: tid },
       select: { id: true, user_id: true, status: true },
     })
-    if (!target) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (!target || version === null) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     /*
       ⚠️ This route had NO authorisation at all beyond "is logged in", and it
@@ -138,33 +173,62 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       )
     }
 
-    // Update plan-level fields
-    const planUpdate: Record<string, unknown> = {}
-    if (day_notes !== undefined) planUpdate.day_notes = day_notes
-    if (Object.keys(planUpdate).length > 0) {
-      await prisma.weekly_plans.updateMany({ where: { id: params.id, tenant_id: tid }, data: planUpdate })
+    /*
+      ONE transaction: plan fields, the item replacement, the checklist and the
+      audit row. The delete destroys the only copy of the lines, so it must
+      never survive a failed insert.
+
+      The first write is conditional on the status read above — the same claim
+      the status verbs make. A Submit (from another tab) landing between that
+      read and these writes used to let this save replace the lines of a plan
+      that was already with the manager; now it matches no row and the save is
+      refused whole. `updated_at` is what it writes when there are no plan
+      fields to change, so the claim always has something to set.
+    */
+    let savedVersion: string | null = null
+    try {
+      await prisma.$transaction(async tx => {
+        await claimStatus(
+          tx,
+          { id: params.id, tenant_id: tid, status: target.status },
+          { updated_at: new Date(), ...(day_notes !== undefined ? { day_notes } : {}) },
+          // ...and still at the version the owner was shown: a manager edit
+          // also leaves Edited by Manager as it was (see `PLAN_VERSION`).
+          version,
+        )
+        // The version THIS write left, read inside the transaction while it
+        // holds the row. Read after the commit, a manager edit landing in that
+        // instant would hand the owner its version, and their next Submit
+        // would carry lines they never saw. Nothing below writes the plan row.
+        savedVersion = await readPlanVersion(params.id, tid, tx)
+
+        // Replace items. deleteMany is required anyway (the original .delete() never
+        // errored on zero matches), and plan_date is @db.Date so the incoming
+        // "YYYY-MM-DD" strings must become Date objects.
+        await tx.weekly_plan_items.deleteMany({ where: { weekly_plan_id: params.id, tenant_id: tid } })
+        const rows = toItemRows(items, tid, params.id)
+        if (rows.length) await tx.weekly_plan_items.createMany({ data: rows })
+
+        // §5.1 checklist. Unlike items this is reconciled, not replaced — see
+        // `_goals.ts`: the ids are the Weekly Review's tick targets.
+        await saveGoals(params.id, tid, goals, tx)
+
+        // Update carries no status change, so previous_status/new_status stay null.
+        await tx.weekly_plan_audit_logs.create({
+          data: {
+            tenant_id: tid, weekly_plan_id: params.id,
+            actor_user_id: user.userId, actor_role: 'User',
+            action_type: 'Update',
+            edited_fields: { items: 'updated' },
+          },
+        })
+      })
+    } catch (err) {
+      if (err instanceof StaleStatus) {
+        return NextResponse.json({ error: CHANGED_SINCE_OPENED }, { status: 409 })
+      }
+      throw err
     }
-
-    // Replace items. deleteMany is required anyway (the original .delete() never
-    // errored on zero matches), and plan_date is @db.Date so the incoming
-    // "YYYY-MM-DD" strings must become Date objects.
-    await prisma.weekly_plan_items.deleteMany({ where: { weekly_plan_id: params.id, tenant_id: tid } })
-    const rows = toItemRows(items, tid, params.id)
-    if (rows.length) await prisma.weekly_plan_items.createMany({ data: rows })
-
-    // §5.1 checklist. Unlike items this is reconciled, not replaced — see
-    // `_goals.ts`: the ids are the Weekly Review's tick targets.
-    await saveGoals(params.id, tid, goals)
-
-    // Update carries no status change, so previous_status/new_status stay null.
-    await prisma.weekly_plan_audit_logs.create({
-      data: {
-        tenant_id: tid, weekly_plan_id: params.id,
-        actor_user_id: user.userId, actor_role: 'User',
-        action_type: 'Update',
-        edited_fields: { items: 'updated' },
-      },
-    })
 
     const data = await prisma.weekly_plans.findFirst({
       where: { id: params.id, tenant_id: tid },
@@ -175,6 +239,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({
       ...(serialize(data, 'weekly_plans') as Record<string, unknown>),
       weekly_goals: await loadGoals(params.id, tid),
+      // The version this save left, for the Submit that follows it.
+      version: savedVersion,
     })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

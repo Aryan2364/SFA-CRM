@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { InlineFieldError } from '@/components/ui/inline-field-error'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
@@ -58,7 +59,8 @@ import { orderTotals, ORDER_STATUSES, type OrderStatus } from '@/lib/order-math'
  * `party-picker.tsx` for why it is no longer asked for.
  */
 
-type TeamMember = { id: string; name: string }
+/** `self` marks the caller; `?for=orders` adds it. */
+type TeamMember = { id: string; name: string; self?: boolean }
 
 /** Local calendar date as `YYYY-MM-DD`. Never `toISOString`, which is UTC. */
 function toDateOnly(d: Date): string {
@@ -88,6 +90,9 @@ export function CreateOrderDialog({
   const [party, setParty] = useState<Party | null>(null)
   const [salesExecs, setSalesExecs] = useState<TeamMember[]>([])
   const [salesUserId, setSalesUserId] = useState('')
+  const [teamFailed, setTeamFailed] = useState(false)
+  /** Bumped by Retry, which is the §13 "something failed" action. */
+  const [teamReload, setTeamReload] = useState(0)
   const [orderDate, setOrderDate] = useState<Date | undefined>(() => new Date())
   const [status, setStatus] = useState<OrderStatus>('Draft')
 
@@ -127,18 +132,30 @@ export function CreateOrderDialog({
   useEffect(() => {
     if (!open || !hasSubordinates) return
     let live = true
-    fetch('/api/orders/team')
-      .then(r => (r.ok ? r.json() : []))
+    /* `for=orders`: only the people the caller may record an order for, so
+       no name on the list can 403 on save. Preselect the caller — never the
+       first name alphabetically, which is a guess at someone else. */
+    /* Cleared before the request: a pick from an earlier open, or an earlier
+       failure, must not outlive the list it came from. */
+    setSalesUserId('')
+    setTeamFailed(false)
+    fetch('/api/orders/team?for=orders')
+      .then(r => {
+        if (!r.ok) throw new Error(String(r.status))
+        return r.json()
+      })
       .then(d => {
         if (!live) return
         const team: TeamMember[] = Array.isArray(d) ? d : []
         setSalesExecs(team)
-        setSalesUserId(prev => prev || (team[0]?.id ?? ''))
+        setSalesUserId(team.find(m => m.self)?.id ?? '')
       })
-      .catch(() => { if (live) toast('Failed to load team members', 'error') })
+      /* No list means no one else to pick — not no order. The order can still
+         be booked for the caller, who is the server's default when no
+         sales_user_id is sent; it is never guessed at anyone else. */
+      .catch(() => { if (live) { setSalesExecs([]); setTeamFailed(true) } })
     return () => { live = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, hasSubordinates])
+  }, [open, hasSubordinates, teamReload])
 
   const priceOf = useMemo(() => {
     const map = new Map((products ?? []).map(p => [p.id, Number(p.price)]))
@@ -158,6 +175,7 @@ export function CreateOrderDialog({
     if (saving) return
     if (!party) { toast('Select the party this order is for', 'error'); return }
     if (!orderDate) { toast('Pick an order date', 'error'); return }
+    if (hasSubordinates && !teamFailed && !salesUserId) { toast('Select the sales executive', 'error'); return }
     if (validLines.length === 0) { toast('Add at least one product', 'error'); return }
     if (totals.total_amount <= 0) { toast('The order total must be more than zero', 'error'); return }
 
@@ -230,7 +248,20 @@ export function CreateOrderDialog({
                 Sales executive
               </Label>
               <div className="mt-1.5">
-                {hasSubordinates ? (
+                {hasSubordinates && teamFailed ? (
+                  <div className="flex flex-col gap-2">
+                    <Input id="order-sales-exec" value="You" readOnly disabled />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <InlineFieldError className="mt-0">
+                        Your team could not be loaded, so this order will be booked for you.
+                        Retry to pick someone else.
+                      </InlineFieldError>
+                      <Button variant="secondary" size="sm" type="button" onClick={() => setTeamReload(n => n + 1)}>
+                        Retry
+                      </Button>
+                    </div>
+                  </div>
+                ) : hasSubordinates ? (
                   <OptionSelect
                     id="order-sales-exec"
                     options={salesExecOptions}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -24,7 +24,8 @@ export async function GET(req: NextRequest) {
     })
     return NextResponse.json(serialize(data, 'designations'))
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }
 
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   try {
     // PRESERVED BUG, do not "fix" here. designations.department_id is NOT NULL
-    // with no default, and this handler has never supplied it — the Supabase
+    // with no default, and this handler has never supplied it — the old
     // insert failed on a not-null violation and the route answered 500. The UI
     // only ever sends { name } (masters/designations/page.tsx), so creating a
     // designation is impossible today. Prisma's types catch at compile time what
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json(serialize(data, 'designations'), { status: 201 })
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

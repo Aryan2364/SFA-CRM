@@ -69,8 +69,8 @@ function LineHeading({ line }: { line: DiffLine }) {
 /** The counts a line carries, as the compact summary an added/removed row needs. */
 function LineSummary({ line }: { line: DiffLine }) {
   const parts = [
-    `Dealer ${line.new_dealers_goal}`,
-    `Dist. ${line.existing_dealers_goal}`,
+    `New ${line.new_dealers_goal}`,
+    `Existing ${line.existing_dealers_goal}`,
     `Others ${line.others_goal}`,
   ]
   if (line.expected_order_value !== null) {

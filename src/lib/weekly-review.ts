@@ -28,7 +28,9 @@ import { prisma, dateOnlyString } from './db'
  * just this week) with `entity_id` equal to that party and a `start_time` set
  * (i.e. a meeting that was actually started) AND status other than a pure
  * no-show placeholder. In other words: planned this week, never once visited,
- * historically. This deliberately looks across the party's whole history, not
+ * historically. A planned CONTACT is matched through the companies it
+ * belongs to (`company_contacts`), because `entity_id` always holds a company
+ * — see the Not Met block below. This deliberately looks across the party's whole history, not
  * just the week, because a party met last month and re-planned this week
  * without a fresh visit is a scheduling gap, not a "never met" party — but the
  * spec's phrasing ("no meeting ever started") is explicit that this is a
@@ -260,10 +262,62 @@ export async function buildWeeklyReview(
 
   const partyPlanItems = planItems.filter(p => p.party_id)
   const unmatched = planItems.length - partyPlanItems.length
+  const plannedPartyIds = Array.from(new Set(partyPlanItems.map(p => p.party_id as string)))
+
+  /*
+    A plan line's party is a Company OR a Contact (`_items.ts` PARTY_TYPES),
+    but a meeting records its party in `daily_visits.entity_id`, which is
+    always a COMPANY id — a meeting with Ramesh of ACME stores ACME there (see
+    `visit-contact.ts`). So a contact id never equals any `entity_id`, and
+    matching on the raw party id made every planned contact permanently
+    "open" and, worse, dropped it from Not Met (its name was looked up in
+    `companies` only), which `headlineMet` then counted as MET.
+
+    A planned contact is therefore matched through the companies it belongs
+    to (`company_contacts`): met when a meeting at one of them was started. A
+    contact with no company cannot be matched until `daily_visits.contact_id`
+    is pushed, and correctly reads as Not Met rather than silently as met.
+  */
+  const [plannedCompanies, plannedContacts, contactLinks] = plannedPartyIds.length
+    ? await Promise.all([
+        prisma.companies.findMany({
+          where: { id: { in: plannedPartyIds }, tenant_id: tenantId },
+          select: { id: true, name: true },
+        }),
+        prisma.contacts.findMany({
+          where: { id: { in: plannedPartyIds }, tenant_id: tenantId },
+          select: { id: true, name: true },
+        }),
+        prisma.company_contacts.findMany({
+          where: { contact_id: { in: plannedPartyIds }, tenant_id: tenantId },
+          select: { contact_id: true, company_id: true },
+        }),
+      ])
+    : [[], [], []]
+  const partyName = new Map<string, string>()
+  const companyIds = new Set(plannedCompanies.map(c => c.id))
+  for (const c of plannedCompanies) partyName.set(c.id, c.name)
+  for (const c of plannedContacts) if (!partyName.has(c.id)) partyName.set(c.id, c.name)
+  const companiesOfContact = new Map<string, string[]>()
+  for (const l of contactLinks) {
+    const list = companiesOfContact.get(l.contact_id) ?? []
+    list.push(l.company_id)
+    companiesOfContact.set(l.contact_id, list)
+  }
+  /**
+   * The `entity_id` values a meeting may carry to count against this party: a
+   * company is itself; anything else (a contact, or a party since deleted)
+   * is its own id plus its linked companies.
+   */
+  function matchIdsOf(partyId: string): string[] {
+    return companyIds.has(partyId) ? [partyId] : [partyId, ...(companiesOfContact.get(partyId) ?? [])]
+  }
+
   let ticked = 0
   for (const p of partyPlanItems) {
     const key = dateOnlyString(p.plan_date)
-    const hit = (visitByDay.get(key) ?? []).some(v => v.entity_id === p.party_id)
+    const ids = matchIdsOf(p.party_id as string)
+    const hit = (visitByDay.get(key) ?? []).some(v => v.entity_id !== null && ids.includes(v.entity_id))
     if (hit) ticked++
   }
   const open = partyPlanItems.length - ticked
@@ -330,23 +384,25 @@ export async function buildWeeklyReview(
   }))
 
   // ---- Not Met ----
-  const plannedPartyIds = Array.from(new Set(partyPlanItems.map(p => p.party_id as string)))
+  // Matched through `matchIdsOf`, so a planned contact is met by a meeting at
+  // its company, and resolved against BOTH party tables. A party found in
+  // neither (deleted since it was planned) is still Not Met — it is listed
+  // under a placeholder name rather than dropped, because dropping it is what
+  // made `headlineMet` count it as met.
   let notMetList: { id: string; name: string }[] = []
   if (plannedPartyIds.length > 0) {
-    const everVisited = await prisma.daily_visits.findMany({
-      where: { tenant_id: tenantId, entity_id: { in: plannedPartyIds }, start_time: { not: null } },
-      select: { entity_id: true },
-      distinct: ['entity_id'],
-    })
+    const allMatchIds = Array.from(new Set(plannedPartyIds.flatMap(matchIdsOf)))
+    const everVisited = allMatchIds.length
+      ? await prisma.daily_visits.findMany({
+          where: { tenant_id: tenantId, entity_id: { in: allMatchIds }, start_time: { not: null } },
+          select: { entity_id: true },
+          distinct: ['entity_id'],
+        })
+      : []
     const visitedSet = new Set(everVisited.map(v => v.entity_id))
-    const neverVisitedIds = plannedPartyIds.filter(id => !visitedSet.has(id))
-    if (neverVisitedIds.length > 0) {
-      const parties = await prisma.companies.findMany({
-        where: { id: { in: neverVisitedIds }, tenant_id: tenantId },
-        select: { id: true, name: true },
-      })
-      notMetList = parties.map(p => ({ id: p.id, name: p.name }))
-    }
+    notMetList = plannedPartyIds
+      .filter(id => !matchIdsOf(id).some(m => visitedSet.has(m)))
+      .map(id => ({ id, name: partyName.get(id) ?? 'Deleted party' }))
   }
 
   const headlineToMeet = plannedPartyIds.length

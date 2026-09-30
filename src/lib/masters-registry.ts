@@ -10,6 +10,12 @@
  * be granted by any administrator, because the matrix is the only place the
  * toggle exists.
  *
+ * Those three have since been removed, with the dealer master screen and their
+ * `/api/masters/*` routes; dealers, distributors and institutions are managed as
+ * companies on the Parties screen. Their `role_permissions` rows are still in
+ * the database and still permitted by its CHECK constraint, but nothing reads
+ * them.
+ *
  * Everything that needs the set of master sections now derives it from here:
  *
  *   src/lib/permissions.ts                              MasterSection, MASTER_SECTIONS
@@ -77,13 +83,12 @@ export type MasterDef = {
 
 export type MasterGroup =
   | 'locations'
-  | 'business_partners'
   | 'products'
   | 'organisation'
   | 'lead_config'
 
 /**
- * All nineteen master sections, in the order the old ALL_SECTIONS literals
+ * All sixteen master sections, in the order the old ALL_SECTIONS literals
  * used. The order is load-bearing: it is the order the Access Control matrix
  * and the seeded permission rows come out in.
  *
@@ -112,26 +117,6 @@ export const MASTERS = [
     href: '/masters/villages', api: '/api/masters/villages',
     model: 'villages', group: 'locations', icon: 'home',
   },
-  // ── Business partners ────────────────────────────────────────────────────
-  // All three are rows of `business_partners`, separated by its `type` column,
-  // and each has its own permission key and its own API. Only `dealers` has a
-  // screen; the other two are href: null until P1-T18 builds them.
-  {
-    key: 'dealers', label: 'Dealers',
-    href: '/masters/dealers', api: '/api/masters/dealers',
-    model: 'business_partners', group: 'business_partners', icon: 'store',
-  },
-  {
-    key: 'distributors', label: 'Distributors',
-    href: null, api: '/api/masters/distributors',
-    model: 'business_partners', group: 'business_partners', icon: 'truck',
-  },
-  {
-    key: 'institutions', label: 'Institutions',
-    href: null, api: '/api/masters/institutions',
-    model: 'business_partners', group: 'business_partners', icon: 'building',
-  },
-
   // ── Products ─────────────────────────────────────────────────────────────
   {
     key: 'product_categories', label: 'Product Categories', shortLabel: 'Categories',
@@ -178,12 +163,11 @@ export const MASTERS = [
     key: 'lead_types', label: 'Lead Types',
     href: '/masters/lead-types', api: '/api/masters/lead-types',
     model: 'company_types', group: 'lead_config', icon: 'bookmark',
-    seeded: [
-      { name: 'Dealer',       sort_order: 1 },
-      { name: 'Distributor',  sort_order: 2 },
-      { name: 'Institution',  sort_order: 3 },
-      { name: 'End Consumer', sort_order: 4 },
-    ],
+    /**
+     * Deliberately NOT seeded: a new tenant starts with no lead types and
+     * defines its own. No code may assume a particular name exists, and a
+     * party with no lead type is valid (`companies.type` stores '').
+     */
   },
   {
     key: 'lead_stages', label: 'Lead Stages',
@@ -216,8 +200,8 @@ export const MASTERS = [
   },
   /**
    * The two masters P1-T18 adds. Both describe a party rather than a lead, but
-   * `group` is one of five ids and each of the two screens that consume it maps
-   * the id to its own heading — a sixth group would need those screens edited,
+   * `group` is one of four ids and each of the two screens that consume it maps
+   * the id to its own heading — a fifth group would need those screens edited,
    * which this task does not own. `lead_config` is where the party-facing
    * configuration already lives (`lead_types` is the Company Type master), so
    * they go there and the Masters card's subtitle is the only thing left stale.
@@ -277,8 +261,8 @@ export const MASTERS = [
    * the answer to "why do we lose deals".
    *
    * `group: 'lead_config'` for the same reason `contact_types` and `industries`
-   * use it — `MasterGroup` is a closed union of five ids and the two screens
-   * that consume it each map the id to their own heading, so a sixth group
+   * use it — `MasterGroup` is a closed union of four ids and the two screens
+   * that consume it each map the id to their own heading, so a fifth group
    * would need both of those screens edited. Appended, never inserted: the
    * array order is the order the Access Control matrix renders in and the order
    * seeded permission rows come out in.
@@ -411,13 +395,13 @@ export const OPERATION_SECTIONS = [
  */
 export const POINTS_SECTIONS = ['leaderboard', 'points_config'] as const
 
-/** The 27 sections that can be written to role_permissions. */
+/** The 26 sections that can be written to role_permissions. */
 export const ALL_SECTIONS = [
   ...MASTER_SECTION_KEYS,
   ...OPERATION_SECTIONS,
 ]
 
-/** The 29 keys the client's permission map carries. Read-only — see POINTS_SECTIONS. */
+/** The 28 keys the client's permission map carries. Read-only — see POINTS_SECTIONS. */
 export const ALL_PERMISSION_KEYS = [
   ...ALL_SECTIONS,
   ...POINTS_SECTIONS,

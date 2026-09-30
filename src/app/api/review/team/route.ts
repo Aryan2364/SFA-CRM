@@ -7,6 +7,7 @@ import { checkPermission, forbidden, getDataScope } from '@/lib/permissions'
 import { intersectScope, scopedUserIds } from '@/lib/scope'
 import { getVisibleUserIds } from '@/lib/visibility'
 import { buildWeeklyReview, mondayOf, type WeeklyReview } from '@/lib/weekly-review'
+import { businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -156,7 +157,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'The company summary needs Company data scope.' }, { status: 403 })
   }
 
-  const weekStartParam = req.nextUrl.searchParams.get('weekStart') ?? new Date().toISOString().slice(0, 10)
+  const weekStartParam = req.nextUrl.searchParams.get('weekStart') ?? businessDate()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStartParam) || Number.isNaN(Date.parse(`${weekStartParam}T00:00:00.000Z`))) {
     return NextResponse.json({ error: 'weekStart must be YYYY-MM-DD' }, { status: 400 })
   }

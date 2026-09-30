@@ -21,10 +21,9 @@ export const EMPTY_BP_FORM = {
   name: '', contact_person_name: '', pincode: '', gst_number: '',
   mobile_1: '', mobile_2: '', place: '', state_id: '', district_id: '',
   taluka_id: '', village_id: '', address: '', description: '',
-  latitude: '', longitude: '',
   distributor_id: '',        // dealers only
-  sub_type: 'Institution',   // institutions legacy
-  type: '',                  // lead type (Institution/End Consumer/Dealer/etc.)
+  sub_type: '',              // legacy; never sent by buildBody()
+  type: '',                  // lead type, from the tenant's master; blank is allowed
   stage: '',
   temperature: '',
   next_follow_up_date: '',
@@ -95,10 +94,8 @@ export function useBPForm() {
       village_id:           String(row.village_id ?? ''),
       address:              String(row.address ?? ''),
       description:          String(row.description ?? ''),
-      latitude:             String(row.latitude ?? ''),
-      longitude:            String(row.longitude ?? ''),
         distributor_id:       String(row.distributor_id ?? ''),
-      sub_type:             String(row.sub_type ?? 'Institution'),
+      sub_type:             String(row.sub_type ?? ''),
       type:                 String(row.type ?? ''),
       stage:                String(row.stage ?? ''),
       temperature:          String(row.temperature ?? ''),
@@ -137,8 +134,6 @@ export function useBPForm() {
       village_id:          form.village_id || null,
       address:              form.address || null,
       description:          form.description || null,
-      latitude:             form.latitude  ? Number(form.latitude)  : null,
-      longitude:            form.longitude ? Number(form.longitude) : null,
       stage:                form.stage || null,
       temperature:          form.temperature || null,
       next_follow_up_date:  form.next_follow_up_date || null,
@@ -189,8 +184,8 @@ export function BusinessPartnerFormFields({
   const [temps, setTemps]    = useState<LeadTemp[]>([])
   useEffect(() => {
     if (!showLeadStatus) return
-    fetch('/api/masters/lead-stages').then(r => r.json()).then(d => setStages(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead status options.', 'error'))
-    fetch('/api/masters/lead-temperatures').then(r => r.json()).then(d => setTemps(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead status options.', 'error'))
+    fetch('/api/masters/lead-stages?active=true').then(r => r.json()).then(d => setStages(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead status options.', 'error'))
+    fetch('/api/masters/lead-temperatures?active=true').then(r => r.json()).then(d => setTemps(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load lead status options.', 'error'))
   }, [showLeadStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -287,19 +282,6 @@ export function BusinessPartnerFormFields({
           className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none" />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="bp-latitude" className="block text-sm font-medium text-text-secondary mb-1">Latitude</label>
-          <input id="bp-latitude" name="latitude" type="number" step="0.0000001" value={form.latitude} onChange={F('latitude')} placeholder="-90 to 90"
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-        </div>
-        <div>
-          <label htmlFor="bp-longitude" className="block text-sm font-medium text-text-secondary mb-1">Longitude</label>
-          <input id="bp-longitude" name="longitude" type="number" step="0.0000001" value={form.longitude} onChange={F('longitude')} placeholder="-180 to 180"
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-        </div>
-      </div>
-
       {showLeadStatus && (
         <>
           <div className="border-t border-border-light pt-4">
@@ -311,6 +293,11 @@ export function BusinessPartnerFormFields({
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
               <option value="">Select stage…</option>
               {stages.map(s => <option key={s.id} value={s.name}>{s.name}{s.is_fixed ? ' (fixed)' : ''}</option>)}
+              {/* The pickers list active values only. A record still on a
+                  deactivated one keeps it shown, rather than reading as unset. */}
+              {form.stage && !stages.some(s => s.name === form.stage) && (
+                <option value={form.stage}>{form.stage}{stages.length > 0 ? ' (inactive)' : ''}</option>
+              )}
             </select>
           </div>
           <div>
@@ -319,6 +306,9 @@ export function BusinessPartnerFormFields({
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
               <option value="">Select temperature…</option>
               {temps.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+              {form.temperature && !temps.some(t => t.name === form.temperature) && (
+                <option value={form.temperature}>{form.temperature}{temps.length > 0 ? ' (inactive)' : ''}</option>
+              )}
             </select>
           </div>
           <div>

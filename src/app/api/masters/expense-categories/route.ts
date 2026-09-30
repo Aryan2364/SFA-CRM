@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -7,20 +7,25 @@ import { checkPermission, forbidden } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const user = await requireUser()
   if (!await checkPermission(user, 'expense_categories', 'view')) return forbidden()
+  // Active rows only by default — the expense form's picker relies on that.
+  // `?include_inactive=1` is for the master's own screen, where a deleted
+  // (deactivated) category must stay visible to be reactivated.
+  const includeInactive = req.nextUrl.searchParams.get('include_inactive') === '1'
   try {
     const data = await prisma.expense_categories.findMany({
       where: {
         tenant_id: getTenantId(),
-        is_active: true,
+        ...(includeInactive ? {} : { is_active: true }),
       },
       orderBy: { sort_order: 'asc' },
     })
     return NextResponse.json(serialize(data, 'expense_categories'))
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }
 
@@ -35,6 +40,7 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json(serialize(data, 'expense_categories'), { status: 201 })
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

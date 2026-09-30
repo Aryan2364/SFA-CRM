@@ -6,6 +6,7 @@ import { isLocationFlagged } from '@/lib/geo'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { getTenantSettings } from '@/lib/settings'
+import { businessDate } from '@/lib/business-date'
 import { readVisitContact, VISIT_SELECT } from '@/lib/visit-contact'
 
 /**
@@ -189,7 +190,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
      */
     const visitOrder = canViewOrders
       ? await prisma.orders.findFirst({
-          where: { tenant_id: tid, visit_id: visit.id },
+          where: {
+            tenant_id: tid,
+            visit_id: visit.id,
+            ...scopeWhere(await scopedUserIds(user, 'orders')),
+          },
           include: { order_items: { orderBy: { created_at: 'asc' } } },
         })
       : null
@@ -226,9 +231,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const user = await requireUser()
   const body = await req.json()
   const { action, latitude, longitude, address } = body
+  // Every branch writes someone's meeting, and `delete` removes it outright.
+  // The permission and the scope gate ALL of them: before this, only `start`
+  // filtered on user_id, so any signed-in user could stop, re-note or delete
+  // any meeting in the tenant by id.
+  if (!await checkPermission(user, 'meetings', action === 'delete' ? 'delete' : 'edit')) return forbidden()
   const tid = getTenantId()
 
   try {
+    // The same gate GET uses: a visit outside the caller's scope, or in another
+    // tenant, is a plain 404 — not a 403 that confirms it exists.
+    const reachable = await prisma.daily_visits.findFirst({
+      where: {
+        id: params.id,
+        tenant_id: tid,
+        ...scopeWhere(await scopedUserIds(user, 'meetings')),
+      },
+      select: { id: true },
+    })
+    if (!reachable) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
     if (action === 'start') {
       // Find any other active visits for this user
       const active = await prisma.daily_visits.findMany({
@@ -242,20 +264,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       })
 
       if (active.length > 0) {
-        const todayStr = new Date().toISOString().slice(0, 10)
+        // Both sides in the business calendar: a meeting started at 01:00 IST
+        // belongs to that IST day, not to the UTC day before it.
+        const todayStr = businessDate()
         // start_time is a timestamptz. The original called .slice(0, 10) on the
-        // ISO STRING Supabase returned; a Date has no .slice() and this line
+        // ISO STRING the old client returned; a Date has no .slice() and this line
         // would throw (PLAN.md 5.1, the crash form). Reduce to the date string
         // first and the two comparisons below are unchanged.
         const startDay = (v: { start_time: Date | null }) =>
-          v.start_time ? v.start_time.toISOString().slice(0, 10) : null
+          v.start_time ? businessDate(v.start_time) : null
         const staleIds = active.filter(v => { const d = startDay(v); return !d || d < todayStr }).map(v => v.id)
         const todayActive = active.filter(v => startDay(v) === todayStr)
 
         // Auto-stop stale meetings from previous days
         if (staleIds.length > 0) {
           await prisma.daily_visits.updateMany({
-            where: { id: { in: staleIds } },
+            where: { id: { in: staleIds }, tenant_id: tid },
             data: { status: 'Completed', end_time: new Date() },
           })
         }
@@ -276,8 +300,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     if (action === 'stop') {
       const { end_latitude, end_longitude, end_address } = body
-      const visit = await prisma.daily_visits.findUnique({
-        where: { id: params.id },
+      const visit = await prisma.daily_visits.findFirst({
+        where: { id: params.id, tenant_id: tid },
         // latitude/longitude join the select for the §5.4 location flag below.
         select: { start_time: true, latitude: true, longitude: true },
       })

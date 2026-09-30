@@ -1,10 +1,32 @@
 'use client'
 
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+
 import { AppShell } from '@/components/shell/app-shell'
-import { useMe } from '@/hooks/useMe'
+import { Button } from '@/components/ui/button'
+import { invalidateMeCache, useMe } from '@/hooks/useMe'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const me = useMe()
+  const router = useRouter()
+  const [signingOut, setSigningOut] = useState(false)
+
+  // The same sign-out as the top bar's user menu. /api/auth/logout is
+  // POST-only: a plain link to it is a GET, answers 405, and leaves the user
+  // signed in on a screen with no other way out.
+  async function signOut() {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      invalidateMeCache()
+      router.push('/login')
+    } catch {
+      // Network failure: the cookie is still set, so let them try again.
+      setSigningOut(false)
+    }
+  }
 
   // Show "define role" screen for users with no role assigned yet
   if (me !== null && me.role === 'NoRole') {
@@ -21,12 +43,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <p className="text-sm text-text-muted mb-6 leading-relaxed">
               Your account does not have a role assigned yet. Please contact your administrator to configure your access.
             </p>
-            <a
-              href="/api/auth/logout"
-              className="inline-block w-full bg-gray-900 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
-            >
-              Sign Out
-            </a>
+            <Button className="w-full" onClick={signOut} disabled={signingOut}>
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </Button>
           </div>
         </div>
       </div>

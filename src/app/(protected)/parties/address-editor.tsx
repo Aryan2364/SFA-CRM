@@ -52,8 +52,6 @@ export type AddressDraft = {
   taluka_id: string
   village_id: string
   pincode: string
-  latitude: string
-  longitude: string
   is_primary: boolean
 }
 
@@ -71,8 +69,6 @@ export function blankAddress(isPrimary: boolean): AddressDraft {
     taluka_id: '',
     village_id: '',
     pincode: '',
-    latitude: '',
-    longitude: '',
     is_primary: isPrimary,
   }
 }
@@ -88,8 +84,6 @@ export function addressPayload(a: AddressDraft): Record<string, unknown> {
     taluka_id: a.taluka_id || null,
     village_id: a.village_id || null,
     pincode: a.pincode.trim() || null,
-    latitude: a.latitude.trim() || null,
-    longitude: a.longitude.trim() || null,
     is_primary: a.is_primary,
   }
 }
@@ -98,8 +92,7 @@ export function addressPayload(a: AddressDraft): Record<string, unknown> {
 export function isEmptyAddress(a: AddressDraft): boolean {
   return !(
     a.label.trim() || a.address_line.trim() || a.city.trim() || a.state_id ||
-    a.district_id || a.taluka_id || a.village_id || a.pincode.trim() ||
-    a.latitude.trim() || a.longitude.trim()
+    a.district_id || a.taluka_id || a.village_id || a.pincode.trim()
   )
 }
 
@@ -295,32 +288,6 @@ export function AddressEditor({
                   placeholder={a.taluka_id ? 'Select village…' : 'Select a taluka first'}
                   disabled={!a.taluka_id}
                 />
-              </div>
-
-              <div className="col-span-12 sm:col-span-6 lg:col-span-3">
-                <Label htmlFor={`${a.key}-lat`}>Latitude</Label>
-                <Input
-                  id={`${a.key}-lat`}
-                  className="mt-1.5"
-                  inputMode="decimal"
-                  value={a.latitude}
-                  onChange={e => patch(a.key, { latitude: e.target.value })}
-                  aria-invalid={Boolean(errors[`${a.key}.latitude`])}
-                />
-                <InlineFieldError>{errors[`${a.key}.latitude`]}</InlineFieldError>
-              </div>
-
-              <div className="col-span-12 sm:col-span-6 lg:col-span-3">
-                <Label htmlFor={`${a.key}-lng`}>Longitude</Label>
-                <Input
-                  id={`${a.key}-lng`}
-                  className="mt-1.5"
-                  inputMode="decimal"
-                  value={a.longitude}
-                  onChange={e => patch(a.key, { longitude: e.target.value })}
-                  aria-invalid={Boolean(errors[`${a.key}.longitude`])}
-                />
-                <InlineFieldError>{errors[`${a.key}.longitude`]}</InlineFieldError>
               </div>
             </div>
           </CardContent>

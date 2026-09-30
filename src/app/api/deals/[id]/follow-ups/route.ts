@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { FOLLOW_UP_MODES } from '../../_shape'
 import { findScopedDeal, notFound } from '../../_access'
+import { firstForeignTenantRef } from '@/lib/tenant-fk'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,6 +64,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const deal = await findScopedDeal(user, tid, params.id)
     if (!deal) return notFound()
+
+    // `visit_id` has no FK constraint, so nothing stops another tenant's id
+    // landing here; it is looked up in this tenant first (src/lib/tenant-fk.ts).
+    const miss = await firstForeignTenantRef([
+      { value: visit_id, label: 'Meeting',
+        find: id => prisma.daily_visits.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    ])
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
 
     const done = status === 'done'
     const created = await prisma.deal_follow_ups.create({

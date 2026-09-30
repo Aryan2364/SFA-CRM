@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds } from '@/lib/scope'
 import { buildDailySummary } from '@/lib/summary'
+import { businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
   if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
 
   const requestedUserId = req.nextUrl.searchParams.get('userId') ?? user.userId
-  const date = req.nextUrl.searchParams.get('date') ?? new Date().toISOString().slice(0, 10)
+  const date = req.nextUrl.searchParams.get('date') ?? businessDate()
 
   if (!requestedUserId) {
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })

@@ -1,8 +1,7 @@
 /**
- * Batch 2 — masters: location & product. 18 routes.
+ * Batch 2 — masters: location & product. 14 routes.
  *   states / districts / talukas / villages          (list + [id])
  *   product-categories / product-subcategories / products
- *   distributors / dealers                            (both over business_partners)
  *
  * READ-ONLY against production: only GET is exercised. POST/PUT/DELETE would
  * create or mutate real master data, so they are recorded as not-exercised with
@@ -12,7 +11,7 @@
  *  - embed CARDINALITY per level of the location hierarchy. A to-one arriving as
  *    an array fails silently, exactly as it would have in auth.ts (PLAN.md §5.2).
  *  - NUMERIC columns arriving as numbers, not Decimal-stringified. products.price
- *    and business_partners.latitude/longitude are the live cases.
+ *    is the live case.
  */
 import { db, mintSession, req, ctx } from './lib.mjs'
 
@@ -99,35 +98,6 @@ export async function run() {
     t.ok('products.created_at is a full ISO string', prods.every(p => p.created_at == null || /^\d{4}-\d{2}-\d{2}T.*Z$/.test(p.created_at)), prods[0].created_at)
   } else t.skip('products numeric checks', 'no product rows in this tenant')
 
-  // -- distributors & dealers (business_partners) ---------------------------
-  t.section('distributors & dealers — both over business_partners')
-  for (const [path, type, attached] of [
-    ['/api/masters/distributors', 'Distributor', 'dealers'],
-    ['/api/masters/dealers', 'Dealer', 'distributors'],
-  ]) {
-    const r = await get(path)
-    const b = await r.json()
-    const expected = await prisma.companies.count({ where: { tenant_id: tid, type, stage: 'Existing' } })
-    t.ok(`GET ${path} -> 200`, r.status === 200, r.status)
-    t.ok(`  returns all ${expected} ${type} rows`, Array.isArray(b) && b.length === expected, Array.isArray(b) ? b.length : b)
-    if (!Array.isArray(b) || !b.length) { t.skip(`${path} row-shape checks`, `no ${type} rows in this tenant`); continue }
-    t.ok('  every row belongs to the session tenant', b.every(x => x.tenant_id === tid))
-    t.ok(`  every row is type=${type}`, b.every(x => x.type === type))
-    t.ok('  latitude/longitude are numbers or null (not Decimal strings)', b.every(x => (x.latitude === null || typeof x.latitude === 'number') && (x.longitude === null || typeof x.longitude === 'number')), { lat: b[0].latitude, lon: b[0].longitude })
-    t.ok('  next_follow_up_date is date-only or null', b.every(x => x.next_follow_up_date === null || /^\d{4}-\d{2}-\d{2}$/.test(x.next_follow_up_date)), b[0].next_follow_up_date)
-    t.ok('  states/districts/talukas/villages embeds are objects or null', b.every(x => ['states', 'districts', 'talukas', 'villages'].every(k => x[k] === null || (typeof x[k] === 'object' && !Array.isArray(x[k])))))
-    if (attached === 'dealers') {
-      t.ok('  attached `dealers` is an ARRAY on every row', b.every(x => Array.isArray(x.dealers)), typeof b[0].dealers)
-      const withDealers = b.find(x => x.dealers.length)
-      if (withDealers) {
-        const expectedDealers = await prisma.companies.count({ where: { tenant_id: tid, type: 'Dealer', distributor_id: withDealers.id } })
-        t.ok('  dealer count per distributor matches the DB', withDealers.dealers.length === expectedDealers, `${withDealers.dealers.length} vs ${expectedDealers}`)
-      } else t.skip('distributor->dealers count', 'no distributor in this tenant has dealers')
-    } else {
-      t.ok('  attached `distributors` is an OBJECT or null, never an array', b.every(x => x.distributors === null || (typeof x.distributors === 'object' && !Array.isArray(x.distributors))), b[0].distributors)
-    }
-  }
-
   // -- filters and search ---------------------------------------------------
   t.section('query filters')
   const anyState = await prisma.states.findFirst({ where: { tenant_id: tid }, select: { id: true, name: true } })
@@ -152,9 +122,9 @@ export async function run() {
   t.ok('forged NoRole cookie does not bypass the DB role lookup', (await req('/api/masters/products', { token: noRole })).status === 200)
 
   t.section('routes not exercised')
-  t.skip('POST /api/masters/{states,districts,talukas,villages,product-categories,product-subcategories,products,distributors,dealers}', 'creating rows would add real master data to a production tenant. 9 POST handlers unexercised.')
-  t.skip('PUT /api/masters/*/[id]', 'would mutate real master rows. 9 PUT handlers unexercised — including the extendedWhereUnique tenant guard and the business_partners `type` guard.')
-  t.skip('DELETE /api/masters/*/[id]', 'would delete real master rows, and several are referenced by FKs. 9 DELETE handlers unexercised — including the deleteMany-vs-delete no-match behaviour.')
+  t.skip('POST /api/masters/{states,districts,talukas,villages,product-categories,product-subcategories,products}', 'creating rows would add real master data to a production tenant. 7 POST handlers unexercised.')
+  t.skip('PUT /api/masters/*/[id]', 'would mutate real master rows. 7 PUT handlers unexercised — including the extendedWhereUnique tenant guard.')
+  t.skip('DELETE /api/masters/*/[id]', 'would delete real master rows, and several are referenced by FKs. 7 DELETE handlers unexercised — including the deleteMany-vs-delete no-match behaviour.')
 
   return t.result()
 }

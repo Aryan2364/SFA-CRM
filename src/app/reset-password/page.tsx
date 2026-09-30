@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams()
@@ -22,7 +23,7 @@ function ResetPasswordForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (password.length < 6) { setError('Password must be at least 6 characters'); return }
+    if (passwordTooShort(password)) { setError(PASSWORD_TOO_SHORT); return }
     if (password !== confirmPassword) { setError('Passwords do not match'); return }
     setLoading(true)
     try {
@@ -80,7 +81,7 @@ function ResetPasswordForm() {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    placeholder="Min. 6 characters"
+                    placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
                     required
                     disabled={!token}
                     className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken"

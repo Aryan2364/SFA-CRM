@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { toItemRows } from './_items'
 import { saveGoals } from './_goals'
+import { readPlanVersion } from './_transition'
 
 export async function POST(req: NextRequest) {
   const user = await requireUser()
@@ -56,7 +57,11 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    return NextResponse.json(serialize(plan, 'weekly_plans'), { status: 201 })
+    return NextResponse.json(
+      // `version`: what a Submit straight after this create claims.
+      { ...(serialize(plan, 'weekly_plans') as Record<string, unknown>), version: await readPlanVersion(plan.id, tid) },
+      { status: 201 },
+    )
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

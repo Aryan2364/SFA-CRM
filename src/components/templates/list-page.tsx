@@ -320,6 +320,9 @@ export type ListPageProps<Row> = {
     body: string
     actionLabel?: string
     onAction?: () => void
+    /** Passed to `EmptyState`: a reason disables the action with it, `null`
+     *  disables it while permissions load, absent leaves it as it is. */
+    actionDisabledReason?: string | null
   }
   /** Section 11.1: 25 unless a screen has a reason. */
   pageSize?: number
@@ -623,6 +626,7 @@ export function ListPage<Row>({
         heading={emptyYet.heading}
         actionLabel={emptyYet.actionLabel}
         onAction={emptyYet.onAction}
+        actionDisabledReason={emptyYet.actionDisabledReason}
       >
         {emptyYet.body}
       </EmptyState>

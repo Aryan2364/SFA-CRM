@@ -3,7 +3,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, getDataScope, forbidden } from '@/lib/permissions'
-import { scopedUserIds } from '@/lib/scope'
+import { reviewableUserIds } from '../_transition'
 
 /**
  * §5.2's queue: the plans this caller is allowed to act on as a manager.
@@ -13,8 +13,8 @@ import { scopedUserIds } from '@/lib/scope'
  *  - `review` answers `getVisibleUserIds()` DIRECTLY, ignoring
  *    `role_permissions.data_scope` entirely. A role configured Self-scope but
  *    holding a manual visibility grant gets rows from it that the scope setting
- *    says it must not see. This goes through `scopedUserIds`, which is the one
- *    place §6.6's Self / Team / Company rule is written.
+ *    says it must not see. This goes through `reviewableUserIds`, which honours
+ *    Self scope AND is the exact rule the decision routes enforce.
  *  - `review` is a whole-plan read used by the review screens; a queue needs
  *    counts and an owner name, not every line of every plan.
  *
@@ -55,24 +55,32 @@ export async function GET(req: NextRequest) {
 
   try {
     /*
-      The reviewable set. `scopedUserIds` returns null for Company scope (no
-      user predicate at all) and INCLUDES the caller for Team scope — which is
-      right for a list of "plans I can see" and wrong for a list of "plans I
-      approve". Nobody approves their own plan, so the caller is removed here
-      rather than in the UI, where removing it would be a courtesy instead of a
-      rule.
+      The reviewable set — `reviewableUserIds`, the SAME rule every decision
+      route enforces through `canReview`, so this queue lists exactly the plans
+      the caller can act on. It used to list by `scopedUserIds` alone, which for
+      Company scope meant every plan in the tenant, while the verbs gated on
+      the manager chain: an Administrator saw every plan and got 403 on any
+      rep who did not report to them.
 
-      Self scope collapses to `[user.userId]`, and then to `[]` — an executive's
-      approval queue is empty, which is the correct answer and is what makes the
-      screen's "you review nobody" state reachable rather than theoretical.
+      The rule: an Administrator reviews everyone in the tenant but themself
+      (so no plan is left without a reviewer); anyone else reviews the people
+      below them in `user_visibility`, never themself, and nobody at all with a
+      Self-scoped role. Self scope therefore still
+      yields `[]` — an executive's approval queue is empty, which is the
+      correct answer and is what makes the screen's "you review nobody" state
+      reachable rather than theoretical.
     */
-    const scoped = await scopedUserIds(user, 'weekly_plan')
-    const scope = await getDataScope(user, 'weekly_plan')
-    const reviewable = scoped === null ? null : scoped.filter(id => id !== user.userId)
+    const [reviewable, scope] = await Promise.all([
+      reviewableUserIds(user, tid),
+      getDataScope(user, 'weekly_plan'),
+    ])
     if (reviewable !== null && reviewable.length === 0) {
       return NextResponse.json({ rows: [], counts: {}, scope, canDecide: false })
     }
 
+    // null = an Administrator: every owner in the tenant but the caller —
+    // exactly what `canReview` answers for them. The tenant predicate on the
+    // queries below is what bounds "every".
     const ownerFilter =
       reviewable === null
         ? { user_id: { not: user.userId } }

@@ -6,6 +6,7 @@ import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { trimmed } from '@/lib/validation'
 import { DEAL_LIST_INCLUDE, checkProbability, shapeDeal } from './_shape'
+import { foreignDealRef } from './_access'
 
 /**
  * Deals — the Phase 2 entity (REBUILD-PLAN.md §4).
@@ -96,6 +97,22 @@ export async function GET(req: NextRequest) {
 }
 
 /**
+ * `expected_value` is `Decimal(12,2)`. `Number('abc')` is NaN and a NaN row
+ * turns every pipeline total that sums the column into null, so anything that
+ * is not a finite, non-negative amount the column can hold is a 400. Blank is
+ * 0, as before. (Same rule as `decimalOrNull` in weekly-plans/_items.ts.)
+ */
+const MAX_DEAL_VALUE = 9_999_999_999.99
+function parseExpectedValue(value: unknown): { value: number } | { error: string } {
+  if (value === undefined || value === null || value === '') return { value: 0 }
+  const n = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isFinite(n)) return { error: 'Expected value must be a number' }
+  if (n < 0) return { error: 'Expected value cannot be negative' }
+  if (n > MAX_DEAL_VALUE) return { error: 'Expected value is too large' }
+  return { value: n }
+}
+
+/**
  * POST — create a Deal (§4.1).
  *
  * `name` is the only compulsory field. **Both `company_id` and `contact_id` are
@@ -111,11 +128,12 @@ export async function POST(req: NextRequest) {
   const user = await requireUser()
   if (!await checkPermission(user, 'deals', 'create')) return forbidden()
 
+  const body = await req.json()
   const {
     name, owner_user_id, company_id, contact_id,
     expected_value, probability, deal_stage_id, expected_close_date,
     product_id, product_category_id, source, remarks,
-  } = await req.json()
+  } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'Deal name is required' }, { status: 400 })
 
@@ -124,11 +142,18 @@ export async function POST(req: NextRequest) {
   // 500. 01-GAP-ANALYSIS.md D1 is what happens when only one of the two exists.
   const bad = checkProbability(probability)
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
+  const ev = parseExpectedValue(expected_value)
+  if ('error' in ev) return NextResponse.json({ error: ev.error }, { status: 400 })
+
+  const tid = getTenantId()
 
   try {
+    const miss = await foreignDealRef(tid, body)
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
     const created = await prisma.deals.create({
       data: {
-        tenant_id: getTenantId(),
+        tenant_id: tid,
         name: name.trim(),
         // Unowned is allowed, but an unstated owner is almost always the
         // creator — and below Company scope an unowned Deal is invisible to
@@ -136,7 +161,7 @@ export async function POST(req: NextRequest) {
         owner_user_id: owner_user_id || user.userId || null,
         company_id: company_id || null,
         contact_id: contact_id || null,
-        expected_value: expected_value != null && expected_value !== '' ? Number(expected_value) : 0,
+        expected_value: ev.value,
         probability: probability != null && probability !== '' ? Number(probability) : 0,
         deal_stage_id: deal_stage_id || null,
         // @db.Date — the client sends "YYYY-MM-DD".

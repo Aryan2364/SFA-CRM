@@ -1,25 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { firstForeignTenantRef } from '@/lib/tenant-fk'
+
+/**
+ * The columns PUT may write — same shape and reasoning as `UPDATABLE` in
+ * `src/app/api/companies/[id]/_handlers.ts`, so the master routes read alike.
+ *
+ * This route used to do `prisma.product_subcategories.update({ data: body })`,
+ * which made EVERY column on `product_subcategories` writable by anything that
+ * could reach the route — `tenant_id` among them, so a crafted body could move
+ * a row out of the caller's tenant. `id`, `created_at` and `updated_at` were
+ * writable too. A key that is not on this list is ignored, not rejected, so a
+ * caller that posts its whole form state back is unaffected.
+ *
+ * `category_id` IS on the list: the Sub-Categories page sends it on every save,
+ * and dropping it would turn a failed re-parent into a silent 200.
+ */
+const UPDATABLE = ['name', 'category_id', 'is_active'] as const
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'product_subcategories', 'edit')) return forbidden()
   const body = await req.json()
+
+  const updates: Record<string, unknown> = {}
+  for (const key of UPDATABLE) if (key in body) updates[key] = body[key]
+  // Trimmed as POST trims it — see the note in states/[id].
+  if ('name' in updates) {
+    if (typeof updates.name !== 'string' || !updates.name.trim())
+      return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    updates.name = updates.name.trim()
+  }
+  if ('category_id' in updates && !updates.category_id)
+    return NextResponse.json({ error: 'Category is required' }, { status: 400 })
+
+  const tid = getTenantId()
   try {
+    // A re-parent must stay inside the caller's tenant — see src/lib/tenant-fk.ts.
+    const miss = await firstForeignTenantRef([
+      { value: updates.category_id, label: 'Category',
+        find: id => prisma.product_categories.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
+    ])
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
     // `where` carries tenant_id alongside the primary key, so a row belonging to
     // another tenant is not updated - exactly what .eq('id').eq('tenant_id') did.
     const data = await prisma.product_subcategories.update({
-      where: { id: params.id, tenant_id: getTenantId() },
-      data: body,
+      where: { id: params.id, tenant_id: tid },
+      data: updates,
     })
     return NextResponse.json(serialize(data, 'product_subcategories'))
   } catch (err) {
     // Includes the no-matching-row case, which previously surfaced as a
     // PostgREST error from .single() and was answered with the same 500.
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }
 
@@ -27,7 +65,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const user = await requireUser()
   if (!await checkPermission(user, 'product_subcategories', 'delete')) return forbidden()
   try {
-    // deleteMany, NOT delete: Supabase's .delete() did not error when no row
+    // deleteMany, NOT delete: the old client's .delete() did not error when no row
     // matched and still returned ok. delete() throws P2025 in that case, which
     // would turn a silent no-op into a 500.
     await prisma.product_subcategories.deleteMany({
@@ -35,6 +73,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

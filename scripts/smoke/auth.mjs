@@ -10,6 +10,9 @@
  * written. See the skip() notes for what that leaves unexercised.
  */
 import { db, mintSession, req, ctx } from './lib.mjs'
+// The key set /api/auth/me builds its permission map from. Read from the
+// registry rather than a literal: the literal said 25 while the map held 28.
+import { ALL_PERMISSION_KEYS } from '../../src/lib/masters-registry.ts'
 
 export const name = 'auth'
 
@@ -30,8 +33,14 @@ export async function run() {
   t.ok('logout clears the cookie (Max-Age=0)', /rgb_session=;|Max-Age=0/i.test(out.headers.get('set-cookie') ?? ''), out.headers.get('set-cookie'))
 
   t.section('GET /api/auth/me — unauthenticated')
-  t.ok('no cookie -> redirected by middleware', [302, 307].includes((await req('/api/auth/me')).status))
-  t.ok('tampered cookie -> redirected', [302, 307].includes((await req('/api/auth/me', { token: 'bogus.sig' })).status))
+  // A protected API call without a valid session is a 401 JSON body now, not a
+  // redirect to /login: a fetch() cannot follow a redirect to an HTML page
+  // usefully, and the browser's 401 handler (src/lib/session-expiry.ts) is what
+  // sends the user to /login. Pages still redirect.
+  const noCookie = await req('/api/auth/me')
+  t.ok('no cookie -> 401 JSON', noCookie.status === 401 && (noCookie.headers.get('content-type') ?? '').includes('application/json'), { status: noCookie.status, type: noCookie.headers.get('content-type') })
+  const tampered = await req('/api/auth/me', { token: 'bogus.sig' })
+  t.ok('tampered cookie -> 401 JSON', tampered.status === 401 && (tampered.headers.get('content-type') ?? '').includes('application/json'), { status: tampered.status, type: tampered.headers.get('content-type') })
 
   t.section('GET /api/auth/me — Administrator')
   const admin = await prisma.users.findFirst({
@@ -45,7 +54,7 @@ export async function run() {
     const b = await r.json()
     t.ok('-> 200', r.status === 200, r.status)
     t.ok('tenantName matches the tenants row', b.tenantName === (tenant?.name ?? ''), b.tenantName)
-    t.ok('permissions has all 25 sections', Object.keys(b.permissions).length === 25, Object.keys(b.permissions).length)
+    t.ok(`permissions has all ${ALL_PERMISSION_KEYS.length} sections`, Object.keys(b.permissions).length === ALL_PERMISSION_KEYS.length, Object.keys(b.permissions).length)
     t.ok('Administrator gets view+edit+delete everywhere', Object.values(b.permissions).every(p => p.view && p.edit && p.delete))
     t.ok('hasSubordinates is a boolean', typeof b.hasSubordinates === 'boolean', b.hasSubordinates)
     const expectedSubs = (await prisma.user_visibility.count({ where: { viewer_user_id: admin.id } })) > 0
@@ -82,8 +91,9 @@ export async function run() {
   if (roleU) {
     const stale = await mintSession({ phone: roleU.contact, userId: roleU.id, name: roleU.name, role: roleU.roles.name, tenantId: roleU.tenant_id, cv: (roleU.credentials_version ?? 1) + 999 })
     const r = await req('/api/auth/me', { token: stale })
-    t.ok('stale credentials_version -> 401 "Credentials changed"', r.status === 401, r.status)
-    t.ok('error body is the expected message', (await r.json()).error === 'Credentials changed')
+    // The body is the generic "Unauthorized" on purpose (it says nothing about
+    // why), so only the status is asserted.
+    t.ok('stale credentials_version -> 401', r.status === 401, r.status)
   }
 
   t.section('GET /api/auth/me — Inactive and NoRole')
@@ -104,10 +114,10 @@ export async function run() {
   t.skip('POST /api/auth/forgot-password (success path)', 'would overwrite password_reset_token/expires on a real production user and send them an email. Not exercised deliberately.')
 
   t.section('POST /api/auth/reset-password')
-  t.ok('missing token -> 400', (await req('/api/auth/reset-password', { method: 'POST', body: { password: 'abcdef', confirmPassword: 'abcdef' } })).status === 400)
-  t.ok('mismatched passwords -> 400', (await req('/api/auth/reset-password', { method: 'POST', body: { token: 'x', password: 'abcdef', confirmPassword: 'ghijkl' } })).status === 400)
+  t.ok('missing token -> 400', (await req('/api/auth/reset-password', { method: 'POST', body: { password: 'abcdef12', confirmPassword: 'abcdef12' } })).status === 400)
+  t.ok('mismatched passwords -> 400', (await req('/api/auth/reset-password', { method: 'POST', body: { token: 'x', password: 'abcdef12', confirmPassword: 'ghijkl34' } })).status === 400)
   t.ok('short password -> 400', (await req('/api/auth/reset-password', { method: 'POST', body: { token: 'x', password: 'abc', confirmPassword: 'abc' } })).status === 400)
-  const badTok = await req('/api/auth/reset-password', { method: 'POST', body: { token: 'definitely-not-a-real-token', password: 'abcdef', confirmPassword: 'abcdef' } })
+  const badTok = await req('/api/auth/reset-password', { method: 'POST', body: { token: 'definitely-not-a-real-token', password: 'abcdef12', confirmPassword: 'abcdef12' } })
   t.ok('unknown token -> 400 "Invalid or expired reset link"', badTok.status === 400, badTok.status)
   t.ok('unknown token message is exact', (await badTok.json()).error === 'Invalid or expired reset link')
   t.skip('POST /api/auth/reset-password (success + expiry paths)', 'both require a valid reset token, which would mean writing one to a real production user and changing their password.')

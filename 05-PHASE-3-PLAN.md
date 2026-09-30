@@ -190,7 +190,7 @@ its Company Type shows locked; five goal rows appear by default.
 reject / suggest / hold / edit-by-manager / request-reopen / accept-reopen / decline-reopen, plus
 `logs`, `my`, `day`, `review`, `summary`.
 
-**Verbatim, from `supabase/migrations.sql:329` (Prisma drops CHECK bodies):**
+**Verbatim, from the old schema file `migrations.sql:329`, since deleted (Prisma drops CHECK bodies):**
 `weekly_plans.status` ∈ `('Draft','Submitted','Approved','Rejected','On Hold','Edited by Manager','Resubmitted')` — **7 values**.
 `weekly_plan_audit_logs.action_type` has **no constraint**; the code writes **13** values:
 `Create, Update, Submit, Resubmit, UndoSubmit, Approve, Reject, Hold, Suggest, EditByManager,

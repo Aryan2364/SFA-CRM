@@ -55,8 +55,12 @@ export function AttendanceCard({
   onChanged,
 }: {
   selectedDate: string
-  /** Real permission, resolved by the caller from role_permissions. */
-  canMark: boolean
+  /** Real permission, resolved by the caller from role_permissions:
+   *  meetings.view, the most the session-only check-in/out routes ask
+   *  for. `null` while it is still loading — the buttons are then shown
+   *  disabled, because "not known yet" is not "not allowed". `false` means
+   *  the whole day's activity is out of reach, so they are hidden. */
+  canMark: boolean | null
   onChanged?: () => void
 }) {
   const { toast } = useToast()
@@ -323,20 +327,20 @@ export function AttendanceCard({
       {/* F5 — check-in/check-out now live on the header row, in the space
           the merged meeting button freed. Shown only when they can
           succeed: the routes write TODAY's row, so a past or future day
-          has nothing to press, and a user without edit rights is never
-          offered a button that would fail. */}
-      {isToday && canMark && !checkedIn && (
-        <Button size="sm" onClick={() => void mark('in')} disabled={acting !== null} className="min-h-11 sm:min-h-0">
+          has nothing to press, and a user who cannot view meetings at all
+          (the card's own data is refused them) is not offered them. */}
+      {isToday && canMark !== false && !checkedIn && (
+        <Button size="sm" onClick={() => void mark('in')} disabled={acting !== null || canMark !== true} className="min-h-11 sm:min-h-0">
           <LogInIcon />
           {acting === 'in' ? 'Locating…' : 'Check in'}
         </Button>
       )}
-      {isToday && canMark && checkedIn && !checkedOut && (
+      {isToday && canMark !== false && checkedIn && !checkedOut && (
         <Button
           variant="secondary"
           size="sm"
           onClick={() => void mark('out')}
-          disabled={acting !== null}
+          disabled={acting !== null || canMark !== true}
           className="min-h-11 sm:min-h-0"
         >
           <LogOutIcon />

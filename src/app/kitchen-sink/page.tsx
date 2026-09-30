@@ -247,7 +247,7 @@ function SectionTabsDemo() {
         ]}
       />
       <p className="mt-4 text-body text-text-secondary">
-        Showing the {view.replace("-", " ")} view. The toolbar's own state
+        Showing the {view.replace("-", " ")} view. The toolbar&apos;s own state
         belongs to its tab: search, filters and sort do not carry across,
         because they filter different columns on each.
       </p>
@@ -931,11 +931,11 @@ export default function KitchenSinkPage() {
             </div>
           </div>
           <Caption>
-            Type "9:20" into the time field and it snaps to the nearest
+            Type &quot;9:20&quot; into the time field and it snaps to the nearest
             15-minute step rather than rejecting the entry. The calendar
             only ever renders inside a popover, which mounts when it is
             opened - it is never server-rendered, so react-day-picker
-            deriving "today" at render time cannot cause a mismatch.
+            deriving &quot;today&quot; at render time cannot cause a mismatch.
           </Caption>
         </Section>
 
@@ -1205,7 +1205,7 @@ export default function KitchenSinkPage() {
               <div className="mt-3">
                 <Clamp className="text-body text-text-secondary">
                   This account is billed monthly against one consolidated
-                  invoice rather than per order, at the customer's own
+                  invoice rather than per order, at the customer&apos;s own
                   request, and it carries a thirty day credit period agreed
                   when the contract was last renewed. Any order above two
                   lakh needs approval from the accounts team before dispatch.
@@ -1265,7 +1265,7 @@ export default function KitchenSinkPage() {
           </Tabs>
 
           <Caption>
-            Those are a detail page's tabs: one record's child collections.
+            Those are a detail page&apos;s tabs: one record&apos;s child collections.
             Below is the other job the same component does — sibling views of
             one section, with the active view in the URL.
           </Caption>
@@ -1282,7 +1282,7 @@ export default function KitchenSinkPage() {
           </React.Suspense>
           <Caption>
             The active tab is a query parameter, so a view can be linked to
-            and the browser's own back button returns to the tab the user came
+            and the browser&apos;s own back button returns to the tab the user came
             from. Switching replaces the history entry rather than pushing
             one: flipping between three views should not make the back button
             walk through every flip. Maximum four — a fifth throws.
@@ -1380,7 +1380,7 @@ export default function KitchenSinkPage() {
             </PaginationBar>
           </div>
           <Caption>
-            The third row's name is truncated with a tooltip. Eight rows in
+            The third row&apos;s name is truncated with a tooltip. Eight rows in
             a 256px box, so the header stays put while the body scrolls.
             Amounts and dates are static text here; the formatting utilities
             for the rupee symbol, Indian digit grouping and DD Mon YYYY are

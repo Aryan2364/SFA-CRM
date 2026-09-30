@@ -14,7 +14,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
  * The bucket is PRIVATE. Objects are never public: uploads go through the API
  * (so the request can be validated and authorised first) and reads are served
  * as short-lived signed URLs. This is a security improvement over what it
- * replaces — the Supabase `expense-photos` bucket was PUBLIC, so any receipt was
+ * replaces — the old `expense-photos` bucket was PUBLIC, so any receipt was
  * viewable by anyone holding the link, with no session at all.
  *
  * Credentials come from the environment at RUNTIME (PLAN.md §2.4) — nothing is

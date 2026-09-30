@@ -5,6 +5,9 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from '../_shape'
 import { checkEmail, checkPhone, firstError, trimmed } from '@/lib/validation'
+import { scopedUserIds, scopeWhere } from '@/lib/scope'
+import { findScopedContact, foreignContactRef } from '../_access'
+import { ownerOutsideScope } from '../../companies/_access'
 
 
 /**
@@ -20,11 +23,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
+    const ids = await scopedUserIds(user, 'contacts')
     // findFirst, not findUnique: the tenant filter is not part of the primary
     // key and it must be in the `where`, or a contact id from another tenant
-    // resolves. Dropping it leaks across tenants with nothing crashing.
+    // resolves. Dropping it leaks across tenants with nothing crashing. The
+    // scope predicate is the list's own (§6.6) — see `../_access.ts`.
     const row = await prisma.contacts.findFirst({
-      where: { id: params.id, tenant_id: tid },
+      where: { id: params.id, tenant_id: tid, ...scopeWhere(ids, 'owner_user_id') },
       include: CONTACT_INCLUDE,
     })
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -126,15 +131,23 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const found = await loadCompanies(ids, tid)
     if ('error' in found) return NextResponse.json({ error: found.error }, { status: 400 })
 
-    // The row must be proved to be in this tenant before the join rows are
-    // touched: the delete/insert below key on contact_id, and doing them for a
-    // contact that turned out to belong to someone else would have rewritten
-    // their links before update() raised P2025.
-    const exists = await prisma.contacts.findFirst({
-      where: { id: params.id, tenant_id: tid },
-      select: { id: true },
-    })
+    // The row must be proved to be in this tenant, and in the caller's scope,
+    // before the join rows are touched: the delete/insert below key on
+    // contact_id, and doing them for a contact that turned out to belong to
+    // someone else would have rewritten their links before update() raised
+    // P2025.
+    const exists = await findScopedContact(user, tid, params.id)
     if (!exists) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const miss = await foreignContactRef(tid, data)
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
+    // As on a company: reassigning or clearing the owner is held to the
+    // caller's `contacts` scope. Only checked when the owner is written.
+    if ('owner_user_id' in data) {
+      const outside = await ownerOutsideScope(user, 'contacts', data.owner_user_id)
+      if (outside) return NextResponse.json({ error: outside }, { status: 403 })
+    }
 
     const primaryId = trimmed(body.primary_company_id)
 
@@ -180,16 +193,22 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
  * activity; a hard delete would either fail on the FK or take history with it.
  * The list hides inactive contacts by default, so this reads as a delete.
  *
- * `updateMany`, not `update`: an id that matches nothing — another tenant's, or
- * one already gone — is silent here, where `update()` throws P2025 and the old
- * routes let that out as a 500 carrying the raw Prisma message.
+ * An id that is not the caller's to see — another tenant's, another rep's on
+ * `own` scope, or one that does not exist — is a 404, found before the write.
+ * `updateMany`, not `update`, so a row that vanishes in between stays silent
+ * rather than throwing P2025 into a 500 carrying the raw Prisma message.
  */
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'contacts', 'delete')) return forbidden()
+  const tid = getTenantId()
   try {
+    // Outside the caller's scope is a 404, as on GET and PUT.
+    const found = await findScopedContact(user, tid, params.id)
+    if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
     await prisma.contacts.updateMany({
-      where: { id: params.id, tenant_id: getTenantId() },
+      where: { id: found.id, tenant_id: tid },
       data: { is_active: false },
     })
     return NextResponse.json({ ok: true })

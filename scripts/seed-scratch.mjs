@@ -3,7 +3,7 @@
  * Seeds the disposable tenant used by the write-path tests (PLAN.md §8.3).
  *
  * Points at SCRATCH_DATABASE_URL — the LOCAL PostgreSQL 18 instance, never
- * Supabase and never RDS. It refuses to run against anything that looks like a
+ * RDS. It refuses to run against anything that looks like a
  * hosted database, because everything here is destructive.
  *
  * Run via `npm run scratch:setup`, which pushes prisma/schema.prisma first so
@@ -44,6 +44,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url.
 export const SEED = {
   tenantA:      '0000000a-0000-4000-8000-000000000001',
   roleA:        '0000000a-0000-4000-8000-000000000010',
+  roleFieldA:   '0000000a-0000-4000-8000-000000000012',
   adminA:       '0000000a-0000-4000-8000-000000000011',
   stateA:       '0000000a-0000-4000-8000-000000000020',
   districtA:    '0000000a-0000-4000-8000-000000000021',
@@ -76,14 +77,21 @@ async function main() {
     // leaf tables that point at remarks / users / plans
     'remark_reads', 'contextual_remarks',
     'point_events', 'point_config_history', 'point_config', 'tenant_point_settings',
-    'weekly_plan_audit_logs', 'weekly_plan_items', 'weekly_plans',
+    // weekly_goals has no FK to weekly_plans (see api/weekly-plans/_goals.ts),
+    // so nothing forces this order; it is wiped with its plans all the same.
+    'weekly_goals', 'weekly_plan_audit_logs', 'weekly_plan_items', 'weekly_plans',
     'notifications', 'user_visibility',
     // orders.visit_id -> daily_visits, so orders must precede it
     'order_items', 'orders', 'daily_visits', 'attendance', 'expenses',
-    // reference data owned by the tenant
-    'expense_categories', 'lead_types', 'lead_stages', 'lead_temperatures',
+    // reference data owned by the tenant. lead_types, lead_stages and
+    // business_partners were renamed company_types, deal_stages and companies
+    // (commit a1d43e0); the old names crashed this wipe.
+    'expense_categories', 'company_types', 'deal_stages', 'lead_temperatures',
     'products', 'product_subcategories', 'product_categories',
-    'business_partners', 'user_territory_mappings',
+    // contacts (and their company links) now carry owner_user_id -> users,
+    // and company_contacts -> companies, so both go before those parents.
+    'company_contacts', 'contacts',
+    'companies', 'user_territory_mappings',
     'villages', 'talukas', 'districts', 'states',
     // users references departments/designations/roles, so it goes BEFORE them
     'users', 'designations', 'departments', 'roles', 'role_permissions',
@@ -113,12 +121,28 @@ async function main() {
     },
   })
 
+  // subA's role. requireUser() re-resolves a session's role from the database,
+  // and a Standard user with no role_id resolves to NoRole, which every
+  // checkPermission() refuses. The operation routes the suites drive as subA now
+  // gate on 'create' (meetings, expenses, orders, weekly_plan), so subA needs a
+  // real role: the field rep's sections at `own` scope. write-path-ops.mjs
+  // reassigns subA's role_id during its role tests; that is expected.
+  await prisma.roles.create({
+    data: { id: SEED.roleFieldA, tenant_id: SEED.tenantA, name: 'Scratch Field', is_system: false },
+  })
+  await prisma.role_permissions.createMany({
+    data: ['meetings', 'expenses', 'weekly_plan', 'orders', 'deals'].map(section => ({
+      tenant_id: SEED.tenantA, profile: 'Scratch Field', section,
+      can_view: true, can_create: true, can_edit: true, can_delete: true, data_scope: 'own',
+    })),
+  })
+
   await prisma.users.create({
     data: {
       id: SEED.subA, tenant_id: SEED.tenantA, name: 'Scratch Subordinate',
       email: 'scratch-sub@example.invalid', contact: '9000000002',
       password: '', profile: 'Standard', status: 'Active',
-      manager_user_id: SEED.adminA,
+      manager_user_id: SEED.adminA, role_id: SEED.roleFieldA,
     },
   })
 

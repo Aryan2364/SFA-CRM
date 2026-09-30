@@ -5,7 +5,7 @@
  *
  * Points at SCRATCH_DATABASE_URL — the LOCAL PostgreSQL instance — and
  * refuses any non-local host, same guard as every other script in this
- * directory. It never reads or touches DATABASE_URL (live Supabase).
+ * directory. It never reads or touches DATABASE_URL.
  *
  * Idempotent: every row this script writes carries a deterministic id
  * (UUIDv5 over a stable seed key), so re-running it upserts the same rows

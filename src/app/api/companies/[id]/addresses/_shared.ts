@@ -1,5 +1,6 @@
-import { prisma } from '@/lib/db'
+import { SessionUser } from '@/lib/auth'
 import { checkPincode, firstError, trimmed } from '@/lib/validation'
+import { findScopedCompany } from '../../_access'
 
 /**
  * Shared by `addresses/route.ts` and `addresses/[addressId]/route.ts`.
@@ -20,20 +21,7 @@ export type AddressBody = {
   taluka_id?: unknown
   village_id?: unknown
   pincode?: unknown
-  latitude?: unknown
-  longitude?: unknown
   is_primary?: unknown
-}
-
-/** A coordinate, or null. Rejects a value that is present but not a number. */
-function coordinate(
-  value: unknown,
-  label: string
-): { value: number | null } | { error: string } {
-  if (value === null || value === undefined || value === '') return { value: null }
-  const n = Number(value)
-  if (!Number.isFinite(n)) return { error: `${label} must be a number.` }
-  return { value: n }
 }
 
 /**
@@ -49,11 +37,6 @@ export function addressData(
   const bad = firstError(checkPincode(body.pincode))
   if (bad) return { error: bad }
 
-  const lat = coordinate(body.latitude, 'Latitude')
-  if ('error' in lat) return { error: lat.error }
-  const lng = coordinate(body.longitude, 'Longitude')
-  if ('error' in lng) return { error: lng.error }
-
   return {
     data: {
       label: trimmed(body.label),
@@ -66,23 +49,20 @@ export function addressData(
       taluka_id: body.taluka_id || null,
       village_id: body.village_id || null,
       pincode: trimmed(body.pincode),
-      latitude: lat.value,
-      longitude: lng.value,
     },
   }
 }
 
 /**
- * The parent company, under the tenant filter. Null when it is not ours.
+ * The parent company, under the tenant filter AND the caller's companies scope.
+ * Null when it is not ours, or not the caller's to see.
  *
  * Every verb calls this before writing: without it an address could be attached
- * to another tenant's company by guessing its id, and nothing would crash.
+ * to another tenant's company by guessing its id, and nothing would crash. The
+ * scope half is the list's own (§6.6) — see `../../_access.ts`.
  */
-export async function findCompany(companyId: string, tenantId: string) {
-  return prisma.companies.findFirst({
-    where: { id: companyId, tenant_id: tenantId },
-    select: { id: true },
-  })
+export async function findCompany(user: SessionUser, companyId: string, tenantId: string) {
+  return findScopedCompany(user, tenantId, companyId)
 }
 
 /** The location embeds both verbs return, so a saved row renders immediately. */

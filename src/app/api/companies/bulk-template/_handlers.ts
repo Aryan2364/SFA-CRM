@@ -3,12 +3,18 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
+import { COMPANY_NOTES_SHEET, COMPANY_SHEET } from '../bulk-import/_columns'
 
 
 const TEMPS = ['Cold', 'Warm', 'Hot']
 
 export async function GET() {
-  await requireUser()
+  const user = await requireUser()
+  // The template exists only to feed bulk-import, which checks the same
+  // action; it also lists the tenant's masters, so it is not handed out
+  // beyond the people who can use it.
+  if (!await checkPermission(user, 'companies', 'create')) return forbidden()
 
   const tid = getTenantId()
 
@@ -41,8 +47,9 @@ export async function GET() {
 
   // ── Main "Companies" sheet ────────────────────────────────────────────────
   // `bulk-parse` looks for this name first and falls back to "Leads" so a
-  // template downloaded before P1-T10 still imports.
-  const ws = workbook.addWorksheet('Companies')
+  // template downloaded before P1-T10 still imports. Columns are matched by
+  // header (`COMPANY_COLUMNS`), so the `*` and the date hint below are fine.
+  const ws = workbook.addWorksheet(COMPANY_SHEET)
 
   ws.columns = [
     { header: 'Name *',            key: 'name',                 width: 26 },
@@ -74,18 +81,9 @@ export async function GET() {
     cell.border    = { bottom: { style: 'thin', color: { argb: 'FF1D4ED8' } } }
   })
 
-  // Sample row
-  ws.addRow([
-    'ABC Solar', '', 'Ravi Kumar', '9876543210', '', 'ravi@example.com',
-    '', '411001', '123 Main St', '', '', '', 'Prospect', 'Warm', '2026-05-01',
-    'Interested in 3kW system',
-  ])
-
-  // Style sample row with a light tint so the user can distinguish it
-  const sampleRow = ws.getRow(2)
-  sampleRow.eachCell(cell => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
-  })
+  // No sample row on this sheet: one left in would be imported as a real
+  // company. The example lives on COMPANY_NOTES_SHEET, which `bulk-parse`
+  // never reads.
 
   // ── Data validations (rows 2 – 1001) ─────────────────────────────────────
   const MAX = 1001
@@ -109,6 +107,30 @@ export async function GET() {
 
   // Freeze header
   ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 1, activeCell: 'A2' }]
+
+  // ── "How to fill": guidance and an example, never imported ───────────────
+  const notes = workbook.addWorksheet(COMPANY_NOTES_SHEET)
+  notes.columns = [{ width: 34 }, { width: 70 }]
+  const note = (cells: string[], bold = false) => { notes.addRow(cells).font = { bold } }
+  note(['Fill in the Companies sheet, one company per row. This sheet is never imported.'], true)
+  note([])
+  note(['Column', 'What to enter'], true)
+  ;[
+    ['Name *', 'Required. A row with no GST Number and no mobile is matched to an existing company by this name.'],
+    ['Type, State, District, Taluka, Stage, Temperature', 'Pick from the dropdown; these come from your masters. A blank Stage starts the company as Prospect.'],
+    ['Mobile 1, Mobile 2', '10-digit mobile numbers.'],
+    ['GST Number', 'The 15-character GSTIN.'],
+    ['Next Follow-up Date (YYYY-MM-DD)', 'A date written like 2026-05-01.'],
+  ].forEach(r => note(r))
+  note([])
+  note(['Example row (copy the values, not the row)'], true)
+  const example: [string, string][] = [
+    ['Name *', 'ABC Solar'], ['Contact Person', 'Ravi Kumar'], ['Mobile 1', '9876543210'],
+    ['Email', 'ravi@example.com'], ['Pin Code', '411001'], ['Address', '123 Main St'],
+    ['Stage', 'Prospect'], ['Temperature', 'Warm'], ['Next Follow-up Date (YYYY-MM-DD)', '2026-05-01'],
+    ['Description', 'Interested in 3kW system'],
+  ]
+  example.forEach(r => note(r))
 
   // ── Write buffer ──────────────────────────────────────────────────────────
   const buffer = await workbook.xlsx.writeBuffer()

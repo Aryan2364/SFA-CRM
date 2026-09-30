@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
@@ -24,15 +24,18 @@ const STAGE_SELECT = {
   created_at: true,
 } as const
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   // Reference data: any authenticated user may read it (used by the Leads form).
   // Managing the master still requires create/edit permission below.
   await requireUser()
+  // `?active=true` narrows to live rows, for pickers. The default is still every
+  // row: the master's own screen lists inactive ones so they can be reactivated.
+  const activeOnly = req.nextUrl.searchParams.get('active') === 'true'
   const tid = getTenantId()
   try {
     const [data, types] = await Promise.all([
       prisma.deal_stages.findMany({
-        where: { tenant_id: tid },
+        where: { tenant_id: tid, ...(activeOnly ? { is_active: true } : {}) },
         orderBy: { sort_order: 'asc' },
         select: STAGE_SELECT,
       }),
@@ -41,7 +44,8 @@ export async function GET() {
     const rows = serialize(data, 'deal_stages') as ({ id: string } & Record<string, unknown>)[]
     return NextResponse.json(attachStageTypes(rows, types))
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }
 
@@ -75,6 +79,7 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     )
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

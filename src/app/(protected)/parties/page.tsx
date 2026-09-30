@@ -54,6 +54,7 @@ import { usePartyMasters } from './party-masters'
 import { useMe, type Me } from '@/hooks/useMe'
 import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/BusinessPartnerForm'
 import { useToast } from '@/contexts/ToastContext'
+import { CompaniesBulkImportDialog } from '@/components/import/companies-bulk-import-dialog'
 import { RECORD_COMPLETENESS, StatusBadge } from '@/components/status-badge'
 import { QuickFilterChip } from '@/components/alerts/data-health-alert'
 import { DataHealthAlerts, type DataHealthAlertItem } from '@/components/alerts/data-health-popover'
@@ -74,6 +75,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { SectionTabs, type SectionTab } from '@/components/ui/section-tabs'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -395,196 +397,20 @@ function companyColumns({
   ]
 }
 
-// ── Template download (server-side, returns .xlsx with dropdowns) ─────────────
-async function downloadTemplate(onError: (msg: string) => void) {
-  try {
-    const res = await fetch('/api/companies/bulk-template')
-    if (!res.ok) { onError('Failed to generate template'); return }
-    const blob = await res.blob()
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href = url; a.download = 'companies_template.xlsx'; a.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    onError('Failed to download template')
-  }
-}
-
-// ── Bulk Upload Modal ─────────────────────────────────────────────────────────
-function BulkUploadModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
-  const { toast } = useToast()
-  const fileRef = useRef<HTMLInputElement>(null)
-  const [rows, setRows]           = useState<Record<string, string>[]>([])
-  const [fileName, setFileName]   = useState('')
-  const [parsing, setParsing]     = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [result, setResult]       = useState<{ inserted: number; errors: { row: number; message: string }[] } | null>(null)
-
-  function reset() { setRows([]); setFileName(''); setResult(null); if (fileRef.current) fileRef.current.value = '' }
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setFileName(file.name)
-    setResult(null)
-    setRows([])
-    setParsing(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const res  = await fetch('/api/companies/bulk-parse', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) { toast(data.error ?? 'Failed to read file', 'error'); return }
-      if (!data.rows?.length) { toast('No data rows found in file', 'error'); return }
-      setRows(data.rows)
-    } catch {
-      toast('Failed to read file', 'error')
-    } finally {
-      setParsing(false)
-    }
-  }
-
-  async function handleImport() {
-    if (rows.length === 0) return
-    setImporting(true)
-    try {
-      // The route still reads the payload key `leads` — it is the same handler
-      // the `/api/leads` alias re-exported and renaming its body is P1-T19's,
-      // not this task's.
-      const res = await fetch('/api/companies/bulk-import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leads: rows }),
-      })
-      const data = await res.json()
-      setResult(data)
-      if (data.inserted > 0) {
-        toast(`${data.inserted} compan${data.inserted > 1 ? 'ies' : 'y'} imported successfully`, 'success')
-        onDone()
-      }
-    } catch {
-      toast('Import failed', 'error')
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-(--backdrop) px-4">
-      <div className="bg-surface rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
-          <h3 className="text-base font-medium text-text-primary">Bulk Upload Companies</h3>
-          <button onClick={() => { reset(); onClose() }} className="text-text-muted hover:text-text-secondary">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          {/* Step 1 */}
-          <div>
-            <p className="text-sm font-medium text-text-secondary mb-2">Step 1 — Download the template</p>
-            <button onClick={() => downloadTemplate(msg => toast(msg, 'error'))}
-              className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded-lg px-4 py-2 transition">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-              Download Excel Template (.xlsx)
-            </button>
-            <p className="text-xs text-text-muted mt-1">Template includes dropdowns for Type, State, District, Taluka, Stage and Temperature — populated from your masters.</p>
-          </div>
-
-          {/* Step 2 */}
-          <div>
-            <p className="text-sm font-medium text-text-secondary mb-2">Step 2 — Upload filled file</p>
-            <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary-border hover:bg-primary-subtle transition">
-              {parsing ? (
-                <span className="text-sm text-primary">Reading file…</span>
-              ) : (
-                <>
-                  <svg className="w-6 h-6 text-text-muted mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-                  <span className="text-sm text-text-muted">{fileName ? fileName : 'Click to select .xlsx file'}</span>
-                  <span className="text-xs text-text-muted mt-0.5">Only the first sheet is imported</span>
-                </>
-              )}
-              <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
-            </label>
-          </div>
-
-          {/* Preview */}
-          {rows.length > 0 && !result && (
-            <div>
-              <p className="text-sm font-medium text-text-secondary mb-2">Preview — {rows.length} row{rows.length > 1 ? 's' : ''} detected</p>
-              <div className="overflow-x-auto rounded-lg border border-border-light max-h-48">
-                <table className="w-full text-xs">
-                  <thead className="bg-surface-sunken sticky top-0">
-                    <tr>{['Name', 'Type', 'Mobile 1', 'State', 'District', 'Temperature'].map(h => (
-                      <th key={h} className="text-left px-3 py-2 font-medium text-text-secondary whitespace-nowrap">{h}</th>
-                    ))}</tr>
-                  </thead>
-                  <tbody>
-                    {rows.slice(0, 50).map((r, i) => (
-                      <tr key={i} className="border-t border-border-light">
-                        <td className="px-3 py-2 text-text-secondary">{r.name || <span className="text-danger">{EMPTY}</span>}</td>
-                        <td className="px-3 py-2 text-text-secondary">{r.type || <span className="text-danger">{EMPTY}</span>}</td>
-                        <td className="px-3 py-2 text-text-secondary">{r.mobile_1 || EMPTY}</td>
-                        <td className="px-3 py-2 text-text-secondary">{r.state || EMPTY}</td>
-                        <td className="px-3 py-2 text-text-secondary">{r.district || EMPTY}</td>
-                        <td className="px-3 py-2 text-text-secondary">{r.temperature || EMPTY}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {rows.length > 50 && <p className="text-xs text-text-muted mt-1">Showing first 50 of {rows.length} rows.</p>}
-            </div>
-          )}
-
-          {/* Result */}
-          {result && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 p-3 bg-success-bg border border-success-border rounded-lg">
-                <svg className="w-5 h-5 text-success flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <p className="text-sm text-success font-medium">{result.inserted} compan{result.inserted !== 1 ? 'ies' : 'y'} imported successfully</p>
-              </div>
-              {result.errors.length > 0 && (
-                <div className="p-3 bg-danger-bg border border-danger-border rounded-lg max-h-40 overflow-y-auto">
-                  <p className="text-sm font-medium text-danger mb-2">{result.errors.length} row{result.errors.length !== 1 ? 's' : ''} skipped:</p>
-                  {result.errors.map((e, i) => (
-                    <p key={i} className="text-xs text-danger">Row {e.row}: {e.message}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-border-light flex justify-end gap-3">
-          <button onClick={() => { reset(); onClose() }} className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary border border-border-light rounded-lg">
-            {result ? 'Close' : 'Cancel'}
-          </button>
-          {!result && (
-            <button
-              onClick={handleImport}
-              disabled={rows.length === 0 || importing}
-              className="px-4 py-2 text-sm font-medium bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition">
-              {importing ? 'Importing…' : `Import ${rows.length > 0 ? rows.length + ' Companies' : ''}`}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNode }) {
   const { toast } = useToast()
   const router = useRouter()
   const isAdmin = me?.role === 'Administrator'
   // G1: `companies`, the section that exists. `business` never did.
   const canEdit   = isAdmin || (me?.permissions?.companies?.edit   ?? false)
+  // Add company, Quick create and Bulk Upload all write through a create:
+  // POST /api/companies and POST …/bulk-parse and …/bulk-import each check
+  // companies.create. `canEdit` stays for the PUT behind Edit and Active.
+  // The permission alone, never a role name: /api/auth/me already answers
+  // all-true for an Administrator. While /me is loading the buttons are
+  // disabled with no reason — "not known yet" is not "not allowed".
+  const canCreate = me?.permissions?.companies?.create ?? false
+  const createKnown = me !== null
   const canDelete = isAdmin || (me?.permissions?.companies?.delete ?? false)
 
   const bp = useBPForm()
@@ -595,7 +421,9 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
   const [quickOpen, setQuickOpen] = useState(false)
   const [deleting, setDeleting] = useState<CompanyRow | null>(null)
   const savingRef               = useRef(false)
-  const [companyTypes, setCompanyTypes] = useState<NamedRef[]>([])
+  // Every type, active or not: the list filter must still find companies on a
+  // deactivated one. The edit picker narrows it below.
+  const [companyTypes, setCompanyTypes] = useState<(NamedRef & { is_active?: boolean })[]>([])
   /* Bumped when a create, an edit, a toggle or a delete makes the list stale.
      The template holds `load` in a ref, so this is the ONLY refetch lever. */
   const [refreshKey, setRefreshKey] = useState(0)
@@ -714,6 +542,13 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     setDeleting(null)
     const res = await fetch(`/api/companies/${row.id}`, { method: 'DELETE' })
     const data = await res.json().catch(() => ({}))
+    // 404: already gone (deleted in another tab, or no longer in scope) — the
+    // outcome the user asked for, so refresh rather than report an error.
+    if (res.status === 404) {
+      toast('This record was already deleted', 'info')
+      setRefreshKey(k => k + 1)
+      return
+    }
     if (!res.ok) {
       toast((data as { error?: string }).error ?? 'Delete failed', 'error')
       return
@@ -902,16 +737,20 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
         action={
             <div className="flex items-center gap-2">
               <DataHealthAlerts alerts={healthAlerts} label="Lead data health" />
-              {canEdit ? (
-            <>
-              <Button variant="secondary" onClick={() => setBulkOpen(true)}>
-                <UploadIcon />
-                Bulk Upload
-              </Button>
-              <Button variant="secondary" onClick={() => setQuickOpen(true)}>
-                <ZapIcon />
-                Quick create
-              </Button>
+              {/* Shown and disabled with a reason for a role without
+                  companies.create, rather than hidden (section 26). */}
+              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create companies can import them">
+                <Button variant="secondary" onClick={() => setBulkOpen(true)} disabled={!canCreate}>
+                  <UploadIcon />
+                  Bulk Upload
+                </Button>
+              </PermissionTooltip>
+              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create companies can add them">
+                <Button variant="secondary" onClick={() => setQuickOpen(true)} disabled={!canCreate}>
+                  <ZapIcon />
+                  Quick create
+                </Button>
+              </PermissionTooltip>
               {/*
                 ⚠️ `router.push`, NOT `<Button render={<Link/>}>`.
                 That form hydrates inconsistently inside `ListPage`'s header —
@@ -924,12 +763,12 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
                 It also keeps the three peers identical — all buttons, same
                 behaviour — instead of one anchor among two buttons.
               */}
-              <Button onClick={() => router.push('/parties/companies/new')}>
-                <PlusIcon />
-                Add company
-              </Button>
-            </>
-              ) : null}
+              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create companies can add them">
+                <Button onClick={() => router.push('/parties/companies/new')} disabled={!canCreate}>
+                  <PlusIcon />
+                  Add company
+                </Button>
+              </PermissionTooltip>
             </div>
         }
         columns={companyColumns({
@@ -948,8 +787,9 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
         emptyYet={{
           heading: 'No companies yet',
           body: 'Every organisation this tenant sells to — prospects, dealers, distributors and institutions — is listed here.',
-          actionLabel: canEdit ? 'Add company' : undefined,
-          onAction: canEdit ? () => router.push('/parties/companies/new') : undefined,
+          actionLabel: 'Add company',
+          onAction: canCreate ? () => router.push('/parties/companies/new') : undefined,
+          actionDisabledReason: !createKnown ? null : canCreate ? undefined : 'Only someone who can create companies can add them',
         }}
       />
       </div>
@@ -965,7 +805,11 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
               <select id="company-type" name="type" value={bp.form.type} onChange={bp.F('type')}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                 <option value="">Select type…</option>
-                {companyTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                {/* Active types, plus the company's own if it has since been
+                    deactivated, so an edit neither blanks it nor offers it anew. */}
+                {companyTypes.filter(t => t.is_active !== false || t.name === bp.form.type).map(t => (
+                  <option key={t.id} value={t.name}>{t.name}{t.is_active === false ? ' (inactive)' : ''}</option>
+                ))}
               </select>
             </div>
           }
@@ -996,10 +840,10 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
         </AlertDialogContent>
       </AlertDialog>
 
-      <BulkUploadModal
+      <CompaniesBulkImportDialog
         open={bulkOpen}
-        onClose={() => setBulkOpen(false)}
-        onDone={() => setRefreshKey(k => k + 1)}
+        onOpenChange={setBulkOpen}
+        onImported={() => setRefreshKey(k => k + 1)}
       />
 
       {/* P1-T17. Writes through `/api/companies`, the same endpoint the full
@@ -1159,10 +1003,14 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
   // and certainly not `business`.
   const canDelete = isAdmin || (me?.permissions?.contacts?.delete ?? false)
   // F22: gated on the real `contacts` permission, same rule the Companies
-  // tab applies to its own Add button — never a hardcoded role.
-  const canCreate = isAdmin || (me?.permissions?.contacts?.edit ?? false)
+  // tab applies to its own Add button — never a hardcoded role. `create`, not
+  // `edit`: POST /api/contacts checks contacts.create.
+  // The permission alone, never a role name (see the Companies tab).
+  const canCreate = me?.permissions?.contacts?.create ?? false
+  const createKnown = me !== null
 
-  const [contactTypes, setContactTypes] = useState<NamedRef[]>([])
+  // Every type, active or not, for the list filter.
+  const [contactTypes, setContactTypes] = useState<(NamedRef & { is_active?: boolean })[]>([])
   const [deleting, setDeleting] = useState<ContactRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
@@ -1210,6 +1058,13 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
     setDeleting(null)
     const res = await fetch(`/api/contacts/${row.id}`, { method: 'DELETE' })
     const data = await res.json().catch(() => ({}))
+    // 404: already gone (deleted in another tab, or no longer in scope) — the
+    // outcome the user asked for, so refresh rather than report an error.
+    if (res.status === 404) {
+      toast('This record was already deleted', 'info')
+      setRefreshKey(k => k + 1)
+      return
+    }
     if (!res.ok) {
       toast((data as { error?: string }).error ?? 'Delete failed', 'error')
       return
@@ -1317,12 +1172,12 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
         action={
           <div className="flex items-center gap-2">
             <DataHealthAlerts alerts={healthAlerts} label="Contact data health" />
-            {canCreate ? (
-              <Button onClick={() => setCreateOpen(true)}>
+            <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create contacts can add them">
+              <Button onClick={() => setCreateOpen(true)} disabled={!canCreate}>
                 <PlusIcon />
                 Add contact
               </Button>
-            ) : null}
+            </PermissionTooltip>
           </div>
         }
         columns={contactColumns({ canDelete, onDelete: setDeleting })}
@@ -1335,8 +1190,9 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
         emptyYet={{
           heading: 'No contacts yet',
           body: 'The people at those companies live here. Add one directly, or from the company page it belongs to — a contact may be linked to more than one company.',
-          actionLabel: canCreate ? 'Add contact' : undefined,
+          actionLabel: 'Add contact',
           onAction: canCreate ? () => setCreateOpen(true) : undefined,
+          actionDisabledReason: !createKnown ? null : canCreate ? undefined : 'Only someone who can create contacts can add them',
         }}
       />
       </div>
@@ -1345,7 +1201,7 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
         open={createOpen}
         onOpenChange={setCreateOpen}
         companies={companyOptions}
-        contactTypes={partyMasters.contactTypes.length ? partyMasters.contactTypes : contactTypes}
+        contactTypes={partyMasters.contactTypes.length ? partyMasters.contactTypes : contactTypes.filter(t => t.is_active !== false)}
         users={partyMasters.users}
         onCreated={contact => {
           setCreateOpen(false)

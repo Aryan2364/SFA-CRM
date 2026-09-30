@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dateOnlyString, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { mondayOf } from '@/lib/weekly-review'
+import { businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +25,22 @@ export const dynamic = 'force-dynamic'
  * one, filtered by history) for a week; POST upserts one box's text so
  * editing never creates a second row for the same week.
  *
+ * ⚠️ "One entry" is enforced HERE, not by the database: `journal_entries` has
+ * no unique constraint on (tenant_id, user_id, week_start, kind). The box
+ * autosaves on a debounce AND on blur, and two tabs can save at once, so a
+ * plain find-then-create raced into duplicate rows — and with no `orderBy`,
+ * which one the box then showed was Postgres's choice, so the user's later
+ * text could silently revert. Three things now hold the line:
+ *  - POST takes a transaction-scoped advisory lock on the key, so two saves
+ *    of the same box serialise instead of both seeing "no row" and creating;
+ *  - POST writes to the NEWEST row for the key and deletes any older ones in
+ *    the same transaction, so a duplicate already in the table heals on the
+ *    next save;
+ *  - every read orders newest-first and keeps one row per key, so the text
+ *    shown is always the last one written.
+ * A `@@unique([tenant_id, user_id, week_start, kind])` would make the lock
+ * unnecessary; it needs the existing duplicates cleaned first.
+ *
  * Week boundary: `mondayOf()` imported from `weekly-review.ts` so a journal
  * entry and the review it sits beside never disagree about which week they
  * are in.
@@ -36,11 +53,29 @@ function isKind(v: unknown): v is Kind {
   return typeof v === 'string' && (KINDS as readonly string[]).includes(v)
 }
 
+/** Newest first: the row the last save wrote. `id` breaks a same-instant tie. */
+const NEWEST = [{ updated_at: 'desc' }, { created_at: 'desc' }, { id: 'desc' }] as const
+
+/**
+ * One row per (week, kind), keeping the first seen — with `NEWEST` ordering,
+ * the latest text. Hides duplicates written before POST serialised; the next
+ * save of that box deletes them for good.
+ */
+function newestPerKey<T extends { week_start: Date; kind: string }>(rows: T[]): T[] {
+  const seen = new Set<string>()
+  return rows.filter(r => {
+    const key = `${dateOnlyString(r.week_start)} ${r.kind}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export async function GET(req: NextRequest) {
   const user = await requireUser()
   if (!user.userId) return NextResponse.json({ error: 'No user context' }, { status: 403 })
 
-  const weekStartParam = req.nextUrl.searchParams.get('weekStart') ?? new Date().toISOString().slice(0, 10)
+  const weekStartParam = req.nextUrl.searchParams.get('weekStart') ?? businessDate()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStartParam) || Number.isNaN(Date.parse(`${weekStartParam}T00:00:00.000Z`))) {
     return NextResponse.json({ error: 'weekStart must be YYYY-MM-DD' }, { status: 400 })
   }
@@ -60,9 +95,9 @@ export async function GET(req: NextRequest) {
       if (!kindParam) return NextResponse.json({ error: 'kind is required for mode=all' }, { status: 400 })
       const rows = await prisma.journal_entries.findMany({
         where: { tenant_id: tenantId, user_id: user.userId, kind: kindParam },
-        orderBy: { week_start: 'desc' },
+        orderBy: [{ week_start: 'desc' }, ...NEWEST],
       })
-      return NextResponse.json(serialize(rows, 'journal_entries'))
+      return NextResponse.json(serialize(newestPerKey(rows), 'journal_entries'))
     }
 
     const monday = mondayOf(weekStartParam)
@@ -73,8 +108,9 @@ export async function GET(req: NextRequest) {
         week_start: new Date(`${monday}T00:00:00.000Z`),
         ...(kindParam ? { kind: kindParam } : {}),
       },
+      orderBy: [...NEWEST],
     })
-    return NextResponse.json(serialize(rows, 'journal_entries'))
+    return NextResponse.json(serialize(newestPerKey(rows), 'journal_entries'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -99,28 +135,37 @@ export async function POST(req: NextRequest) {
     const monday = mondayOf(weekStart)
     const weekDate = new Date(`${monday}T00:00:00.000Z`)
 
-    const existing = await prisma.journal_entries.findFirst({
-      where: { tenant_id: tenantId, user_id: user.userId, week_start: weekDate, kind },
-    })
-
     const trimmed = text.trim()
+    const bodyValue = trimmed.length ? trimmed : null
+    const userId = user.userId
 
-    if (existing) {
-      const row = await prisma.journal_entries.update({
-        where: { id: existing.id },
-        data: { body: trimmed.length ? trimmed : null, updated_at: new Date() },
+    const row = await prisma.$transaction(async tx => {
+      // Serialise every save of this one box — see the header. The lock is
+      // released at commit; it touches no table, so it holds no row lock.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('journal_entries'), hashtext(${`${tenantId}:${userId}:${monday}:${kind}`}))`
+
+      const existing = await tx.journal_entries.findMany({
+        where: { tenant_id: tenantId, user_id: userId, week_start: weekDate, kind },
+        orderBy: [...NEWEST],
+        select: { id: true },
       })
-      return NextResponse.json(serialize(row, 'journal_entries'))
-    }
 
-    const row = await prisma.journal_entries.create({
-      data: {
-        tenant_id: tenantId,
-        user_id: user.userId,
-        week_start: weekDate,
-        kind,
-        body: trimmed.length ? trimmed : null,
-      },
+      if (existing.length === 0) {
+        return tx.journal_entries.create({
+          data: { tenant_id: tenantId, user_id: userId, week_start: weekDate, kind, body: bodyValue },
+        })
+      }
+
+      const [newest, ...older] = existing
+      if (older.length) {
+        await tx.journal_entries.deleteMany({
+          where: { tenant_id: tenantId, user_id: userId, id: { in: older.map(r => r.id) } },
+        })
+      }
+      return tx.journal_entries.update({
+        where: { id: newest.id },
+        data: { body: bodyValue, updated_at: new Date() },
+      })
     })
     return NextResponse.json(serialize(row, 'journal_entries'))
   } catch (err) {

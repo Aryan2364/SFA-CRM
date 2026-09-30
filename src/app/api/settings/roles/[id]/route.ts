@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
-import { prisma, serialize, dbErrorMessage } from '@/lib/db'
+import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -23,30 +23,31 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const oldName = existing.name
     const newName = name.trim()
 
-    // update(), not updateMany(): the original ended in .select().single().
-    const data = await prisma.roles.update({
-      where: { id: params.id, tenant_id: tid },
-      data: { name: newName },
+    // One transaction: the role's name IS the key its permission rows are
+    // stored under (role_permissions.profile), so renaming one without the
+    // other leaves every user on the role denied everything.
+    //
+    // users.profile is deliberately NOT rewritten here. It holds only
+    // 'Standard' or 'Administrator' — the role a user holds is users.role_id,
+    // which a rename does not touch.
+    const data = await prisma.$transaction(async tx => {
+      // update(), not updateMany(): the original ended in .select().single().
+      const role = await tx.roles.update({
+        where: { id: params.id, tenant_id: tid },
+        data: { name: newName },
+      })
+      // A no-match must stay silent — updateMany (PLAN.md 8.4).
+      await tx.role_permissions.updateMany({
+        where: { tenant_id: tid, profile: oldName },
+        data: { profile: newName },
+      })
+      return role
     })
-
-    // Sync profile text in role_permissions and users tables. Both were bare
-    // .update() calls with no .single(), so a no-match must stay silent —
-    // updateMany (PLAN.md 8.4). This is what keeps checkPermission() resolving
-    // for users of a renamed role.
-    await Promise.all([
-      prisma.role_permissions.updateMany({
-        where: { tenant_id: tid, profile: oldName },
-        data: { profile: newName },
-      }),
-      prisma.users.updateMany({
-        where: { tenant_id: tid, profile: oldName },
-        data: { profile: newName },
-      }),
-    ])
 
     return NextResponse.json(serialize(data, 'roles'))
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }
 
@@ -64,19 +65,31 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     if (existing.is_system) return NextResponse.json({ error: 'System roles cannot be deleted' }, { status: 400 })
 
-    // Block if any users are assigned this role (count: 'exact', head: true)
+    // A user holds a role through users.role_id — not users.profile, which
+    // holds only 'Standard' or 'Administrator', so counting it never fired and
+    // the permission rows below were wiped for a role still in use. Every
+    // user counts, deactivated ones included: the role_id foreign key blocks
+    // the delete for them too.
     const count = await prisma.users.count({
-      where: { tenant_id: tid, profile: existing.name },
+      where: { tenant_id: tid, role_id: params.id },
     })
-    if (count > 0)
-      return NextResponse.json({ error: `Cannot delete role: ${count} user(s) still assigned to it` }, { status: 400 })
+    if (count > 0) {
+      return NextResponse.json(
+        { error: `${count} user${count === 1 ? ' still has' : 's still have'} this role. Move them to another role first.` },
+        { status: 409 },
+      )
+    }
 
-    // Delete permissions rows, then the role
-    await prisma.role_permissions.deleteMany({ where: { tenant_id: tid, profile: existing.name } })
-    await prisma.roles.deleteMany({ where: { id: params.id, tenant_id: tid } })
+    // One transaction, so a failure can never leave the role standing with
+    // its permission rows gone.
+    await prisma.$transaction([
+      prisma.role_permissions.deleteMany({ where: { tenant_id: tid, profile: existing.name } }),
+      prisma.roles.deleteMany({ where: { id: params.id, tenant_id: tid } }),
+    ])
 
     return NextResponse.json({ ok: true })
   } catch (err) {
-    return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    const { error, status } = dbErrorResult(err)
+    return NextResponse.json({ error }, { status })
   }
 }

@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react'
 
 import { useToast } from '@/contexts/ToastContext'
+import { useMe } from '@/hooks/useMe'
 
 export type NamedRef = { id: string; name: string }
 
@@ -89,9 +90,11 @@ export function usePartyMasters(): PartyMasters {
         ] = await Promise.all([
           // `lead-types` is the Company Type master — P1-T18 renames the route
           // to `company-types`; until it does, this is where the values are.
-          getList<NamedRef>('/api/masters/lead-types'),
-          getList<NamedRef>('/api/masters/industries'),
-          getList<NamedRef>('/api/masters/contact-types'),
+          // Pick lists for new entry: active values only. Every consumer is a
+          // create flow, so there is no current value that could be blanked.
+          getList<NamedRef>('/api/masters/lead-types?active=true'),
+          getList<NamedRef>('/api/masters/industries?active=true'),
+          getList<NamedRef>('/api/masters/contact-types?active=true'),
           getList<NamedRef>('/api/masters/states'),
           getList<DistrictRef>('/api/masters/districts'),
           getList<TalukaRef>('/api/masters/talukas'),
@@ -124,4 +127,40 @@ export function usePartyMasters(): PartyMasters {
   }, [toast])
 
   return state
+}
+
+/**
+ * Who the signed-in user may name as a record's Owner — the client half of
+ * `ownerOutsideScope()` in `src/app/api/companies/_access.ts`, which is the
+ * real gate (a 403 there; this only keeps the form from offering a choice the
+ * route refuses).
+ *
+ * Read from the section's DATA SCOPE on `useMe()`'s permission map, never
+ * from a role name:
+ *   - `loading` — `me` has not landed. The field is disabled with no reason:
+ *     "not known yet" is not "not allowed".
+ *   - `self`    — `own` scope, or no scope on the wire. The field is locked
+ *     to the user, with the reason as helper text.
+ *   - `any`     — `team` or `all` scope. The full picker; the route still
+ *     refuses a team-scope owner outside the team.
+ */
+export type OwnerChoice =
+  | { state: 'loading' }
+  | { state: 'self'; userId: string; message: string }
+  | { state: 'any' }
+
+export function useOwnerChoice(section: 'companies' | 'contacts'): OwnerChoice {
+  const me = useMe()
+  if (!me) return { state: 'loading' }
+  // `scope` is getDataScope()'s answer, carried by `/api/auth/me`.
+  // Only an explicit wider scope opens the picker; a missing one (a section
+  // with no entry, or a response from before `scope` existed) locks to self,
+  // the safe side — the route's 403 is the real gate either way.
+  const scope = me.permissions[section]?.scope
+  if (scope === 'team' || scope === 'all') return { state: 'any' }
+  return {
+    state: 'self',
+    userId: me.userId,
+    message: `You can only assign ${section} to yourself.`,
+  }
 }

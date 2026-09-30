@@ -15,6 +15,7 @@ import {
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Textarea } from '@/components/ui/textarea'
 import { Truncate } from '@/components/ui/truncate'
 import { MeetingToggle } from './meeting-toggle'
@@ -39,8 +40,10 @@ export function VisitCard({
   visit,
   showOwner,
   ownerName,
-  canEdit,
-  canDelete,
+  mine,
+  canEdit: canEditProp,
+  canDelete: canDeleteProp,
+  canOrder,
   onStart,
   onStop,
   onDelete,
@@ -52,8 +55,19 @@ export function VisitCard({
   /** True when the list spans more than one person (Team/Company scope). */
   showOwner: boolean
   ownerName?: string | null
-  canEdit: boolean
-  canDelete: boolean
+  /** The viewer's own meeting. A manager reads the team's day and does not
+   *  drive someone else's stopwatch, notes or delete, so on another
+   *  person's meeting those controls are not drawn at all. `null` while
+   *  /me is loading (ownership not known yet): they are drawn, disabled
+   *  with no reason, rather than hidden. */
+  mine: boolean | null
+  /** Real permissions — meetings.edit (start, stop, notes), meetings.delete
+   *  and orders.create. `null` while they are still loading: the control is
+   *  shown disabled with no reason, because "not known yet" is not "not
+   *  allowed" (kit §26). `false` shows it disabled, saying who may. */
+  canEdit: boolean | null
+  canDelete: boolean | null
+  canOrder: boolean | null
   onStart: (id: string) => void | Promise<void>
   onStop: (id: string) => void | Promise<void>
   onDelete: (visit: Visit) => void
@@ -61,6 +75,9 @@ export function VisitCard({
   onRemarks: (visit: Visit) => void
   onNotesUpdate: (id: string, notes: string) => Promise<void>
 }) {
+  // Ownership not known yet is the loading state too: disabled, no reason.
+  const canEdit = mine === null ? null : canEditProp
+  const canDelete = mine === null ? null : canDeleteProp
   const [notesOpen, setNotesOpen] = useState(false)
   const [notesText, setNotesText] = useState(visit.notes ?? '')
   const [notesSaving, setNotesSaving] = useState(false)
@@ -137,18 +154,23 @@ export function VisitCard({
             </h3>
           </div>
 
-          {/* ONE button. `canEdit` is the real permission plus ownership —
-              a manager reads the team's day and does not drive someone
-              else's stopwatch, so they are shown no toggle at all rather
-              than a disabled one. */}
-          {canEdit && (
-            <MeetingToggle
-              status={visit.status}
-              startTime={visit.start_time}
-              durationSecs={visit.duration_secs}
-              onStart={() => onStart(visit.id)}
-              onStop={() => onStop(visit.id)}
-            />
+          {/* ONE button. Ownership hides it — a manager reads the team's
+              day and does not drive someone else's stopwatch, so they are
+              shown no toggle at all — and the permission disables it. */}
+          {mine !== false && (
+            <PermissionTooltip
+              allowed={canEdit !== false}
+              reason="Only someone who can edit meetings can start or stop one"
+            >
+              <MeetingToggle
+                status={visit.status}
+                startTime={visit.start_time}
+                durationSecs={visit.duration_secs}
+                disabled={canEdit !== true}
+                onStart={() => onStart(visit.id)}
+                onStop={() => onStop(visit.id)}
+              />
+            </PermissionTooltip>
           )}
         </div>
 
@@ -187,16 +209,36 @@ export function VisitCard({
           Open meeting
         </Button>
         {(visit.status === 'Active' || visit.status === 'Completed') && (
-          <Button size="sm" variant="secondary" onClick={() => onOrderEntry(visit)}>
-            <ClipboardListIcon />
-            Order
-          </Button>
+          <PermissionTooltip
+            allowed={canOrder !== false}
+            reason="Only someone who can create orders can take one"
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onOrderEntry(visit)}
+              disabled={canOrder !== true}
+            >
+              <ClipboardListIcon />
+              Order
+            </Button>
+          </PermissionTooltip>
         )}
-        {canEdit && visit.status === 'Completed' && (
-          <Button size="sm" variant="secondary" onClick={() => setNotesOpen(o => !o)}>
-            <PencilIcon />
-            {visit.notes ? 'Notes ✓' : 'Notes'}
-          </Button>
+        {mine !== false && visit.status === 'Completed' && (
+          <PermissionTooltip
+            allowed={canEdit !== false}
+            reason="Only someone who can edit meetings can write notes"
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setNotesOpen(o => !o)}
+              disabled={canEdit !== true}
+            >
+              <PencilIcon />
+              {visit.notes ? 'Notes ✓' : 'Notes'}
+            </Button>
+          </PermissionTooltip>
         )}
         {visit.latitude != null && (
           <Button size="sm" variant="secondary" onClick={() => setLocationOpen(o => !o)}>
@@ -207,14 +249,27 @@ export function VisitCard({
         <Button size="sm" variant="ghost" onClick={() => onRemarks(visit)} aria-label="Remarks">
           <MessageSquareIcon />
         </Button>
-        {canDelete && visit.status === 'Pending' && (
-          <Button size="sm" variant="ghost" onClick={() => onDelete(visit)} aria-label="Delete meeting" className="ml-auto">
-            <Trash2Icon />
-          </Button>
+        {mine !== false && visit.status === 'Pending' && (
+          <span className="ml-auto inline-flex">
+            <PermissionTooltip
+              allowed={canDelete !== false}
+              reason="Only someone who can delete meetings can delete one"
+            >
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onDelete(visit)}
+                aria-label="Delete meeting"
+                disabled={canDelete !== true}
+              >
+                <Trash2Icon />
+              </Button>
+            </PermissionTooltip>
+          </span>
         )}
       </div>
 
-      {visit.status === 'Completed' && notesOpen && (
+      {visit.status === 'Completed' && notesOpen && canEdit === true && (
         <div className="border-t border-border-light px-4 py-3">
           <p className="mb-1.5 text-label font-medium text-text-secondary">Meeting notes</p>
           <Textarea

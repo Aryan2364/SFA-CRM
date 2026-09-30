@@ -9,6 +9,12 @@ export function createTransport() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    // An unreachable or silent SMTP host must not hang the request that is
+    // waiting on sendMail(). Without these nodemailer waits on the OS socket
+    // timeout, which is minutes.
+    connectionTimeout: 5_000,
+    greetingTimeout: 5_000,
+    socketTimeout: 10_000,
   })
 }
 

@@ -34,6 +34,14 @@ const logPath = argOf('--log') ?? '.audit/query-log.jsonl'
 
 /** Files converted in each batch. Add the next batch's entry; do not rewrite. */
 const BATCH_FILES = {
+  // Not a migration batch: the duplicate-phone login fix. Listed so the audit
+  // can be run over the files it touched.
+  'login-bugfix': [
+    'src/app/api/auth/login/route.ts',
+    'src/app/api/masters/users/route.ts',
+    'src/app/api/masters/users/[id]/route.ts',
+    'src/app/api/superadmin/companies/route.ts',
+  ],
   'phase-a': [
     'src/lib/auth.ts',
     'src/lib/permissions.ts',
@@ -62,10 +70,6 @@ const BATCH_FILES = {
     'src/app/api/masters/product-subcategories/[id]/route.ts',
     'src/app/api/masters/products/route.ts',
     'src/app/api/masters/products/[id]/route.ts',
-    'src/app/api/masters/distributors/route.ts',
-    'src/app/api/masters/distributors/[id]/route.ts',
-    'src/app/api/masters/dealers/route.ts',
-    'src/app/api/masters/dealers/[id]/route.ts',
   ],
   'masters-org-users-leads': [
     'masters-location-product',
@@ -75,8 +79,6 @@ const BATCH_FILES = {
     'src/app/api/masters/designations/[id]/route.ts',
     'src/app/api/masters/expense-categories/route.ts',
     'src/app/api/masters/expense-categories/[id]/route.ts',
-    'src/app/api/masters/institutions/route.ts',
-    'src/app/api/masters/institutions/[id]/route.ts',
     'src/app/api/masters/lead-types/route.ts',
     'src/app/api/masters/lead-types/[id]/route.ts',
     'src/app/api/masters/lead-stages/route.ts',
@@ -224,7 +226,7 @@ if (!files) {
       continue
     }
     const after = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
-    // Supabase filters, minus ones inside a comment line.
+    // Old-client filters, minus ones inside a comment line.
     const beforeFilters = (before.match(/\.eq\(\s*['"]tenant_id['"]/g) || []).length
     // Prisma predicates: tenant_id used as an object key in a where/data clause.
     const afterCode = after.split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l)).join('\n')
@@ -232,7 +234,7 @@ if (!files) {
     const exemptReason = STATIC_EXEMPT[file]
     const ok = afterFilters >= beforeFilters || Boolean(exemptReason)
     const label = exemptReason && afterFilters < beforeFilters ? 'xmpt' : ok ? 'ok  ' : 'FAIL'
-    console.log(`  ${label}  ${file}  (${beforeFilters} supabase -> ${afterFilters} prisma)`)
+    console.log(`  ${label}  ${file}  (${beforeFilters} before -> ${afterFilters} prisma)`)
     if (exemptReason && afterFilters < beforeFilters) console.log(`          exempt: ${exemptReason}`)
     if (!ok) bad(`${file} lost ${beforeFilters - afterFilters} tenant_id filter(s) in conversion`)
   }

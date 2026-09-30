@@ -1,4 +1,4 @@
-# PLAN.md — Migrate sfacrm off Supabase onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
+# PLAN.md — Migrate sfacrm off the old database onto PostgreSQL (AWS RDS) + Prisma + Cloudflare R2
 
 **Status: DEPLOYED AND RUNNING on AWS.** `sfacrm.rgbindia.com` serves the migrated app from
 RDS + R2. Head is `16f3eda`.
@@ -66,8 +66,8 @@ five other products; 548 MB of dead build cache is the safe reclaim.
 
 ---
 
-**Migration record.** All 115 API routes on Prisma; `@supabase/supabase-js` uninstalled, both
-client modules deleted, no source file imports anything Supabase. Phase A, Batches 1–6, Phase B
+**Migration record.** All 115 API routes on Prisma; the old client package uninstalled, both
+client modules deleted, no source file imports anything from the old database client. Phase A, Batches 1–6, Phase B
 and the §9 teardown committed (17 commits from `89085ec`).
 
 Gates, all re-run after teardown: smoke **344/344** across seven suites · tenant-scope audit
@@ -86,12 +86,12 @@ proves that refusal is authorisation rather than a malformed request. The `regio
 account-level endpoint + no-`forcePathStyle` construction copied from v2e works in practice.
 
 **Remaining work: the RDS re-pull and diff (§6.1), and it is the server side's move.** The
-committed `prisma/schema.prisma` was pulled from **Supabase**, not RDS. Re-pulling against RDS
-and diffing is a sign-off requirement rather than a formality — `supabase/migrations.sql` proved
+committed `prisma/schema.prisma` was pulled from **the old database**, not RDS. Re-pulling against RDS
+and diffing is a sign-off requirement rather than a formality — the old `migrations.sql` proved
 obsolete in *both* directions, so "the schema is probably fine" is exactly the assumption that
 already failed once here. RDS currently holds no schema and no data.
 
-§11 is **decided**: delayed replacement. Vercel/Supabase stays authoritative; sfacrm is a
+§11 is **decided**: delayed replacement. The old Vercel deployment stays authoritative; sfacrm is a
 demo/acceptance environment until the client approves it. The data copy therefore runs twice and
 demo-period writes do not survive.
 
@@ -104,13 +104,13 @@ Read this whole document before touching code.
 ## 1. What this is and why
 
 `sfacrm` is a copy of the `SFA` product, being re-hosted on an AWS EC2 (Ubuntu, x86_64) box
-that points at **AWS RDS PostgreSQL**. The code still talks to **Supabase**, which is not just
+that points at **AWS RDS PostgreSQL**. The code still talks to **the old hosted database**, which is not just
 a database — it is a database *plus* a proprietary JS query library *plus* file storage.
 Plain RDS speaks only SQL. So the data layer must be replaced.
 
-**Decision already made — do not relitigate:** replace the Supabase client with **Prisma**,
+**Decision already made — do not relitigate:** replace the old database client with **Prisma**,
 converting all call sites to real Prisma queries. An earlier proposal to build a
-Supabase-compatible "shim" over `pg` was **rejected**. Reason: the app is under active
+compatible "shim" of the old client over `pg` was **rejected**. Reason: the app is under active
 development, and a shim would tax every future feature with "does my translator support this?"
 while owning an undocumented emulation of a proprietary API.
 
@@ -148,7 +148,7 @@ major version.
    another live service; the loopback bind is deliberate because Caddy runs as a host systemd
    service and can reach loopback. Do not "simplify" this.
 7. **Convert in reviewable batches.** Never one 113-file commit. Both stacks stay alive during
-   conversion; Supabase is deleted in the final batch, not the first.
+   conversion; the old client is deleted in the final batch, not the first.
 8. **Report honestly.** If something could not be verified, say so explicitly. A short honest
    gap list beats a green claim.
 
@@ -158,11 +158,11 @@ major version.
 
 Measured from the repo, not assumed. Re-verify if the code has moved on.
 
-**Supabase footprint**
-- 113 of 178 files under `src/` import `@/lib/supabase-server`
+**Old-client footprint**
+- 113 of 178 files under `src/` import the old server client module
 - 114 API routes under `src/app/api/`
-- `src/lib/supabase-browser.ts` has **zero importers** — dead code, delete it
-- Non-route lib files using Supabase: `auth.ts`, `permissions.ts`, `points.ts`, `visibility.ts`
+- the old browser client module has **zero importers** — dead code, delete it
+- Non-route lib files using the old client: `auth.ts`, `permissions.ts`, `points.ts`, `visibility.ts`
 
 **Query surface actually used** (counts across `src/`)
 
@@ -175,7 +175,7 @@ embedded selects: 169
 ```
 
 **Confirmed ZERO uses** — do not port, do not emulate:
-`.rpc()`, `supabase.auth.*`, `.channel()` (realtime), `.range()`, `.textSearch()`,
+`.rpc()`, the client's `auth.*` API, `.channel()` (realtime), `.range()`, `.textSearch()`,
 `.overlaps()`, `!inner`, foreign-table ordering.
 
 **Embedded-select forms present in the code**
@@ -188,12 +188,12 @@ order_items(count)                   nested count aggregate
 order_items(*)                       to-many, full rows
 ```
 
-**Database:** live Supabase is **PostgreSQL 17.6**, 35 tables in `public`, all UUID PKs with
+**Database:** the old live database is **PostgreSQL 17.6**, 35 tables in `public`, all UUID PKs with
 `uuid_generate_v4()` defaults, all carrying `tenant_id`.
-Extensions present: `uuid-ossp`, `pgcrypto`, `pg_stat_statements`, `plpgsql`, `supabase_vault`
-(the last is Supabase-only and is not needed on RDS).
+Extensions present: `uuid-ossp`, `pgcrypto`, `pg_stat_statements`, `plpgsql`, a vault extension
+(the last is specific to the old host and is not needed on RDS).
 
-> ### `supabase/migrations.sql` IS OBSOLETE — DO NOT INTROSPECT IT
+> ### The old `migrations.sql` IS OBSOLETE (since deleted) — DO NOT INTROSPECT IT
 > Verified against live on 2026-09-14. It is 35 tables, live is 35 tables, but only **29 are
 > shared**. It is wrong in both directions:
 >
@@ -238,10 +238,10 @@ the app off the master user onto a least-privilege role. **Decide the role first
 not the other way round.**
 
 **The clean resolution: do not carry the `ENABLE ROW LEVEL SECURITY` statements to RDS at all.**
-Prisma does not emit them, and they existed only to satisfy Supabase's defaults. That makes the
+Prisma does not emit them, and they existed only to satisfy the old host's defaults. That makes the
 question moot under either role choice.
 
-**Storage:** exactly one Supabase Storage call site —
+**Storage:** exactly one call site on the old storage service —
 `src/app/api/expenses/upload/route.ts:24` and `:30` (`expense-photos` bucket).
 
 **Tests:** none. There is no test script in `package.json`. Verification must be built.
@@ -274,8 +274,7 @@ R2_ACCESS_KEY_ID=          # SAME value as v2e — see section 7
 R2_SECRET_ACCESS_KEY=      # SAME value as v2e — see section 7
 ```
 
-**Deleted:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+**Deleted:** the old client's four URL and key variables (two server-side, two `NEXT_PUBLIC_*`).
 
 ---
 
@@ -285,7 +284,7 @@ These are the things that fail **quietly**. Most of the project's risk is concen
 
 ### 5.1 Date and number types  <- highest-volume trap
 
-Supabase returns JSON over HTTP: timestamps arrive as **ISO strings**, decimals as **numbers**.
+The old client returns JSON over HTTP: timestamps arrive as **ISO strings**, decimals as **numbers**.
 Prisma returns **`Date` objects** and **`Decimal` objects**. Exactly backwards.
 
 Counts below are measured against **live PostgreSQL**, not `migrations.sql` (an earlier draft
@@ -336,12 +335,12 @@ shared helper, not ad hoc per route. Audit every `NUMERIC`/`DECIMAL` column cons
 
 `src/lib/auth.ts:33` reads `(data?.roles as { name: string } | null)?.name` — a **single
 object**. Prisma's `include` returns an object for to-one and an array for to-many, matching
-Supabase, but **verify it per relation** as you convert. Get this wrong on `roles` and every
+the old client, but **verify it per relation** as you convert. Get this wrong on `roles` and every
 user silently receives the wrong role with nothing crashing.
 
 ### 5.3 `.single()` / `.maybeSingle()` semantics
 
-Supabase `.single()` returns an **error** (code `PGRST116`) on 0 or >1 rows; `.maybeSingle()`
+The old client's `.single()` returns an **error** (code `PGRST116`) on 0 or >1 rows; `.maybeSingle()`
 returns `null` on 0 rows. Call sites branch on `error` vs `data === null`.
 Prisma: `findUnique`/`findFirst` return `null`; `findUniqueOrThrow` throws.
 **Read each call site and preserve its branch.** Do not assume `.single()` -> `findFirst`.
@@ -380,7 +379,7 @@ opens a connection during build will hang or bake stale data into the image.
   The container runs UTC.
 
 So both sides are UTC today and dates are **accidentally consistent** — which matches the
-current Vercel production behaviour, where Supabase returned UTC ISO strings.
+current Vercel production behaviour, where the old client returned UTC ISO strings.
 
 > **The trap:** adding `tzdata` to the image — an obvious-looking "fix" — jumps the container
 > to IST while RDS stays UTC, shifting all 61 timestamptz columns by 5:30 and putting activity
@@ -394,7 +393,7 @@ the keys match the stored `week_start_date` values. Under IST, local midnight Mo
 renders blank** — no error, no empty state, just every cell empty. Reproduced on an IST dev
 machine and fixed by running the process under `TZ=UTC`.
 
-This predates the migration (Supabase returned the same date strings) and is not changed by it,
+This predates the migration (the old client returned the same date strings) and is not changed by it,
 but it means the §5.8 trap is not merely a 5:30 shift on timestamps: adding `tzdata` would also
 silently blank a manager-facing screen. The write-path harness therefore runs under `TZ=UTC`,
 matching production.
@@ -438,7 +437,7 @@ so this is defence in depth rather than the only control — but do it properly.
 - [ ] Run **`npx prisma db pull`** to generate `prisma/schema.prisma` from the live database.
       This only READS; it never modifies the database.
     - Preferred source: **RDS**, once the schema is loaded there.
-    - If RDS is still empty: pull from **Supabase** (it is PostgreSQL too) to unblock, then
+    - If RDS is still empty: pull from **the old database** (it is PostgreSQL too) to unblock, then
       **re-pull against RDS before sign-off** and diff the two schemas to prove they match.
 - [ ] Review the generated schema: confirm all 35 tables present, every relation resolved,
       and `@default(dbgenerated("uuid_generate_v4()"))` preserved on PKs
@@ -477,7 +476,7 @@ Everything depends on these four:
 
 ## 7. Phase B — Cloudflare R2 storage
 
-Replaces Supabase Storage. **Bucket is private.** v2e's bucket is private and serves
+Replaces the old storage service. **Bucket is private.** v2e's bucket is private and serves
 short-lived signed URLs — mirror that. See `v2e/backend/src/storage/r2.service.ts` and copy
 its structure (adapted from a NestJS `@Injectable` to a plain module).
 
@@ -534,7 +533,7 @@ its structure (adapted from a NestJS `@Injectable` to a plain module).
 - [ ] **No `next.config.mjs` change.** The app uses plain `<img>`, not `next/image`, and URLs
       are now same-origin. Do not add `remotePatterns`.
 
-**Note this is a security improvement, and say so in the report:** the Supabase bucket was
+**Note this is a security improvement, and say so in the report:** the old storage bucket was
 public, so any receipt was viewable by anyone with the link and no session. Access is now
 authorised.
 
@@ -553,7 +552,7 @@ authorised.
 7. Commit as its own reviewable commit
 8. Only then start the next batch
 
-`@supabase/supabase-js` stays installed and working until Batch 9, so the app runs at every step.
+The old client package stays installed and working until Batch 9, so the app runs at every step.
 
 ### 8.1 Batches (114 routes total)
 
@@ -609,7 +608,7 @@ low-risk routes go in large batches; genuinely tricky ones stay small.
   `daily-activity/[id]/route.ts:25` has the `.slice(0,10)` date trap.
 
   > **Correction — an earlier draft said this whole batch must wait for Phase B (R2). It does
-  > not.** Verified: exactly **one** route in the codebase touches Supabase Storage —
+  > not.** Verified: exactly **one** route in the codebase touches the old storage service —
   > `src/app/api/expenses/upload/route.ts` (lines 24 and 30). The other 17 routes in this batch
   > — all of `orders`, `leads`, `business-partners`, `daily-activity`, `attendance`, and the
   > other three `expenses` routes — have **no storage dependency** and can be converted without
@@ -618,11 +617,11 @@ low-risk routes go in large batches; genuinely tricky ones stay small.
   counts. `access-control` touches `role_permissions` — re-verify permissions resolve
   identically after.
 
-### 8.4 Supabase → Prisma conversion cheatsheet
+### 8.4 Old client → Prisma conversion cheatsheet
 
 Decide these once here, not per route. This is the entire surface the codebase uses (section 3).
 
-| Supabase | Prisma |
+| Old client | Prisma |
 |---|---|
 | `.select('*').eq('tenant_id', tid)` | `findMany({ where: { tenant_id: tid } })` |
 | `.eq('c', v)` | `where: { c: v }` |
@@ -643,32 +642,32 @@ Decide these once here, not per route. This is the entire surface the codebase u
 
 **Judgement calls — apply consistently, do not re-deliberate per route:**
 - `.single()` → `findFirst` (or `findUnique` **only** where a real unique constraint exists).
-  Supabase returned an *error* on 0 rows; Prisma returns `null`. **Read the call site and
+  The old client returned an *error* on 0 rows; Prisma returns `null`. **Read the call site and
   preserve its branch** — many routes 404 on that error.
 - `.maybeSingle()` → `findFirst`; `null` is the expected 0-row result.
 - `.upsert()` → `prisma.t.upsert({ where: <unique target>, create, update })`. **Requires a real
   unique constraint.** If none exists, do `findFirst` + branch — do not invent a constraint.
 - **Errors-as-values (§5.4):** wrap every call so the route returns the same status and JSON
-  shape it returns today. Prisma throws where Supabase returned `{ error }`.
+  shape it returns today. Prisma throws where the old client returned `{ error }`.
 - **Serialisation (§5.1):** apply `serialize()` to any response carrying Date/Decimal. Where a
   route returns only strings/booleans/numbers, **skip it and assert that with a JSON round-trip**
   rather than adding it reflexively.
 
 **Write-path rules — added from Batch 2, where getting these wrong changes status codes:**
 
-| Supabase | Prisma | Why |
+| Old client | Prisma | Why |
 |---|---|---|
-| `.delete().eq('id', id).eq('tenant_id', tid)` | `deleteMany({ where: { id, tenant_id } })` | Supabase's `.delete()` did **not** error when nothing matched — it returned `{ ok: true }`. Prisma's `delete()` throws `P2025`, turning a silent no-op into a **500** on every cross-tenant or already-deleted id. Use `deleteMany` for every delete that is not guaranteed to match. |
+| `.delete().eq('id', id).eq('tenant_id', tid)` | `deleteMany({ where: { id, tenant_id } })` | The old client's `.delete()` did **not** error when nothing matched — it returned `{ ok: true }`. Prisma's `delete()` throws `P2025`, turning a silent no-op into a **500** on every cross-tenant or already-deleted id. Use `deleteMany` for every delete that is not guaranteed to match. |
 | `.update({...}).eq('id', id).eq('tenant_id', tid)` *(no `.single()`)* | `updateMany({ where: { id, tenant_id }, data })` | Same reasoning. Soft deletes (`update({ is_active: false })`) are the common case — `lead_types`, `lead_stages`, `lead_temperatures`, `expense_categories`. A no-match must stay a no-op, not a 500. |
 | `.update({...}).eq('id', id).eq('tenant_id', tid).select().single()` | `update({ where: { id, tenant_id }, data })` | Here `update()` IS correct: `.single()` already errored on 0 rows and the route answered 500, so Prisma's `P2025` preserves the status. Non-unique fields are allowed in `where` beside the primary key (extended where-unique). |
 | extra guards, e.g. `.eq('type', 'Dealer')` | keep them in `where` next to the PK | `where: { id, tenant_id, type: 'Dealer' }` — a dealers endpoint still cannot edit a distributor. |
 
-**Rule of thumb:** if the Supabase call had `.single()`, a no-match was already an error → use the
+**Rule of thumb:** if the old client call had `.single()`, a no-match was already an error → use the
 singular Prisma method. If it did **not**, a no-match was silent → use the `*Many` form.
 
 **More rules, added while converting the rest of `masters`:**
 
-| Supabase | Prisma | Why |
+| Old client | Prisma | Why |
 |---|---|---|
 | `.insert([...]).select('id, name')` | `createManyAndReturn({ data, select })` | `createMany` returns **only a count**. Both bulk importers need the inserted ids to build their lookup maps, so `createMany` would silently break them. PostgreSQL-only, which is what we target. |
 | `.insert([...])` with no `.select()` | `createMany({ data })` | Count is all the caller used. |
@@ -729,7 +728,7 @@ swallow a genuinely missing filter.
       without a `tenant_id` predicate. Simplest robust version: enable Prisma query logging,
       exercise the routes, and assert every emitted `SELECT/UPDATE/DELETE` against a
       tenant table contains a `tenant_id` condition.
-- [ ] Cross-check: `git show <supabase-version>` of each converted file and confirm every
+- [ ] Cross-check: `git show <pre-conversion-version>` of each converted file and confirm every
       `.eq('tenant_id', tid)` has a Prisma counterpart. Do this per batch while the diff is small.
 - [ ] Any table intentionally not tenant-scoped (e.g. `tenants`) goes on an explicit allowlist
       **with a written reason**.
@@ -760,7 +759,7 @@ do not implement it during the migration.
 
 #### Write-path testing — use the LOCAL PostgreSQL, not Docker, not production
 
-Read-path suites run against live Supabase (real data shapes). **Write paths must never touch
+Read-path suites run against the live database (real data shapes). **Write paths must never touch
 production** — they would create rows in five real customers' tenants. Keep the two separate.
 
 **The local server already exists: PostgreSQL 18 is installed at
@@ -774,7 +773,7 @@ production** — they would create rows in five real customers' tenants. Keep th
       plus the minimal reference rows the write paths need.
 - [ ] Point write-path tests (POST/PUT/DELETE) at that database only.
 
-**Version note:** local is PG18 while Supabase is 17.6 and RDS is 17.9. Irrelevant here —
+**Version note:** local is PG18 while the old database is 17.6 and RDS is 17.9. Irrelevant here —
 write semantics (`deleteMany` no-op, `where` guards, Decimal/Date serialisation) are identical
 across those majors. The version difference matters *only* for `pg_dump`/`pg_restore`, which is
 the server-side concern handled in section 11 with pinned pg17 containers. Never use the local
@@ -784,19 +783,19 @@ pg18 binaries to dump or restore against 17.x.
 
 ## 9. Phase D — Teardown and ship (Batch 9)
 
-- [ ] Delete `src/lib/supabase-server.ts`
-- [ ] Delete `src/lib/supabase-browser.ts` (dead code, zero importers)
-- [ ] `npm uninstall @supabase/supabase-js`
-- [ ] `grep -ri supabase src/` returns **zero** hits. Same for `NEXT_PUBLIC_SUPABASE`.
-- [ ] **Dockerfile** — currently sets `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- [ ] Delete the old server client module
+- [ ] Delete the old browser client module (dead code, zero importers)
+- [ ] Uninstall the old client package
+- [ ] A grep of `src/` for the old client's name returns **zero** hits, including its `NEXT_PUBLIC_*` variables.
+- [ ] **Dockerfile** — currently sets the old client's two `NEXT_PUBLIC_*` URL/key
       placeholders at build. Remove both. Add `npx prisma generate` after `npm ci` /
       schema copy. Confirm the musl engine target (5.6). Keep `linux/amd64`.
-- [ ] **`.env.production.example`** — drop `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`,
+- [ ] **`.env.production.example`** — drop the old service URL and service-role key,
       add `DATABASE_URL` and the five `R2_*` names. Placeholders only.
 - [ ] **`docker-compose.deploy.yml`** — unchanged except env. **Keep `127.0.0.1:3500:3000`.**
-- [ ] **`DEPLOYMENT.md` / `CLAUDE.md` / `README.md`** — update the Supabase sections to describe
-      Prisma + RDS + R2. `CLAUDE.md`'s "Two Supabase clients" section is now wrong.
-- [ ] `supabase/migrations.sql` — decide and state: keep as historical record, or replace with
+- [ ] **`DEPLOYMENT.md` / `CLAUDE.md` / `README.md`** — update the old-database sections to describe
+      Prisma + RDS + R2. `CLAUDE.md`'s "two clients" section is now wrong.
+- [ ] The old `migrations.sql` — decide and state: keep as historical record, or replace with
       Prisma migrations. If keeping, note in the file that it is no longer the source of truth.
 - [ ] **`PRISMA_QUERY_LOG` must NEVER be set in production.** It appends raw query text to disk
       without bound. Inert unless set — keep it out of `.env.production` and out of
@@ -806,11 +805,11 @@ pg18 binaries to dump or restore against 17.x.
 
 **Definition of done**
 
-- App boots with **only** `DATABASE_URL` + `R2_*` + existing session/SMTP vars. No Supabase
+- App boots with **only** `DATABASE_URL` + `R2_*` + existing session/SMTP vars. None of the old client's
   vars present anywhere, and no code path referencing them.
 - Login works end-to-end against plain PostgreSQL, including the role resolution in
   `src/lib/auth.ts`.
-- `@supabase/supabase-js` gone from `package.json`.
+- The old client package gone from `package.json`.
 - Smoke suite passes; tenant-scope audit clean.
 - CI green, image published, `deploy.sh` pulls and runs it.
 
@@ -821,25 +820,18 @@ pg18 binaries to dump or restore against 17.x.
 | # | Question | Blocks | Owner | Status |
 |---|---|---|---|---|
 | 1 | **RDS instance size / class?** | 6.2 connection pool cap | User | **ANSWERED: `db.t4g.micro`** (1 GB RAM, ~112 `max_connections`). Pool `max: 10` is correct — keep it. Small box; first thing to outgrow. |
-| 2 | **Is the RDS schema loaded yet** — empty, partial, or full? | 6.1 `db pull` source | Server agent | **OPEN** — RDS confirmed to hold no *data*; whether DDL is loaded is unconfirmed. Not blocking (pull from Supabase). |
-| 3 | **Is there production data to copy** from Supabase, or start clean? | Phase E | User | **ANSWERED: YES — sfacrm starts with a full copy of live Supabase production data.** Phase E is fully in scope, including the expense-photo copy. See the fork warning in section 11. |
-| 4 | **Has `CREATE EXTENSION "uuid-ossp"` been run on RDS?** Needs `rds_superuser`. | 6.1 | Server agent | **OPEN for RDS.** Confirmed present on live Supabase — RDS needs it too |
+| 2 | **Is the RDS schema loaded yet** — empty, partial, or full? | 6.1 `db pull` source | Server agent | **OPEN** — RDS confirmed to hold no *data*; whether DDL is loaded is unconfirmed. Not blocking (pull from the old database). |
+| 3 | **Is there production data to copy** from the old database, or start clean? | Phase E | User | **ANSWERED: YES — sfacrm starts with a full copy of the old live production data.** Phase E is fully in scope, including the expense-photo copy. See the fork warning in section 11. |
+| 4 | **Has `CREATE EXTENSION "uuid-ossp"` been run on RDS?** Needs `rds_superuser`. | 6.1 | Server agent | **OPEN for RDS.** Confirmed present on the old live database — RDS needs it too |
 | 5 | **Confirm RLS is NOT enabled on RDS** (or the app role is `BYPASSRLS`). 0 policies means RLS on returns zero rows for every query. | All | Server agent | **OPEN** |
 | 6 | Are RDS automated backups on, with a sensible retention window? | Sign-off | User | **OPEN** |
 | 7 | ~~Do `point_config` / `point_events` / `point_config_history` exist?~~ | `points.ts` | — | **ANSWERED: yes, all three exist with live data.** The points feature is live, not dead. Also `tenant_point_settings`. |
-
-**A live Supabase connection string is available** — ask the user for it; it is not stored in
-the repo and must never be committed. Verified working against
-`db.zanbhyaeggnzmheeospz.supabase.co:5432`, user `postgres`, database `postgres`, SSL required.
-This unblocks `prisma db pull`, `points.ts`, and end-to-end login verification **now** —
-question 2 no longer blocks Phase A. Re-pull against RDS before sign-off and diff the two
-schemas, as 6.1 requires.
 
 ---
 
 ## 11. Phase E — Data migration (server agent, not this repo)
 
-**CONFIRMED IN SCOPE:** sfacrm starts with a full copy of live Supabase production data.
+**CONFIRMED IN SCOPE:** sfacrm starts with a full copy of the old live production data.
 Execution is on the server side.
 
 ### Measured size of the migration (verified against live)
@@ -878,11 +870,8 @@ but know the technical floor is under 3 seconds.
 | Broken photo references | **0 — all 128 verified reachable** |
 | Photo distribution | 127 under tenant `00000000-…-0001`, 1 under `08bfa9da-…` |
 
-Source URL shape (public bucket):
-`https://<ref>.supabase.co/storage/v1/object/public/expense-photos/receipts/<ts>-<rand>.<ext>`
-
 > ### DECIDED: delayed replacement — the data copy runs TWICE
-> **Vercel/Supabase stays AUTHORITATIVE.** SFA is sold and in active use by a client. sfacrm is
+> **The old Vercel deployment stays AUTHORITATIVE.** SFA is sold and in active use by a client. sfacrm is
 > a **demo / acceptance environment** until the client approves it; only then does Vercel retire
 > and sfacrm become authoritative.
 >
@@ -890,7 +879,7 @@ Source URL shape (public bucket):
 > no merge or conflict-resolution design is needed. But it means:
 >
 > **1. The data copy happens twice, and today's copy is THROWAWAY.**
-> The snapshot loaded now is for building and demoing against. Supabase keeps changing
+> The snapshot loaded now is for building and demoing against. The old database keeps changing
 > underneath it, so it is stale the moment it lands. Do not treat it as precious and do not
 > build any process that assumes it stays current.
 >
@@ -976,10 +965,10 @@ Source URL shape (public bucket):
 > **Correct method** — same pinned pg17 client the data copy needs:
 > ```
 > docker run --rm postgres:17 pg_dump --schema-only --no-owner --no-acl \
->   --schema=public "<supabase url>" > schema.sql
+>   --schema=public "<source url>" > schema.sql
 > ```
 > Strip before loading: every `ENABLE ROW LEVEL SECURITY`; GRANTs to `anon` / `authenticated` /
-> `service_role`; `CREATE EXTENSION` for `supabase_vault` / `pg_graphql` / `pgsodium`. Keep
+> `service_role`; `CREATE EXTENSION` for the old host's vault extension / `pg_graphql` / `pgsodium`. Keep
 > `uuid-ossp` and `pgcrypto`. Load as **`postgres`** via psql so the step-1
 > `ALTER DEFAULT PRIVILEGES` actually fire.
 >
@@ -996,28 +985,17 @@ Source URL shape (public bucket):
 > same 508 lines, `@id` 35, `@relation` 48, `@@unique` 9, `@@index` 5. Raw `diff -u` shows ~172
 > changed lines, all cosmetic: the pulled file is strictly alphabetical while the committed one
 > is not (diff renders moved blocks as remove+add), plus marker comments — RLS 26 → 0 (expected,
-> we dropped RLS) and check 10 → 12 (Prisma emits at most one marker per model; on Supabase the
+> we dropped RLS) and check 10 → 12 (Prisma emits at most one marker per model; on the old database the
 > RLS marker outranked the check marker on two models, so with RLS gone their check markers
 > surface — 10 + 2 = 12, consistent).
 
-### Four load-time findings — all discovered in practice, none anticipated
+### Three load-time findings — all discovered in practice, none anticipated
 
-**1. The direct endpoint is IPv6-ONLY and unreachable from EC2.**
-`db.<ref>.supabase.co` has an AAAA record and **no A record**; the EC2 box has no IPv6 egress, so
-`pg_dump` fails with *"Network is unreachable"*. Use the **IPv4 pooler in SESSION mode on 5432**.
-Two corrections to earlier guidance in this plan:
-- "Not the pooler" was too broad. **Session-mode pooler on 5432 is a fully supported `pg_dump`
-  path.** What breaks `pg_dump` is **transaction mode on 6543**.
-- The host prefix is **`aws-1-`**, not `aws-0-`. All 14 `aws-0-*` regions return
-  *"tenant/user not found"*, which reads exactly like bad credentials when the credentials are
-  fine. Working shape:
-  `postgresql://postgres.<ref>@aws-1-ap-south-1.pooler.supabase.com:5432/postgres`
-
-**2. The dump contains `CREATE SCHEMA public;`** (line 26). Under `ON_ERROR_STOP=1` it aborts the
+**1. The dump contains `CREATE SCHEMA public;`** (line 26). Under `ON_ERROR_STOP=1` it aborts the
 entire load having applied nothing. **Strip it — a fourth item beyond the three listed above.**
 `COMMENT ON SCHEMA public` is harmless; leave it.
 
-**3. `extensions.uuid_generate_v4()` — 23 schema-qualified defaults.** Supabase puts `uuid-ossp`
+**2. `extensions.uuid_generate_v4()` — 23 schema-qualified defaults.** The old host puts `uuid-ossp`
 in an `extensions` schema that does not exist on RDS, so all 23 defaults would fail on load.
 **Resolution: install `uuid-ossp` into `public`.** The stored default is an OID reference whose
 *text rendering* follows `search_path`, so this changes rendering without rewriting a single
@@ -1027,7 +1005,7 @@ column definition. Measured both ways: extension in `extensions` → `db pull` r
 *Known, accepted divergence from source:* source keeps `uuid-ossp` in `extensions`, RDS keeps it
 in `public`.
 
-**4. ⚠️ A SINGLE-TRANSACTION TRIGGER TEST IS A FALSE NEGATIVE.** `now()` returns **transaction
+**3. ⚠️ A SINGLE-TRANSACTION TRIGGER TEST IS A FALSE NEGATIVE.** `now()` returns **transaction
 start** time, so an INSERT and UPDATE in one transaction produce identical timestamps *by
 construction* — `pg_sleep` does not advance it. The triggers look broken when they are fine.
 **Test across separate transactions.** Pair this with the conversations-list warning above: that
@@ -1035,9 +1013,9 @@ one is a false *positive*, this one a false *negative*. Both look like verificat
 
 - [ ] Load the schema into RDS from a source `pg_dump --schema-only` (see above), including the
       `uuid-ossp` extension
-- [ ] Copy production data from Supabase -> RDS (4,698 rows across 35 tables) using **pg17
+- [ ] Copy production data from the old database -> RDS (4,698 rows across 35 tables) using **pg17
       client tooling in a container**, never the host's pg18 binaries
-- [ ] **Copy expense photos** from the Supabase `expense-photos` bucket into the R2 `sfacrm`
+- [ ] **Copy expense photos** from the old `expense-photos` bucket into the R2 `sfacrm`
       bucket under `receipts/{tenantId}/`
 - [ ] **Rewrite `expenses.photo_url`** to the app-relative form `/api/expenses/photo/<file>`.
 
@@ -1064,8 +1042,8 @@ one is a false *positive*, this one a false *negative*. Both look like verificat
 > full URL, or a different extension case resolves to nothing and returns 404 — again looking
 > like an R2 fault. Write the extension lowercase.
 >
-> Confirms the security case from the other side: source URLs are `/object/public/`, so the
-> Supabase bucket really is world-readable. Moving to a private bucket behind an authorising
+> Confirms the security case from the other side: source URLs are public, so the
+> old bucket really is world-readable. Moving to a private bucket behind an authorising
 > route is a genuine improvement, not a lateral move.
 
 > ### ⚠️ THE UUID MUST MATCH ON BOTH SIDES — get this wrong and all 128 photos 404
@@ -1085,8 +1063,8 @@ one is a false *positive*, this one a false *negative*. Both look like verificat
 > Also: the `{tenantId}` in the key must be the expense row's **own** tenant, since the route
 > resolves it from the viewer's session. 127 of the 128 belong to
 > `00000000-…-0001` and 1 to `08bfa9da-…` — do not write them all under one prefix.
-      Existing rows hold **absolute Supabase Storage URLs** rendered directly by `<img src>`.
-      They break the moment the Supabase project is deleted.
+      Existing rows hold **absolute URLs on the old storage service** rendered directly by `<img src>`.
+      They break the moment the old project is deleted.
 
 > ### ⚠️ DO NOT rewrite photo_url to an R2 URL
 > **The R2 `sfacrm` bucket is PRIVATE.** There is no public base URL, no `r2.dev`, no bound
@@ -1098,12 +1076,12 @@ one is a false *positive*, this one a false *negative*. Both look like verificat
 >
 > **Verification must resolve through the app route**, not through whatever string the column
 > happens to hold. Immediately after `pg_restore` and before the rewrite, all 128 URLs will
-> still point at Supabase and will verify as reachable *because Supabase is still up* — a
+> still point at the old storage and will verify as reachable *because it is still up* — a
 > false green. Verify only after the rewrite, through `/api/expenses/photo/<id>`, with a
 > logged-in session.
 - [ ] Report: rows migrated, objects copied, and the **count of rows whose `photo_url` did not
       resolve to a real object**. Do not silently skip those.
-- [ ] If the Supabase bucket is unreachable: **stop**. Do not migrate the DB leaving dead
+- [ ] If the old bucket is unreachable: **stop**. Do not migrate the DB leaving dead
       references behind.
 
 ---
@@ -1127,19 +1105,19 @@ Recorded so nobody later assumes these logs exist.
 
 Login audit logging (`user_login_logs`) and user change auditing (`user_audit_logs`) have
 been **non-functional in production since those tables were dropped from the database**. The
-Supabase client returned errors as values and the call sites ignored them, so the failure was
+old database client returned errors as values and the call sites ignored them, so the failure was
 invisible. The dead write paths were removed during the Prisma migration in Batch 1.
 
 **THE CAPABILITY IS GONE, NOT MIGRATED.** Restoring it — recreating the tables and reinstating
 the writes — is open follow-up work and a product decision, not a migration task.
 
-Evidence: both tables appear in the obsolete `supabase/migrations.sql` but are absent from the
+Evidence: both tables appeared in the obsolete old `migrations.sql` but are absent from the
 live database (see §3, "In migrations.sql, absent from LIVE"). `prisma db pull` against live
 produces no model for either, so the writes could not have been ported even in principle.
 
 ### 13.2 Password reset only works for the DEFAULT tenant
 
-Found by the write-path harness, not introduced by this migration — the Supabase code behaves
+Found by the write-path harness, not introduced by this migration — the old client code behaves
 identically, and the Prisma conversion preserves it faithfully.
 
 `/api/auth/forgot-password` and `/api/auth/reset-password` are in `middleware.ts`'s `PUBLIC`
@@ -1235,8 +1213,8 @@ Found while converting the superadmin batch. Pre-existing; behaviour preserved e
 
 `GET /api/superadmin/companies/[id]/users` depended on two things absent from the database:
 
-- **`users.level_id`**, selected in its primary query. That column exists only in the obsolete
-  `supabase/migrations.sql` (§3). PostgREST rejected the whole select, `allUsers` came back null,
+- **`users.level_id`**, selected in its primary query. That column existed only in the obsolete
+  old `migrations.sql` (§3). PostgREST rejected the whole select, `allUsers` came back null,
   and the route hit `return NextResponse.json({ error: 'Failed to load users' }, { status: 500 })`.
 - **`user_login_logs`**, the source of every login metric (§13.1).
 

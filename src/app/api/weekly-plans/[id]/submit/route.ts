@@ -3,12 +3,20 @@ import { prisma, dateOnlyString, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { awardPoint } from '@/lib/points'
+import { businessDate } from '@/lib/business-date'
+import {
+  CHANGED_SINCE_OPENED, StaleStatus, awardOncePerPlan, badVersion, claimStatus, expectedVersion, isPlanId, planNotFound, readPlanVersion,
+} from '../../_transition'
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'weekly_plan', 'edit')) return forbidden()
+  // .catch: the body is optional — an older client posts none.
+  const expected = expectedVersion(await req.json().catch(() => ({})))
+  if (expected === false) return badVersion()
   const tid = getTenantId()
+  // Before the raw version SQL, whose `::uuid` cast would 500 on it.
+  if (!isPlanId(params.id)) return planNotFound()
 
   try {
     /*
@@ -22,11 +30,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       is the owner's act by definition: a manager has approve / reject / hold /
       edit-by-manager and none of them route through here.
     */
+    // The version the owner's screen showed (or saved at). Without one — an
+    // older client — the version read here, before the plan: that still stops
+    // an overlapping write, just not a stale screen. See `readPlanVersion`.
+    const version = expected ?? (await readPlanVersion(params.id, tid))
     const plan = await prisma.weekly_plans.findFirst({
       where: { id: params.id, tenant_id: tid },
       select: { status: true, week_start_date: true, user_id: true },
     })
-    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (!plan || version === null) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
     if (!user.userId || plan.user_id !== user.userId) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     }
@@ -37,35 +49,53 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const newStatus = plan.status === 'Draft' ? 'Submitted' : 'Resubmitted'
     const now = new Date()
 
-    // updateMany, not update: the original had no .select().single(), so a
-    // no-match was silent (PLAN.md 8.4).
-    await prisma.weekly_plans.updateMany({
-      where: { id: params.id, tenant_id: tid },
-      data: { status: newStatus, submitted_at: now, last_status_changed_at: now },
-    })
-
-    await prisma.weekly_plan_audit_logs.create({
-      data: {
-        tenant_id: tid, weekly_plan_id: params.id,
-        actor_user_id: user.userId, actor_role: 'User',
-        action_type: newStatus === 'Submitted' ? 'Submit' : 'Resubmit',
-        previous_status: plan.status, new_status: newStatus,
-      },
-    })
+    // Status write and audit row commit together or not at all. The write is
+    // conditional on the status read above, so a double-click, a second tab or
+    // an Undo racing this can make exactly one of them land.
+    try {
+      await prisma.$transaction(async tx => {
+        await claimStatus(
+          tx,
+          { id: params.id, tenant_id: tid, status: plan.status },
+          { status: newStatus, submitted_at: now, last_status_changed_at: now, updated_at: now },
+          // ...and still at the version the owner saw, so a manager edit
+          // landing on an Edited by Manager plan first is not submitted unseen.
+          version,
+        )
+        await tx.weekly_plan_audit_logs.create({
+          data: {
+            tenant_id: tid, weekly_plan_id: params.id,
+            actor_user_id: user.userId, actor_role: 'User',
+            action_type: newStatus === 'Submitted' ? 'Submit' : 'Resubmit',
+            previous_status: plan.status, new_status: newStatus,
+          },
+        })
+      })
+    } catch (err) {
+      if (err instanceof StaleStatus) {
+        // Either a second submit won, or a manager changed the plan first.
+        return NextResponse.json({ error: CHANGED_SINCE_OPENED }, { status: 409 })
+      }
+      throw err
+    }
 
     // Award points only for first-time on-time submission (not resubmit after rejection)
     if (newStatus === 'Submitted' && user.userId) {
-      const today = new Date().toISOString().split('T')[0]
+      // Business date: on the server's UTC date a submission between 00:00 and
+      // 05:30 IST on Tuesday still read as Monday and earned the on-time point.
+      const today = businessDate()
       // week_start_date is a Date now. Comparing a "YYYY-MM-DD" string against a
       // Date coerces the Date to "Mon Sep 14 2026 ..." and the comparison is
       // meaningless — so reduce it to the same date-only string first.
       const weekStart = dateOnlyString(plan.week_start_date)
       const onTime = Boolean(weekStart) && today <= weekStart
       if (onTime) {
-        void awardPoint(tid, user.userId, 'weekly_plan_submitted', {
-          refType: 'weekly_plan', refId: params.id,
-          description: `Weekly plan submitted on time for week of ${weekStart}`,
-        })
+        // After the commit, logged on failure, and once per plan — so submit →
+        // undo → submit does not pay out twice for one week.
+        awardOncePerPlan(
+          tid, user.userId, 'weekly_plan_submitted', params.id,
+          `Weekly plan submitted on time for week of ${weekStart}`,
+        )
       }
     }
 

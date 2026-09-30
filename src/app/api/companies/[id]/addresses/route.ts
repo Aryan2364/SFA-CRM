@@ -12,6 +12,7 @@ import {
   findCompany,
   type AddressBody,
 } from './_shared'
+import { foreignLocationRef } from '../../_access'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,10 +55,10 @@ export const dynamic = 'force-dynamic'
  * SHAPE, SCOPE AND PERMISSION
  *
  * Bare array / bare object / `{ error }` — there is no envelope in this
- * codebase. `serialize(rows, 'company_addresses')` turns the `Decimal(10,7)`
- * latitude/longitude into NUMBERS; left alone a Decimal reaches the client as a
- * STRING through `JSON.stringify` and every arithmetic on it is silently wrong
- * (PLAN.md §5.1).
+ * codebase. `serialize(rows, 'company_addresses')` still runs on every response:
+ * the table carries no Decimal or `@db.Date` column today, but the helper is how
+ * this codebase converts Prisma output for the wire, and a column added later
+ * must not have to remember to re-add it (PLAN.md §5.1).
  *
  * `tenant_id` is in the `where` of every read and the `data` of every create,
  * and the parent company is re-read under the tenant filter before any write.
@@ -73,7 +74,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    if (!await findCompany(params.id, tid))
+    if (!await findCompany(user, params.id, tid))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const rows = await prisma.company_addresses.findMany({
@@ -98,8 +99,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if ('error' in built) return NextResponse.json({ error: built.error }, { status: 400 })
 
   try {
-    if (!await findCompany(params.id, tid))
+    if (!await findCompany(user, params.id, tid))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // The location ids came from the body — see src/lib/tenant-fk.ts.
+    const miss = await foreignLocationRef(tid, built.data)
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
 
     /*
      * The first address on a company is primary whether or not the caller asked

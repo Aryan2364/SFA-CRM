@@ -33,8 +33,7 @@ function sslSetting(sslmode) {
     throw new Error(
       `This connection requires SSL but no CA certificate was found` +
         `${caPath ? ` at "${caPath}"` : ` (DATABASE_CA_CERT_PATH is not set)`}. ` +
-        `For Supabase use prod-ca-2021.crt from the dashboard; for RDS use ` +
-        `certs/rds-global-bundle.pem. See .env.example.`
+        `For RDS use certs/rds-global-bundle.pem. See .env.example.`
     )
   }
   return { ca: fs.readFileSync(caPath), rejectUnauthorized: true }

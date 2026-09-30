@@ -3,13 +3,17 @@ import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { getVisibleUserIds } from '@/lib/visibility'
+import { addDays, businessDate } from '@/lib/business-date'
+import { mondayOf } from '@/lib/weekly-review'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const manager = await requireUser()
   const tenantId = getTenantId()
-  const today = new Date().toISOString().split('T')[0]
+  // Business date, not the server's UTC date — see src/lib/business-date.ts.
+  // On a UTC server the cards read the previous day until 05:30 IST.
+  const today = businessDate()
 
   const subIds = await getVisibleUserIds(manager.userId!, tenantId)
   if (subIds.length === 0) return NextResponse.json([])
@@ -24,17 +28,10 @@ export async function GET() {
 
   const activeSubIds = subs.map(s => s.id)
 
-  // Current week range
-  const now = new Date()
-  const dayOfWeek = now.getDay()
-  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-  const monday = new Date(now)
-  monday.setDate(now.getDate() + diffToMonday)
-  monday.setHours(0, 0, 0, 0)
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  const weekStart = monday.toISOString().split('T')[0]
-  const weekEnd = sunday.toISOString().split('T')[0]
+  // Current week: Monday to Sunday of the business date — the convention
+  // `week_start_date` is written in (the plan screen's `getMondayOf`).
+  const weekStart = mondayOf(today)
+  const weekEnd = addDays(weekStart, 6)
 
   // All three date columns are @db.Date, so the "YYYY-MM-DD" strings become Dates.
   const [plans, visits, expenses] = await Promise.all([

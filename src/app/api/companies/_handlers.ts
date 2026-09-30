@@ -6,6 +6,7 @@ import { checkPermission, forbidden } from '@/lib/permissions'
 import { recomputeCompanyCompleteness } from '@/lib/completeness'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { COMPANY_INCLUDE, shapeCompany } from './_shape'
+import { foreignCompanyRef, ownerOutsideScope } from './_access'
 import {
   checkEmail,
   checkGstin,
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
       orderBy: { name: 'asc' },
     })
 
-    // NUMERIC latitude/longitude and DATE next_follow_up_date (PLAN.md 5.1).
+    // DATE next_follow_up_date (PLAN.md 5.1).
     const data = (serialize(rows, 'companies') as Record<string, unknown>[]).map(shapeCompany)
 
     return NextResponse.json(data)
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
     name, type, contact_person_name, pincode, gst_number,
     mobile_1, mobile_2, address, description,
     state_id, district_id, taluka_id, village_id,
-    latitude, longitude, temperature, next_follow_up_date,
+    temperature, next_follow_up_date,
     email, website, industry_id, owner_user_id,
   } = await req.json()
 
@@ -94,10 +95,26 @@ export async function POST(req: NextRequest) {
   )
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
 
+  const tid = getTenantId()
+
   try {
+    // Body-sourced ids, looked up in the caller's tenant before the insert.
+    // `distributor_id` is not written here, so the helper skips it.
+    const miss = await foreignCompanyRef(tid, {
+      state_id, district_id, taluka_id, village_id, industry_id, owner_user_id,
+    })
+    if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
+    // A blank owner defaults to the creator (below). An explicit one must be
+    // inside the caller's own `companies` scope, or the new company would be
+    // invisible to the person who just created it — see `./_access.ts`.
+    const owner = trimmed(owner_user_id) ?? user.userId ?? null
+    const outside = await ownerOutsideScope(user, 'companies', owner)
+    if (outside) return NextResponse.json({ error: outside }, { status: 403 })
+
     const created = await prisma.companies.create({
       data: {
-        tenant_id: getTenantId(),
+        tenant_id: tid,
         // `companies.type` is NOT NULL with no default, so "blank" is the empty
         // string until a migration makes the column nullable. It reads as blank
         // everywhere and matches no `?type=` filter, which is the intent.
@@ -115,15 +132,16 @@ export async function POST(req: NextRequest) {
         district_id: district_id || null,
         taluka_id: taluka_id || null,
         village_id: village_id || null,
-        latitude: latitude != null ? Number(latitude) : null,
-        longitude: longitude != null ? Number(longitude) : null,
         temperature: temperature || null,
         // next_follow_up_date is @db.Date — the client sends "YYYY-MM-DD".
         next_follow_up_date: next_follow_up_date ? new Date(next_follow_up_date) : null,
         email: trimmed(email),
         website: trimmed(website),
         industry_id: industry_id || null,
-        owner_user_id: owner_user_id || null,
+        // A blank owner defaults to the creator, as POST /api/deals does: an
+        // unowned company is outside every Self/Team scope, so its own creator
+        // could not reach it again below Company scope.
+        owner_user_id: owner,
         created_by_user_id: user.userId || null,
       },
     })

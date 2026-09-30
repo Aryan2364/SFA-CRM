@@ -2,6 +2,14 @@
 
 import { useRouter } from 'next/navigation'
 
+import { installSessionExpiryHandler } from '@/lib/session-expiry'
+
+// At module load, not in an effect, for the reason given in
+// src/components/shell/app-shell.tsx: an effect would install it after the
+// first screen's own fetch had gone out. This area does not mount AppShell, so
+// without this a 401 mid-screen leaves the user on a screen where nothing loads.
+installSessionExpiryHandler({ loginPath: '/superadmin/login' })
+
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
 

@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { ArrowLeftIcon, Building2Icon, HistoryIcon, PlusIcon, UserIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
+import { useMe } from '@/hooks/useMe'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -66,14 +68,17 @@ import { Entity, PlannedItem, Visit } from './types'
  * What is written now: the selected party's OWN `companies.type`, which
  * `/api/business-partners?status=all` returns. That is the same rule the
  * page already used when starting a meeting from an approved plan line
- * (`party_visit_type ?? party_type ?? 'Dealer'`), so the two paths agree
- * and the stored values stay inside the existing set. `'Dealer'` remains
- * the last-resort fallback for a party whose type is null.
+ * (`party_visit_type || party_type || OTHER_VISIT_TYPE`), so the two paths
+ * agree. A party with no type is logged as `'Other'` — never as a guessed
+ * `'Dealer'`, which used to be the hidden fallback and silently counted
+ * untyped parties as dealer visits.
  *
  * For a brand-new lead there is no party to read a type from, so the
  * create panel keeps a Lead type field. It is not the selector Aryan
  * removed: that one filtered the meeting, this one types a permanent
- * master record that will be wrong forever if it is guessed.
+ * master record. It is OPTIONAL: a blank one creates the company with a
+ * blank type (as `POST /api/companies` does) and logs the meeting as
+ * `'Other'`, rather than making the user guess a type to get past it.
  *
  * F26 — every field in this form carries `max-w-none`. The kit caps a
  * bare field at `--spacing-field-max` (480px), which is right on a wide
@@ -181,13 +186,26 @@ const CONTACT_PREFIX = 'p:'
  * there is none to take. Checked rather than assumed: the local database has
  * NO check constraint on `daily_visits.visit_type` (the
  * `daily_visits_visit_type_check` that once pinned it to Dealer/Distributor is
- * dropped at supabase/migrations.sql:673), so a new value inserts cleanly.
+ * dropped in the old schema file), so a new value inserts cleanly.
  *
  * It surfaces in reports as its own "Company Type" bucket rather than
  * mislabelling the meeting as a Dealer visit — see `reports/dimensions.ts`,
  * where that dimension falls back to the `visit_type` snapshot.
  */
 const STANDALONE_VISIT_TYPE = 'Contact'
+
+/**
+ * `visit_type` for a meeting with a company that has no type — an untyped
+ * party, or a new lead saved with the Lead type left blank. `POST
+ * /api/daily-activity` needs a non-empty value, and `'Other'` says what is
+ * true (no type) where the old `'Dealer'` fallback claimed something false.
+ * It shows as a neutral badge on the card like every other type.
+ */
+export const OTHER_VISIT_TYPE = 'Other'
+
+/** The Lead type select's "Not set" option. A sentinel, because an empty
+ *  string cannot be told apart from "no value" by the select. */
+const NO_LEAD_TYPE = '__none'
 
 /**
  * Kit §16.3 — past six options a dropdown needs a search box, which is
@@ -283,6 +301,12 @@ export function AddMeetingDialog({
   )
 
   const [leadTypes, setLeadTypes] = useState<{ id: string; name: string }[]>([])
+  /* A new tenant starts with no lead types. The field is optional, so that
+     blocks nothing; `ready` is what separates "there are none" - said inline
+     as help, with where to add them - from "still loading" or "failed". */
+  const [leadTypesState, setLeadTypesState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const me = useMe()
+  const noLeadTypes = leadTypesState === 'ready' && leadTypes.length === 0
 
   const [npName, setNpName] = useState('')
   const [npMobile, setNpMobile] = useState('')
@@ -306,6 +330,7 @@ export function AddMeetingDialog({
     setNpName('')
     setNpMobile('')
     setNpPlace('')
+    setNpType('')
     setStartTime(undefined)
     setEndTime(undefined)
     setFieldError({})
@@ -318,13 +343,17 @@ export function AddMeetingDialog({
       .then((d: Entity[]) => { setEntities(Array.isArray(d) ? d : []); setEntLoading(false) })
       .catch(() => { setEntLoading(false); toast('Failed to load leads', 'error') })
 
-    fetch('/api/masters/lead-types')
-      .then(r => r.json())
+    setLeadTypesState('loading')
+    fetch('/api/masters/lead-types?active=true')
+      .then(r => {
+        if (!r.ok) throw new Error(`lead types ${r.status}`)
+        return r.json()
+      })
       .then((d: { id: string; name: string }[]) => {
         setLeadTypes(Array.isArray(d) ? d : [])
-        if (Array.isArray(d) && d.length > 0) setNpType(v => v || d[0].name)
+        setLeadTypesState('ready')
       })
-      .catch(() => toast('Failed to load lead types', 'error'))
+      .catch(() => { setLeadTypesState('error'); toast('Failed to load lead types', 'error') })
   }, [open])
 
   /*
@@ -478,7 +507,7 @@ export function AddMeetingDialog({
   const timesOk = !isPast || (!!startTime && !!endTime)
   const canAdd =
     mode === 'create'
-      ? !!npName.trim() && !!npType && timesOk
+      ? !!npName.trim() && timesOk
       : !!target && (!mustPickCompany || !!personCompanyId) && timesOk
 
   async function handleAdd() {
@@ -506,9 +535,11 @@ export function AddMeetingDialog({
       await onAdd({
         ...planLink,
         ...manual,
-        visit_type: npType,
+        // Blank type: the company is created untyped and the meeting is 'Other'.
+        visit_type: npType || OTHER_VISIT_TYPE,
         new_prospect: {
           name: npName.trim(),
+          type: npType || null,
           mobile_1: npMobile.trim() || null,
           state_id: r?.state_id ?? null,
           district_id: r?.district_id ?? null,
@@ -533,11 +564,9 @@ export function AddMeetingDialog({
         ...planLink,
         ...manual,
         /* With a company, the same rule a company pick uses — the party's own
-           type, and 'Dealer' as the last-resort fallback for a party whose
-           type is null, so the stored values stay inside the existing set.
-           STANDALONE_VISIT_TYPE is only for a meeting with NO company, where
-           there is no type to read. */
-        visit_type: company ? company.type || 'Dealer' : STANDALONE_VISIT_TYPE,
+           type, and 'Other' for a party whose type is blank.
+           STANDALONE_VISIT_TYPE is only for a meeting with NO company. */
+        visit_type: company ? company.type || OTHER_VISIT_TYPE : STANDALONE_VISIT_TYPE,
         entity_id: company?.id ?? null,
         entity_name: company ? `${person?.name ?? ''} · ${company.name}` : person?.name ?? '',
         contact_id: selectedPersonId,
@@ -549,7 +578,7 @@ export function AddMeetingDialog({
         ...planLink,
         ...manual,
         // F6: the party's own type, not a type the user was made to pick.
-        visit_type: selected?.type || 'Dealer',
+        visit_type: selected?.type || OTHER_VISIT_TYPE,
         // The COMPANY's id, always — a contact id must never be written here.
         entity_id: selectedCompanyId,
         entity_name: selected?.name ?? '',
@@ -760,19 +789,47 @@ export function AddMeetingDialog({
                 />
               </div>
               {/* Not the selector F6 removed: this one types a permanent
-                  master record, and there is no party to read it from. */}
+                  master record, and there is no party to read it from.
+                  Optional: "Not set" saves the lead untyped and logs the
+                  meeting as 'Other'. */}
               <div className="space-y-1.5">
                 <Label htmlFor="da-np-type">Lead type</Label>
-                <Select value={npType} onValueChange={v => setNpType(String(v))}>
+                <Select
+                  items={{ [NO_LEAD_TYPE]: 'Not set', ...Object.fromEntries(leadTypes.map(t => [t.name, t.name])) }}
+                  value={npType || NO_LEAD_TYPE}
+                  onValueChange={v => setNpType(v === NO_LEAD_TYPE ? '' : String(v ?? ''))}
+                >
                   <SelectTrigger id="da-np-type" className="w-full max-w-none">
-                    <SelectValue placeholder="Select a type" />
+                    <SelectValue placeholder="Not set" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value={NO_LEAD_TYPE}>Not set</SelectItem>
                     {leadTypes.map(t => (
                       <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {/* Kit §2.3 — helper text, not an error: nothing here blocks. */}
+                <p className="text-meta text-text-muted">
+                  {noLeadTypes ? (
+                    me?.permissions?.lead_types?.view ? (
+                      <>
+                        Optional. No lead types have been set up yet; add them in{' '}
+                        <Link
+                          href="/masters/lead-types"
+                          className="text-primary underline underline-offset-2 outline-none hover:text-primary-hover focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
+                        >
+                          Masters → Lead Types
+                        </Link>
+                        . Without one, the meeting is logged as Other.
+                      </>
+                    ) : (
+                      'Optional. No lead types have been set up yet (an administrator can add them in Masters → Lead Types). Without one, the meeting is logged as Other.'
+                    )
+                  ) : (
+                    'Optional. Without one, the meeting is logged as Other.'
+                  )}
+                </p>
               </div>
             </div>
           )}

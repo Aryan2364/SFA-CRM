@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Seeds a browsable DEMO tenant into the LOCAL database, so `npm run dev:local`
- * has something to show without ever touching Supabase.
+ * has something to show without ever touching a hosted database.
  *
  * This is NOT the write-path fixture — that is scripts/seed-scratch.mjs, whose
  * two tenants and fixed ids the test suites assert against. This script owns one
@@ -295,7 +295,11 @@ async function main() {
     data: names.map((name, i) => ({ ...tid, name, sort_order: i + 1, is_active: true })),
   })
   await listRows('expense_categories', ['Travel', 'Fuel', 'Food', 'Lodging', 'Mobile & Internet', 'Miscellaneous'])
-  await listRows('lead_types', ['Dealer', 'Distributor', 'Institution'])
+  // Lead types are tenant-defined and a new tenant gets none, so the app must
+  // not depend on any particular name. These are clearly demo values, and one
+  // lead below is left with NO type to exercise the blank case.
+  const LEAD_TYPE = { retail: 'Retail Partner (demo)', wholesale: 'Wholesale Partner (demo)', bulk: 'Bulk Buyer (demo)' }
+  await listRows('lead_types', Object.values(LEAD_TYPE))
   await prisma.deal_stages.createMany({
     data: ['Prospect', 'Contacted', 'Demo Given', 'Negotiation', 'Won', 'Lost']
       .map((name, i) => ({ ...tid, name, sort_order: i + 1, is_fixed: i === 0, is_active: true })),
@@ -331,23 +335,24 @@ async function main() {
 
   const distributors = []
   for (const name of ['Shree Krishna Agencies', 'Godavari Agro Distributors', 'Sardar Krishi Kendra', 'Malnad Agri Supplies']) {
-    distributors.push(await mkPartner('Distributor', name))
+    distributors.push(await mkPartner(LEAD_TYPE.wholesale, name))
   }
   const dealers = []
   for (const name of ['Balaji Krushi Seva Kendra', 'Ganesh Beej Bhandar', 'Jai Kisan Agro Centre',
     'Patil Agri Store', 'Sai Krupa Traders', 'Navjeevan Seeds', 'Annapurna Agro Mart',
     'Vishwas Krushi Kendra']) {
-    dealers.push(await mkPartner('Dealer', name, { distributor_id: pick(distributors).id }))
+    dealers.push(await mkPartner(LEAD_TYPE.retail, name, { distributor_id: pick(distributors).id }))
   }
   const institutions = []
   for (const name of ['Pune Zilla Sahakari Sangh', 'Nashik Grape Growers Federation', 'Belagavi Agri University Farm']) {
-    institutions.push(await mkPartner('Institution', name))
+    institutions.push(await mkPartner(LEAD_TYPE.bulk, name))
   }
   // Leads live in the same table, separated by stage — this is what /leads lists.
   const leads = []
-  for (const name of ['Shubham Agro (new)', 'Kisan Mitra Centre (new)', 'Deshmukh Beej (new)',
-    'Green Field Traders (new)', 'Ambika Krushi (new)']) {
-    leads.push(await mkPartner(pick(['Dealer', 'Distributor']), name, {
+  for (const [i, name] of ['Shubham Agro (new)', 'Kisan Mitra Centre (new)', 'Deshmukh Beej (new)',
+    'Green Field Traders (new)', 'Ambika Krushi (new)'].entries()) {
+    // The last lead has no type: `companies.type` stores '' for blank.
+    leads.push(await mkPartner(i === 4 ? '' : pick([LEAD_TYPE.retail, LEAD_TYPE.wholesale]), name, {
       stage: 'Prospect',
       temperature: pick(['Hot', 'Warm', 'Cold']),
       sub_type: pick(['Walk-in', 'Referral', 'Exhibition']),
@@ -425,7 +430,9 @@ async function main() {
       // an empty screen.
       const perDay = d === 0 ? int(1, 3) : int(0, 3)
       for (let v = 0; v < perDay; v++) {
-        const target = pick(rnd() < 0.2 ? leads : companies)
+        // Only typed leads: the app never writes a meeting with a blank
+        // visit_type (POST /api/daily-activity requires one).
+        const target = pick(rnd() < 0.2 ? leads.filter(l => l.type) : companies)
         const completed = d > 0 || rnd() < 0.5
         const startHour = 10 + v * 2
         const visit = await prisma.daily_visits.create({

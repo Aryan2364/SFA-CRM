@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   })
 
   // created_at is compared with `>` below and fed into localeCompare() at the
-  // bottom. Supabase returned ISO strings; Prisma returns Date objects, so
+  // bottom. The old client returned ISO strings; Prisma returns Date objects, so
   // normalise ONCE here. Mixing the two would compare a Date against a string
   // and silently order by "Mon Sep 14 2026 ..." (PLAN.md 5.1).
   const remarks = remarkRows.map(r => ({

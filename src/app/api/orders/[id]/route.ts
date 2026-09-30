@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
-import { getVisibleUserIds } from '@/lib/visibility'
-import { checkPermission } from '@/lib/permissions'
+import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { isOrderStatus, type OrderStatus } from '@/lib/order-math'
 
@@ -11,16 +10,19 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'orders', 'view')) return forbidden()
   const tid = getTenantId()
 
-  const visibleIds = await getVisibleUserIds(user.userId!, tid)
-  const allowedIds = [user.userId!, ...visibleIds]
+  // The `orders` data scope, as the list applies it. This used to be the raw
+  // visibility chain, which ignored both the permission and the role's
+  // Self/Team/Company setting.
+  const allowedIds = await scopedUserIds(user, 'orders')
 
   try {
     // .single() answered 404 on PGRST116 (no rows) and 500 on anything else.
     // findFirst's null is the no-row case; a genuine failure still throws.
     const order = await prisma.orders.findFirst({
-      where: { id: params.id, tenant_id: tid, user_id: { in: allowedIds } },
+      where: { id: params.id, tenant_id: tid, ...scopeWhere(allowedIds) },
       include: {
         order_items: true,
         users: { select: { name: true } },
@@ -73,6 +75,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'orders', 'edit')) return forbidden()
   const body = await req.json() as { status?: unknown }
   const tid = getTenantId()
 
@@ -84,8 +87,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   const status: OrderStatus = body.status
 
-  const visibleIds = await getVisibleUserIds(user.userId!, tid)
-  const allowedIds = [user.userId!, ...visibleIds]
+  const allowedIds = await scopedUserIds(user, 'orders')
 
   try {
     // The order has to be READ before it is written, which it did not have
@@ -94,7 +96,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // against. Scoped exactly as the updateMany was, so an order the caller
     // cannot see still behaves as it always did.
     const order = await prisma.orders.findFirst({
-      where: { id: params.id, tenant_id: tid, user_id: { in: allowedIds } },
+      where: { id: params.id, tenant_id: tid, ...scopeWhere(allowedIds) },
       select: { id: true, entity_id: true },
     })
     // No .single() in the original, so an invisible order was a silent
@@ -122,7 +124,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
       if (blocked) {
         await prisma.orders.update({
-          where: { id: order.id },
+          where: { id: order.id, tenant_id: tid },
           data: { blocked_reason: blocked },
         })
         return NextResponse.json(
@@ -133,7 +135,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     await prisma.orders.update({
-      where: { id: order.id },
+      where: { id: order.id, tenant_id: tid },
       // Whatever blocked it last time no longer applies: either it has just
       // been placed, or it has been put back to Draft on purpose.
       data: { status, blocked_reason: null },

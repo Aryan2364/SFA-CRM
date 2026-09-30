@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { PencilIcon, PlusIcon, ScrollTextIcon, UsersIcon } from 'lucide-react'
+import { PencilIcon, PlusIcon, UsersIcon } from 'lucide-react'
 
 import Modal from '@/components/ui/Modal'
 import SearchableSelect from '@/components/ui/SearchableSelect'
 import { useMe } from '@/hooks/useMe'
+import { MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 import { useToast } from '@/contexts/ToastContext'
 import { StatusBadge, USER_STATUS } from '@/components/status-badge'
 import {
@@ -25,12 +26,13 @@ import {
 } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import { masterLocks, type CrudLocks } from '@/components/ui/CrudPage'
 
 type Dept = { id: string; name: string }
 type Desig = { id: string; name: string; department_id: string }
 type Role = { id: string; name: string }
 type DeactivateSummary = { direct_reports: number; active_meetings: number; pending_plans: number; open_orders: number }
-type AuditEntry = { id: string; target_user_name: string; action: string; performed_by_name: string; metadata: Record<string, unknown>; created_at: string }
 
 /**
  * `/api/masters/users` returns the whole row plus two embeds. `roles` is
@@ -51,21 +53,6 @@ type UserRow = {
   manager_user_id: string | null
   roles: { id?: string; name: string } | null
   manager: { id: string; name: string } | null
-}
-
-const ACTION_LABELS: Record<string, string> = {
-  created: 'Account created',
-  deactivated: 'Deactivated',
-  reactivated: 'Reactivated',
-  role_changed: 'Role changed',
-  name_changed: 'Name changed',
-}
-const ACTION_COLORS: Record<string, string> = {
-  created: 'bg-green-100 text-green-700',
-  deactivated: 'bg-red-100 text-red-700',
-  reactivated: 'bg-emerald-100 text-emerald-700',
-  role_changed: 'bg-blue-100 text-blue-700',
-  name_changed: 'bg-gray-100 text-gray-700',
 }
 
 /**
@@ -112,14 +99,16 @@ function roleLabel(user: UserRow) {
  * for `scrollWidth` against `clientWidth`.
  */
 function userColumns({
-  canEdit,
-  canDelete,
+  editLockFor,
+  statusLock,
   onEdit,
   onDeactivate,
   onReactivate,
 }: {
-  canEdit: boolean
-  canDelete: boolean
+  /** See `CrudLocks`: undefined allowed, null not known yet, string denied.
+   *  Per row, because an Administrator's record has its own rule. */
+  editLockFor: (user: UserRow) => CrudLocks['edit']
+  statusLock: CrudLocks['edit']
   onEdit: (user: UserRow) => void
   onDeactivate: (user: UserRow) => void
   onReactivate: (user: UserRow) => void
@@ -188,9 +177,11 @@ function userColumns({
        * nothing is destroyed; section 15.1's closing argument is that a
        * red control states a failure that has not happened.
        */
-      cell: user => (
+      cell: user => {
+        const editLock = editLockFor(user)
+        return (
         <div className="flex items-center justify-end gap-2">
-          {canEdit && (
+          {editLock === undefined ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -206,19 +197,28 @@ function userColumns({
               </TooltipTrigger>
               <TooltipContent>Edit</TooltipContent>
             </Tooltip>
+          ) : (
+            <PermissionTooltip allowed={typeof editLock !== 'string'} reason={editLock ?? ''}>
+              <Button variant="secondary" size="icon" disabled>
+                <PencilIcon />
+                <span className="sr-only">Edit {user.name}</span>
+              </Button>
+            </PermissionTooltip>
           )}
-          {canDelete &&
-            (user.status === 'Active' ? (
-              <Button variant="secondary" onClick={() => onDeactivate(user)}>
+          <PermissionTooltip allowed={typeof statusLock !== 'string'} reason={statusLock ?? ''}>
+            {user.status === 'Active' ? (
+              <Button variant="secondary" disabled={statusLock !== undefined} onClick={() => onDeactivate(user)}>
                 Deactivate
               </Button>
             ) : (
-              <Button variant="secondary" onClick={() => onReactivate(user)}>
+              <Button variant="secondary" disabled={statusLock !== undefined} onClick={() => onReactivate(user)}>
                 Reactivate
               </Button>
-            ))}
+            )}
+          </PermissionTooltip>
         </div>
-      ),
+        )
+      },
     },
   ]
 }
@@ -228,9 +228,30 @@ const INIT = { name: '', email: '', contact: '', password: '', department_id: ''
 export default function UsersPage() {
   const me = useMe()
   const { toast } = useToast()
-  const isAdmin = me?.role === 'Administrator'
-  const canEdit = isAdmin || (me?.permissions?.users?.edit ?? false)
-  const canDelete = isAdmin || (me?.permissions?.users?.delete ?? false)
+  // The real permission map, never a role name — Administrators get every
+  // section from /api/auth/me. Denied actions show disabled with a reason.
+  const locks = masterLocks(me, 'users', 'users')
+  // The users routes also carry Administrator-only rules that no permission
+  // section expresses. /api/auth/me answers them as `isAdministrator`, derived
+  // from the same database-resolved role the routes test — so no role name is
+  // compared here. null while /me is loading: not known yet, not refused.
+  const isAdministrator = me == null ? null : me.isAdministrator === true
+  /** A `CrudLocks` value for an Administrator-only action, layered over the
+   *  permission lock the route checks first. */
+  const adminLock = (permissionLock: CrudLocks['edit'], reason: string): CrudLocks['edit'] =>
+    isAdministrator === null ? null : isAdministrator ? permissionLock : reason
+  // POST /api/masters/users: users:edit, then Administrator only.
+  const addLock = adminLock(locks.add, 'Only an Administrator can add users.')
+  // PATCH (deactivate/reactivate): users:edit, then Administrator only.
+  const statusLock = adminLock(locks.edit, 'Only an Administrator can deactivate or reactivate users.')
+  // PUT refuses a non-Administrator any write to an Administrator's record.
+  const editLockFor = (row: UserRow): CrudLocks['edit'] =>
+    row.profile === 'Administrator'
+      ? adminLock(locks.edit, 'Only an Administrator can edit an Administrator’s account.')
+      : locks.edit
+  // PUT refuses a non-Administrator a password or a role change, so those two
+  // form fields are shown read-only to everyone else.
+  const credentialLock = adminLock(undefined, 'Only an Administrator can set a password or change a role.')
 
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<UserRow | null>(null)
@@ -260,11 +281,6 @@ export default function UsersPage() {
   const [reactivateForm, setReactivateForm] = useState({ role_id: '', manager_user_id: '' })
   const [reactivateError, setReactivateError] = useState('')
   const [reactivateSaving, setReactivateSaving] = useState(false)
-
-  // Audit log
-  const [showAudit, setShowAudit] = useState(false)
-  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
-  const [auditLoading, setAuditLoading] = useState(false)
 
   function refreshLists() {
     fetch('/api/masters/users').then(r => r.json()).then(d => setAllUsers(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load user data. Please refresh.', 'error'))
@@ -315,11 +331,18 @@ export default function UsersPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) { setEmailError('Please enter a valid email address'); return }
     if (!form.contact.trim()) { setFormError('Contact number is required'); return }
     if (!/^\d{10}$/.test(form.contact.trim())) { setFormError('Contact number must be exactly 10 digits'); return }
-    if (!form.role_id) { setFormError('Role is required'); return }
+    // Only a caller who may set the role is asked for one: the Role select is
+    // locked for everyone else, so requiring it there left a roleless user
+    // unsaveable. Their save omits the role entirely (below).
+    const canSetRole = credentialLock === undefined
+    if (canSetRole && !form.role_id) { setFormError('Role is required'); return }
     if (!editing && !form.password.trim()) { setFormError('Password is required for new users'); return }
+    if (form.password.trim() && passwordTooShort(form.password.trim())) { setFormError(PASSWORD_TOO_SHORT); return }
     setSaving(true)
     const isAdminRole = form.role_id === 'Administrator'
     const body: Record<string, unknown> = { name: form.name.trim(), email: form.email.trim(), contact: form.contact.trim(), department_id: form.department_id || null, designation_id: form.designation_id || null, profile: isAdminRole ? 'Administrator' : 'Standard', manager_user_id: form.manager_user_id || null, role_id: isAdminRole ? null : (form.role_id || null) }
+    // PUT leaves profile and role_id alone when they are absent.
+    if (!canSetRole) { delete body.profile; delete body.role_id }
     if (!editing || form.password.trim()) body.password = form.password.trim()
     try {
       const res = await fetch(editing ? `/api/masters/users/${editing.id}` : '/api/masters/users', {
@@ -407,20 +430,6 @@ export default function UsersPage() {
     }
   }
 
-  // Audit log
-  async function openAuditLog() {
-    setShowAudit(true)
-    setAuditLoading(true)
-    try {
-      const res = await fetch('/api/masters/users/audit-log')
-      if (res.ok) { const d = await res.json(); setAuditLogs(Array.isArray(d) ? d : []) }
-      else toast('Failed to load audit log', 'error')
-    } catch {
-      toast('Failed to load audit log', 'error')
-    }
-    setAuditLoading(false)
-  }
-
   const setF = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
 
   /*
@@ -485,34 +494,24 @@ export default function UsersPage() {
    * this is the same answer the leads conversion gave to the same
    * question: exactly ONE primary action per screen, everything else
    * secondary, all of it in zone 1's single action slot rather than
-   * invented somewhere else on the page. Add user is the primary; the
-   * audit log is a secondary way of reading the same records; and the
+   * invented somewhere else on the page. Add user is the primary, and the
    * licence badge is meta about them, so it leads the group at badge
    * weight. Section 11.1's "one primary action button on the right" is
    * satisfied: there is one primary, and it is on the right.
    */
-  const action =
-    licenseBadge || isAdmin || canEdit ? (
+  const action = (
       <div className="flex items-center gap-2">
         {licenseBadge}
-        {/* Section 26: gated on the same test the route itself applies
-            — `/api/masters/users/audit-log` answers 403 to anyone who
-            is not an Administrator, so any wider gate here would show a
-            control that fails after being clicked. */}
-        {isAdmin && (
-          <Button variant="secondary" onClick={openAuditLog}>
-            <ScrollTextIcon />
-            Audit Log
-          </Button>
-        )}
-        {canEdit && (
-          <Button onClick={openAdd}>
+        {/* Section 26: shown to everyone, disabled with the reason where
+            the user may not use it. */}
+        <PermissionTooltip allowed={typeof addLock !== 'string'} reason={addLock ?? ''}>
+          <Button onClick={openAdd} disabled={addLock !== undefined}>
             <PlusIcon />
             Add user
           </Button>
-        )}
+        </PermissionTooltip>
       </div>
-    ) : undefined
+  )
 
   return (
     <>
@@ -570,8 +569,8 @@ export default function UsersPage() {
           noun={{ one: 'user', many: 'users' }}
           action={action}
           columns={userColumns({
-            canEdit,
-            canDelete,
+            editLockFor,
+            statusLock,
             onEdit: openEdit,
             onDeactivate: startDeactivate,
             onReactivate: startReactivate,
@@ -584,8 +583,8 @@ export default function UsersPage() {
           emptyYet={{
             heading: 'No users yet',
             body: 'Everyone who can sign in to this workspace is listed here, with the role that decides what they can reach.',
-            actionLabel: canEdit ? 'Add user' : undefined,
-            onAction: canEdit ? openAdd : undefined,
+            actionLabel: addLock === undefined ? 'Add user' : undefined,
+            onAction: addLock === undefined ? openAdd : undefined,
           }}
         />
       </div>
@@ -640,8 +639,12 @@ export default function UsersPage() {
             <label htmlFor="user-password" className="block text-sm font-medium text-text-secondary mb-1">
               Password {editing ? <span className="text-text-muted font-normal">(leave blank to keep current)</span> : <span className="text-danger">*</span>}
             </label>
-            <div className="relative">
-              <input id="user-password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={e => setF('password')(e.target.value)} placeholder={editing ? 'Enter new password to change' : 'Set login password'} className="w-full border border-border rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
+            {/* flex-col stretches PermissionTooltip's inline-flex wrapper to the
+                field's full width; w-full then fills it. */}
+            <div className="flex flex-col">
+            <PermissionTooltip allowed={typeof credentialLock !== 'string'} reason={credentialLock ?? ''}>
+            <div className="relative w-full">
+              <input id="user-password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={e => setF('password')(e.target.value)} disabled={credentialLock !== undefined} placeholder={editing ? `New password, at least ${MIN_PASSWORD_LENGTH} characters` : `At least ${MIN_PASSWORD_LENGTH} characters`} className="w-full border border-border rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:opacity-50 disabled:cursor-not-allowed" />
               <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition" tabIndex={-1}>
                 {showPassword ? (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
@@ -649,6 +652,8 @@ export default function UsersPage() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 )}
               </button>
+            </div>
+            </PermissionTooltip>
             </div>
           </div>
           <div>
@@ -661,12 +666,19 @@ export default function UsersPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1">Role <span className="text-danger">*</span></label>
-            <SearchableSelect
-              value={form.role_id}
-              onChange={setF('role_id')}
-              options={[{ value: 'Administrator', label: 'Administrator' }, ...roles.map(r => ({ value: r.id, label: r.name }))]}
-              placeholder="Select role…"
-            />
+            <div className="flex flex-col">
+              <PermissionTooltip allowed={typeof credentialLock !== 'string'} reason={credentialLock ?? ''}>
+                <div className="w-full">
+                  <SearchableSelect
+                    value={form.role_id}
+                    onChange={setF('role_id')}
+                    options={[{ value: 'Administrator', label: 'Administrator' }, ...roles.map(r => ({ value: r.id, label: r.name }))]}
+                    placeholder="Select role…"
+                    disabled={credentialLock !== undefined}
+                  />
+                </div>
+              </PermissionTooltip>
+            </div>
             {roles.length === 0 && <p className="text-xs text-warning mt-1">No custom roles yet. Create them in Settings → Access Control → Roles &amp; Permissions.</p>}
           </div>
           <div className="col-span-2">
@@ -788,52 +800,6 @@ export default function UsersPage() {
               >
                 {reactivateSaving ? 'Reactivating…' : 'Reactivate'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Audit Log Modal */}
-      {showAudit && (
-        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
-          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
-              <h3 className="font-medium text-text-primary">User Account Audit Log</h3>
-              <button onClick={() => setShowAudit(false)} className="text-text-muted hover:text-text-secondary transition">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="overflow-y-auto flex-1 px-6 py-4">
-              {auditLoading ? (
-                <p className="text-sm text-text-muted text-center py-8">Loading…</p>
-              ) : auditLogs.length === 0 ? (
-                <p className="text-sm text-text-muted text-center py-8">No audit entries yet.</p>
-              ) : (
-                <div className="space-y-2">
-                  {auditLogs.map(entry => (
-                    <div key={entry.id} className="flex items-start gap-3 py-2.5 border-b border-border-light last:border-0">
-                      <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap mt-0.5 ${ACTION_COLORS[entry.action] ?? 'bg-surface-control text-text-secondary'}`}>
-                        {ACTION_LABELS[entry.action] ?? entry.action}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-text-primary font-medium">{entry.target_user_name}</p>
-                        {entry.action === 'role_changed' && Boolean(entry.metadata.from) && (
-                          <p className="text-xs text-text-muted">{String(entry.metadata.from)} → {String(entry.metadata.to)}</p>
-                        )}
-                        {entry.action === 'name_changed' && Boolean(entry.metadata.from) && (
-                          <p className="text-xs text-text-muted">{String(entry.metadata.from)} → {String(entry.metadata.to)}</p>
-                        )}
-                        <p className="text-xs text-text-muted mt-0.5">by {entry.performed_by_name}</p>
-                      </div>
-                      <span className="text-xs text-text-muted whitespace-nowrap">
-                        {new Date(entry.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </div>

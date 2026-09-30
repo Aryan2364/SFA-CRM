@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
-import { getVisibleUserIds } from '@/lib/visibility'
-import { getDataScope } from '@/lib/permissions'
+import { checkPermission, forbidden } from '@/lib/permissions'
+import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import { firstForeignTenantRef } from '@/lib/tenant-fk'
 import {
   isOrderStatus,
   orderTotals,
@@ -96,13 +97,51 @@ async function priceLines(
       return {
         product_id: i.product_id ?? null,
         product_name: master ? master.name : String(i.product_name).trim(),
-        qty: i.qty,
+        // lineError() has already proved qty is an integer ≥ 1.
+        qty: Number(i.qty),
         rate: master ? Number(master.price) : Number(i.rate) || 0,
         discount_type: i.discount_type,
         discount_value: i.discount_value,
       }
     }),
   }
+}
+
+/**
+ * Reject a line whose numbers cannot be stored honestly, before anything is
+ * priced or written.
+ *
+ * `order_items.qty` is an Int and the money columns are Decimal(12,2). A NaN
+ * or Infinity reaching them either throws as a 500 or — through a sum — turns
+ * a report total into null, so the route says which line is wrong instead.
+ * `order-math` clamps rather than rejects because the browser calls it on
+ * every keystroke; this is the half that rejects. `rate` is only checked on a
+ * free-text line, because on a product line it is discarded (see priceLines).
+ */
+const MAX_MONEY = 9_999_999_999.99
+
+function finiteNumber(v: unknown): number {
+  return typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN
+}
+
+function lineError(items: OrderItem[]): string | null {
+  for (const [idx, i] of items.entries()) {
+    const n = idx + 1
+    if (!i || typeof i !== 'object') return `Line ${n} is not valid`
+    const qty = finiteNumber(i.qty)
+    if (!Number.isInteger(qty) || qty < 1) return `Line ${n}: quantity must be a whole number of at least 1`
+    if (qty > 1_000_000) return `Line ${n}: quantity is too large`
+    if (!i.product_id && i.rate !== undefined && i.rate !== null) {
+      const rate = finiteNumber(i.rate)
+      if (!Number.isFinite(rate) || rate < 0) return `Line ${n}: rate must be a number of 0 or more`
+      if (rate > MAX_MONEY) return `Line ${n}: rate is too large`
+    }
+    if (i.discount_value !== undefined && i.discount_value !== null && i.discount_value !== '') {
+      const dv = finiteNumber(i.discount_value)
+      if (!Number.isFinite(dv) || dv < 0) return `Line ${n}: discount must be a number of 0 or more`
+    }
+  }
+  return null
 }
 
 /**
@@ -137,8 +176,12 @@ async function placementBlock(
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'orders', 'view')) return forbidden()
   const tid = getTenantId()
   const visitId = req.nextUrl.searchParams.get('visitId')
+  // One scope for both modes. The visit branch used to filter on tenant only,
+  // so any caller could read any colleague's order and its lines by visit id.
+  const allowedIds = await scopedUserIds(user, 'orders')
 
   // Single-order mode (used by OrderEntryModal in Daily Activity — unchanged).
   // PGRST116 (no rows) was tolerated and answered null; every other error was a
@@ -147,7 +190,7 @@ export async function GET(req: NextRequest) {
   if (visitId) {
     try {
       const order = await prisma.orders.findFirst({
-        where: { tenant_id: tid, visit_id: visitId },
+        where: { tenant_id: tid, visit_id: visitId, ...scopeWhere(allowedIds) },
         include: { order_items: true },
       })
       return NextResponse.json(order ? serialize(order, 'orders') : null)
@@ -187,21 +230,17 @@ export async function GET(req: NextRequest) {
      lookup and not a scan over the line items. */
   const discounted = req.nextUrl.searchParams.get('discounted')
 
-  const scope = await getDataScope(user, 'orders')
-  let allowedIds: string[] | null = null
-  if (scope === 'own') {
-    allowedIds = [user.userId!]
-  } else if (scope === 'team') {
-    const visibleIds = await getVisibleUserIds(user.userId!, tid)
-    allowedIds = [user.userId!, ...visibleIds]
-  }
-  // scope === 'all' → no user_id filter
+  // `?userId=` NARROWS the scope; it used to REPLACE it (gap G3, see
+  // src/lib/scope.ts), so any rep could read any colleague's orders by id. A
+  // requested user outside the caller's scope now yields no rows.
+  const ids = intersectScope(allowedIds, userId)
+  if (ids && ids.length === 0) return NextResponse.json([])
 
   try {
     const rows = await prisma.orders.findMany({
       where: {
         tenant_id: tid,
-        ...(userId ? { user_id: userId } : allowedIds ? { user_id: { in: allowedIds } } : {}),
+        ...scopeWhere(ids),
         ...(status ? { status } : {}),
         ...(discounted === 'yes' ? { has_discount: true } : {}),
         ...(discounted === 'no' ? { has_discount: false } : {}),
@@ -251,12 +290,19 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await requireUser()
+  if (!await checkPermission(user, 'orders', 'create')) return forbidden()
   const body = await req.json()
   const tenantId = getTenantId()
 
   const items: OrderItem[] = body.items ?? []
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: 'items are required' }, { status: 400 })
+  }
+  const badLine = lineError(items)
+  if (badLine) return NextResponse.json({ error: badLine }, { status: 400 })
+  const odv = body.order_discount_value
+  if (odv !== undefined && odv !== null && odv !== '' && !(finiteNumber(odv) >= 0)) {
+    return NextResponse.json({ error: 'Order discount must be a number of 0 or more' }, { status: 400 })
   }
 
   // Authoritative rates first — everything below is computed from these,
@@ -304,6 +350,37 @@ export async function POST(req: NextRequest) {
     const { visit_id, order_date } = body as { visit_id: string; order_date: string }
     if (!order_date) return NextResponse.json({ error: 'order_date is required' }, { status: 400 })
 
+    /*
+     * `visit_id` comes from the body and the upsert below matches on it ALONE
+     * (it is @unique across the whole table). Unchecked, a caller could name
+     * another tenant's visit and overwrite that tenant's order — re-stamping
+     * its tenant_id and deleting its lines — or re-punch a colleague's order
+     * outside their own scope. So the visit must be this tenant's and inside
+     * the caller's `meetings` scope, and an order already on it must be inside
+     * their `orders` scope and editable by them. Both misses are a 404, as for
+     * any row the caller may not reach.
+     */
+    const visit = await prisma.daily_visits.findFirst({
+      where: {
+        id: String(visit_id),
+        tenant_id: tenantId,
+        ...scopeWhere(await scopedUserIds(user, 'meetings')),
+      },
+      select: { id: true },
+    })
+    if (!visit) return NextResponse.json({ error: 'Meeting not found' }, { status: 404 })
+    const existing = await prisma.orders.findFirst({
+      where: { visit_id: visit.id, tenant_id: tenantId },
+      select: { user_id: true },
+    })
+    if (existing) {
+      const orderIds = await scopedUserIds(user, 'orders')
+      if (orderIds && !orderIds.includes(existing.user_id)) {
+        return NextResponse.json({ error: 'Meeting not found' }, { status: 404 })
+      }
+      if (!await checkPermission(user, 'orders', 'edit')) return forbidden()
+    }
+
     try {
       // ONE TRANSACTION. This branch is a re-punch as often as it is a
       // first punch, so between the deleteMany and the createMany the
@@ -328,13 +405,16 @@ export async function POST(req: NextRequest) {
           ...money,
         }
         const row = await tx.orders.upsert({
-          where: { visit_id },
-          create: { ...values, visit_id },
+          // tenant_id in the unique where: should a foreign-tenant order ever
+          // sit on this visit, the upsert falls to `create` and the @unique
+          // on visit_id rejects it, instead of rewriting that tenant's row.
+          where: { visit_id: visit.id, tenant_id: tenantId },
+          create: { ...values, visit_id: visit.id },
           update: values,
         })
 
         // deleteMany: the original .delete() never errored on zero matches.
-        await tx.order_items.deleteMany({ where: { order_id: row.id } })
+        await tx.order_items.deleteMany({ where: { order_id: row.id, tenant_id: tenantId } })
         await tx.order_items.createMany({ data: itemRows(row.id) })
         return row
       })
@@ -380,7 +460,26 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const effectiveUserId = sales_user_id ?? user.userId!
+  /*
+   * Body-sourced ids. The party and the sales user must be this tenant's
+   * (src/lib/tenant-fk.ts). The sales user must ALSO be inside the caller's
+   * `orders` scope: attributing an order to someone is writing a row in their
+   * name, and a Self-scoped rep could otherwise book orders — and the points
+   * and targets that follow them — against any colleague.
+   */
+  const miss = await firstForeignTenantRef([
+    { value: entity_id, label: 'Party',
+      find: id => prisma.companies.findFirst({ where: { id, tenant_id: tenantId }, select: { id: true } }) },
+    { value: sales_user_id, label: 'Sales user',
+      find: id => prisma.users.findFirst({ where: { id, tenant_id: tenantId }, select: { id: true } }) },
+  ])
+  if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
+  const effectiveUserId = sales_user_id || user.userId!
+  const attributable = intersectScope(await scopedUserIds(user, 'orders'), effectiveUserId)
+  if (attributable && attributable.length === 0) {
+    return NextResponse.json({ error: 'You may not record an order for this user' }, { status: 403 })
+  }
 
   try {
     // ONE TRANSACTION. An order and its lines are a single fact, and

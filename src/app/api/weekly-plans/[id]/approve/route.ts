@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma, dbErrorMessage } from '@/lib/db'
+import { dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { canView } from '@/lib/visibility'
-import { awardPoint } from '@/lib/points'
+import { DECISIONS } from '@/components/weekly-plan/approval-types'
+import { awardOncePerPlan, expectedVersion, runDecision } from '../../_transition'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
@@ -14,60 +14,29 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    const now = new Date()
-
-    const plan = await prisma.weekly_plans.findFirst({
-      // tenant_id, not the id alone: the id is a global key, so without this
-      // a guessed uuid reaches another tenant plan and nothing crashes.
-      where: { id: params.id, tenant_id: tid },
-      select: { status: true, user_id: true },
-    })
-    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-
-    const authorized = await canView(user.userId!, plan.user_id, tid)
-    if (!authorized) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
-
-    // updateMany, not update: no .select().single() in the original (PLAN.md 8.4).
-    await prisma.weekly_plans.updateMany({
-      where: { id: params.id, tenant_id: tid },
-      data: { status: 'Approved', last_status_changed_at: now, ...(comment ? { manager_comment: comment } : {}) },
+    // Status guard, audit row and notification in one transaction: see `runDecision`.
+    const { response, ownerId } = await runDecision({
+      user, tenantId: tid, planId: params.id,
+      // The version the screen showed, so a stale screen cannot decide.
+      expectedVersion: expectedVersion(body),
+      allowedFrom: DECISIONS.approve.allowedFrom,
+      newStatus: 'Approved',
+      actionType: 'Approve',
+      comment: comment ?? null,
+      planData: comment ? { manager_comment: comment } : {},
+      message: comment
+        ? `Your weekly plan has been Approved. Comment: ${comment}`
+        : 'Your weekly plan has been Approved.',
     })
 
-    await prisma.weekly_plan_audit_logs.create({
-      data: {
-        tenant_id: tid, weekly_plan_id: params.id,
-        actor_user_id: user.userId, actor_role: 'Manager',
-        action_type: 'Approve',
-        previous_status: plan.status, new_status: 'Approved',
-        comment: comment ?? null,
-      },
-    })
-
-    // Notify plan owner
-    await prisma.notifications.create({
-      data: {
-        tenant_id: tid,
-        recipient_id: plan.user_id,
-        actor_id: user.userId,
-        section: 'weekly_plan',
-        context_type: 'weekly_plan',
-        context_id: params.id,
-        redirect_path: '/weekly-plan',
-        message: comment
-          ? `Your weekly plan has been Approved. Comment: ${comment}`
-          : 'Your weekly plan has been Approved.',
-      },
-    })
-
-    // Award points to plan owner for getting approved
-    if (plan.user_id) {
-      void awardPoint(tid, plan.user_id, 'weekly_plan_approved', {
-        refType: 'weekly_plan', refId: params.id,
-        description: 'Weekly plan approved by manager',
-      })
+    // Award points to plan owner for getting approved — after the commit, and
+    // only for a transition that actually happened, so a repeat approve (now a
+    // 409) never reaches this line.
+    if (ownerId) {
+      awardOncePerPlan(tid, ownerId, 'weekly_plan_approved', params.id, 'Weekly plan approved by manager')
     }
 
-    return NextResponse.json({ ok: true })
+    return response
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

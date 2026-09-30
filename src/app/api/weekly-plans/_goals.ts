@@ -13,6 +13,7 @@
  */
 
 import { prisma, serialize } from '@/lib/db'
+import type { Prisma } from '@prisma/client'
 
 export type GoalRow = {
   id: string
@@ -75,13 +76,15 @@ export async function saveGoals(
   planId: string,
   tenantId: string,
   value: unknown,
+  /** The caller's transaction, when the checklist is one part of a larger save. */
+  db: Prisma.TransactionClient = prisma,
 ): Promise<boolean> {
   if (value === undefined) return false
 
   const incoming = readGoals(value)
   const keptIds = incoming.map(g => g.id).filter((id): id is string => id !== null)
 
-  await prisma.weekly_goals.deleteMany({
+  await db.weekly_goals.deleteMany({
     where: {
       weekly_plan_id: planId,
       tenant_id: tenantId,
@@ -93,12 +96,12 @@ export async function saveGoals(
     if (goal.id) {
       // updateMany, not update: the id came from the client, so a row that no
       // longer exists (or belongs to another tenant) must be a no-op, not a throw.
-      await prisma.weekly_goals.updateMany({
+      await db.weekly_goals.updateMany({
         where: { id: goal.id, weekly_plan_id: planId, tenant_id: tenantId },
         data: { text: goal.text, is_done: goal.is_done, sort_order: goal.sort_order, updated_at: new Date() },
       })
     } else {
-      await prisma.weekly_goals.create({
+      await db.weekly_goals.create({
         data: {
           tenant_id: tenantId,
           weekly_plan_id: planId,
@@ -134,9 +137,12 @@ export async function migrateWeekGoal(planId: string, tenantId: string, weekGoal
   })
   if (existing > 0) {
     // Checklist already won; drop the stale column value so this stops running.
+    // `updated_at` is set explicitly because production's trigger moves it
+    // anyway (see `PLAN_VERSION` in `_transition.ts`): this write changes the
+    // plan's version, so every read path runs it BEFORE reading the version.
     await prisma.weekly_plans.updateMany({
       where: { id: planId, tenant_id: tenantId },
-      data: { week_goal: null },
+      data: { week_goal: null, updated_at: new Date() },
     })
     return false
   }
@@ -146,7 +152,7 @@ export async function migrateWeekGoal(planId: string, tenantId: string, weekGoal
   })
   await prisma.weekly_plans.updateMany({
     where: { id: planId, tenant_id: tenantId },
-    data: { week_goal: null },
+    data: { week_goal: null, updated_at: new Date() },
   })
   return true
 }

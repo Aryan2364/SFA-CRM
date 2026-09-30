@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, dateOnlyString, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
+import { checkPermission, forbidden } from '@/lib/permissions'
+import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import { businessMonth } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,9 +13,21 @@ export const dynamic = 'force-dynamic'
 // Optionally: userId=X (manager looking at subordinate's calendar)
 export async function GET(req: NextRequest) {
   const user = await requireUser()
+  // `?userId=` used to be taken at its word, with no permission and no scope,
+  // so anyone could read which days any colleague held meetings. Gated the
+  // same way as `/api/expenses/calendar`: it can only NARROW the caller's
+  // `meetings` scope, and an out-of-scope id is a 403.
+  if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
+  if (!user.userId) return NextResponse.json({ filledDates: [] })
   const params = req.nextUrl.searchParams
-  const monthParam = params.get('month') ?? new Date().toISOString().slice(0, 7)
-  const userId = params.get('userId') ?? user.userId
+  const monthParam = params.get('month') ?? businessMonth()
+  const requested = params.get('userId')
+  const ids = requested
+    ? intersectScope(await scopedUserIds(user, 'meetings'), requested)
+    : [user.userId]
+  if (ids && ids.length === 0) {
+    return NextResponse.json({ error: 'Not authorized to view this user' }, { status: 403 })
+  }
 
   const [year, month] = monthParam.split('-').map(Number)
   const from = `${year}-${String(month).padStart(2, '0')}-01`
@@ -23,7 +38,7 @@ export async function GET(req: NextRequest) {
     const data = await prisma.daily_visits.findMany({
       where: {
         tenant_id: getTenantId(),
-        user_id: userId ?? undefined,
+        ...scopeWhere(ids),
         // visit_date is @db.Date, so the month bounds become Date objects.
         visit_date: { gte: new Date(from), lte: new Date(to) },
       },

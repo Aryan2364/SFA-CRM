@@ -3,6 +3,7 @@ import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { StaleStatus, notifyAfterCommit, claimStatus, isPlanId, planNotFound } from '../../_transition'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
@@ -13,10 +14,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!message) return NextResponse.json({ error: 'Message is required' }, { status: 400 })
 
   const tid = getTenantId()
+  if (!isPlanId(params.id)) return planNotFound()
 
   try {
-    const plan = await prisma.weekly_plans.findUnique({
-      where: { id: params.id },
+    // tenant_id, not the id alone: the id is a global key.
+    const plan = await prisma.weekly_plans.findFirst({
+      where: { id: params.id, tenant_id: tid },
       select: { status: true, user_id: true, reopen_requested: true },
     })
 
@@ -29,43 +32,58 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Plan is already editable' }, { status: 400 })
     }
 
-    const now = new Date()
-    await prisma.weekly_plans.updateMany({
-      where: { id: params.id },
-      data: { reopen_requested: true, reopen_request_message: message, last_status_changed_at: now },
-    })
-
-    // RequestReopen does not change status: previous_status === new_status.
-    await prisma.weekly_plan_audit_logs.create({
-      data: {
-        tenant_id: tid, weekly_plan_id: params.id,
-        actor_user_id: user.userId, actor_role: 'User',
-        action_type: 'RequestReopen',
-        previous_status: plan.status, new_status: plan.status,
-        comment: message,
-      },
-    })
-
-    // Notify manager
-    const me = await prisma.users.findUnique({
-      where: { id: user.userId },
+    const me = await prisma.users.findFirst({
+      where: { id: user.userId, tenant_id: tid },
       select: { manager_user_id: true },
     })
-    if (me?.manager_user_id) {
-      try {
-        await prisma.notifications.create({
+
+    const now = new Date()
+    // Flag and audit row commit together; the manager's notification follows
+    // the commit. The claim also requires the flag to still be clear, so a
+    // double-click sends one request, not two. It moves the plan's version
+    // (see `claimStatus`) on purpose: a manager panel opened before the
+    // request should reload and show it, not decide past it.
+    try {
+      await prisma.$transaction(async tx => {
+        await claimStatus(
+          tx,
+          { id: params.id, tenant_id: tid, status: plan.status, reopen_requested: false },
+          { reopen_requested: true, reopen_request_message: message, last_status_changed_at: now },
+        )
+
+        // RequestReopen does not change status: previous_status === new_status.
+        await tx.weekly_plan_audit_logs.create({
           data: {
-            tenant_id: tid,
-            recipient_id: me.manager_user_id,
-            actor_id: user.userId,
-            section: 'weekly_plan',
-            context_type: 'weekly_plan',
-            context_id: params.id,
-            redirect_path: `/review/${user.userId}?tab=plans`,
-            message: `${user.name} requested to reopen their weekly plan: "${message}"`,
+            tenant_id: tid, weekly_plan_id: params.id,
+            actor_user_id: user.userId, actor_role: 'User',
+            action_type: 'RequestReopen',
+            previous_status: plan.status, new_status: plan.status,
+            comment: message,
           },
         })
-      } catch { /* non-fatal */ }
+      })
+    } catch (err) {
+      if (err instanceof StaleStatus) {
+        return NextResponse.json(
+          { error: 'This plan changed a moment ago — reload to see its current state' },
+          { status: 409 },
+        )
+      }
+      throw err
+    }
+
+    // Notify manager — after commit, best-effort: see `notifyAfterCommit`.
+    if (me?.manager_user_id) {
+      await notifyAfterCommit({
+        tenant_id: tid,
+        recipient_id: me.manager_user_id,
+        actor_id: user.userId,
+        section: 'weekly_plan',
+        context_type: 'weekly_plan',
+        context_id: params.id,
+        redirect_path: `/review/${user.userId}?tab=plans`,
+        message: `${user.name} requested to reopen their weekly plan: "${message}"`,
+      })
     }
 
     return NextResponse.json({ ok: true })

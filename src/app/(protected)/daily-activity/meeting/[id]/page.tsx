@@ -107,20 +107,22 @@ export default function MeetingPage() {
   useEffect(() => { void load() }, [load])
 
   /*
-   * The stage master, read only when the viewer can actually change a stage.
+   * The stage master, read only when the viewer can actually change a stage
+   * or open a deal (the New deal dialog picks its first stage from it).
    * Fetching it for a read-only role would be a request whose only possible
    * use is to populate a control that role must not see.
    */
   const canEditDeals = !!me?.permissions?.deals?.edit
+  const needsStages = canEditDeals || !!me?.permissions?.deals?.create
   useEffect(() => {
-    if (!canEditDeals) return
+    if (!needsStages) return
     let cancelled = false
     fetch('/api/deals/stages')
       .then(r => (r.ok ? r.json() : []))
       .then(d => { if (!cancelled) setStages(Array.isArray(d) ? d : []) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [canEditDeals])
+  }, [needsStages])
 
   if (state === 'loading') {
     return (
@@ -153,7 +155,14 @@ export default function MeetingPage() {
 
   const canWriteNotes = !!me?.permissions?.meetings?.edit
   const canMarkDiscussed = canWriteNotes && !!me?.permissions?.deals?.view
-  const canCreateOrder = !!me?.permissions?.orders?.edit
+  /* POST /api/orders with a visit_id checks orders.create, and — when the
+     meeting already carries an order, so the post is a re-punch — orders.edit
+     as well. */
+  const canCreateOrder =
+    !!me?.permissions?.orders?.create && (!ctx.visit_order || !!me?.permissions?.orders?.edit)
+  /* POST /api/deals checks deals.create; the stage and close routes check
+     deals.edit, which is canEditDeals above. */
+  const canCreateDeal = !!me?.permissions?.deals?.create
 
   /*
    * §5.5's "a note … linked to a specific Deal or Order" — the meeting always
@@ -287,7 +296,7 @@ export default function MeetingPage() {
             stages={stages}
             visible={ctx.deals_visible}
             canEditDeals={canEditDeals}
-            canCreateDeal={canEditDeals}
+            canCreateDeal={canCreateDeal}
             canMarkDiscussed={canMarkDiscussed}
             onDealChanged={replaceDeal}
             onDiscussedChanged={setDiscussed}

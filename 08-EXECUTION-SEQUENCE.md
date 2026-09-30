@@ -58,7 +58,7 @@ what the "migration" is are recorded there and neither was chosen.**
 ### ⚠️ B-1 is a hard blocker
 
 `role_permissions` is marked in `schema.prisma:295` as carrying CHECK constraints, and
-`supabase/migrations.sql` lines 16-18 warn its own copy *"allows 5 values while live data holds 23
+the old schema file (`migrations.sql`, since deleted) warned its own copy *"allows 5 values while live data holds 23
 distinct ones"*. **The real constraint body exists only in the live database and in no file in
 this repo.** If it still constrains `section`, **every new permission section fails at runtime** —
 and Phase 1 needs `companies`, `contacts`, `contact_types` and `industries`.

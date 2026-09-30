@@ -20,13 +20,54 @@
 //
 // The wire format is identical to `signSession()` in session.ts, and
 // `scripts/verify-session-formats.mjs` asserts that the two agree:
-//   token     = base64(JSON.stringify(payload)) + "." + base64url(HMAC-SHA256)
-//   signature = HMAC-SHA256(SESSION_SECRET, utf8(base64 payload))
+//   token     = base64url(utf8(JSON.stringify(payload))) + "." + base64url(HMAC-SHA256)
+//   signature = HMAC-SHA256(SESSION_SECRET, the base64url payload string)
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 /**
+ * The expiry rule, and it is a DELIBERATE COPY of `isSessionExpired()` in
+ * session.ts — CHANGE BOTH OR NEITHER. A token that is live in one runtime and
+ * dead in the other is a session that works on some requests and not others,
+ * which is the same class of bug as the wire-format mismatch this module's
+ * header describes.
+ *
+ * It is copied rather than imported because this module is loaded directly by
+ * `npm run verify:session` under `node --experimental-strip-types`, which does
+ * no path resolution: a relative `./session` import resolves under webpack and
+ * fails there, taking the cross-check script with it.
+ *
+ * A payload with no `exp` is expired. Every token minted before expiry existed
+ * falls in that class, and those tokens are otherwise valid forever — so they
+ * are rejected rather than grandfathered.
+ */
+const CLOCK_SKEW_SECONDS = 60
+
+function isSessionExpired(payload: Record<string, unknown> | null): boolean {
+  if (!payload) return true
+  const exp = payload.exp
+  if (typeof exp !== 'number' || !Number.isFinite(exp)) return true
+  return Math.floor(Date.now() / 1000) > exp + CLOCK_SKEW_SECONDS
+}
+
+/**
+ * The payload half of the token, decoded: base64url → bytes → UTF-8 → JSON.
+ * A DELIBERATE COPY of `decodeSessionPayload()` in session.ts — CHANGE BOTH OR
+ * NEITHER, for the same reasons as isSessionExpired() above.
+ *
+ * `fatal: true` so bytes that are not valid UTF-8 THROW rather than decode to
+ * U+FFFD, exactly as the Web Crypto half does; Buffer's own `utf8` decoding is
+ * lenient and would let the two disagree. Node's `base64url` decoder also
+ * accepts standard base64, so a pre-change ASCII token decodes the same here
+ * as it does there.
+ */
+function decodeSessionPayload(data: string): unknown {
+  const bytes = Buffer.from(data, 'base64url')
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+}
+
+/**
  * Verify a session token and return its payload, or `null` if the signature
- * does not match.
+ * does not match or the token has expired.
  *
  * Synchronous on purpose. `getTenantId()` is called from 158 sites and is sync;
  * making verification async would have turned a three-file fix into a
@@ -49,9 +90,9 @@ export function verifySessionSync(token: string): Record<string, unknown> | null
     if (given.length !== expected.length) return null
     if (!timingSafeEqual(given, expected)) return null
 
-    // `latin1`, not `utf8`: signSession() encodes with `btoa()`, which produces
-    // a binary string. Decoding as utf8 would corrupt any byte above 0x7F.
-    return JSON.parse(Buffer.from(data, 'base64').toString('latin1'))
+    const payload = decodeSessionPayload(data) as Record<string, unknown>
+    if (isSessionExpired(payload)) return null
+    return payload
   } catch {
     return null
   }

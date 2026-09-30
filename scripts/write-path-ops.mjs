@@ -15,6 +15,12 @@
 import fs from 'node:fs'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { mintSession as mintTestSession } from './test-session.mjs'
+// The route seeds one role_permissions row per ALL_SECTIONS entry. Reading the
+// count from the registry, not a literal, is what keeps this suite from going
+// stale every time a section is added or removed (it was 23, then 27, then 26).
+import { ALL_SECTIONS } from '../src/lib/masters-registry.ts'
+const N_SECTIONS = ALL_SECTIONS.length
 
 const BASE = process.env.WRITE_BASE_URL ?? 'http://127.0.0.1:3012'
 const COOKIE_NAME = 'rgb_session'
@@ -47,16 +53,8 @@ let pass = 0, fail = 0
 const ok = (n, c, got) => { console.log(`  ${c ? 'PASS' : 'FAIL'}  ${n}${c ? '' : `   got: ${JSON.stringify(got)}`}`); c ? pass++ : fail++ }
 const section = n => console.log(`\n-- ${n} --`)
 
-async function mint(payload) {
-  const secret = readEnv('SESSION_SECRET')
-  const enc = new TextEncoder()
-  const data = btoa(JSON.stringify(payload))
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const sig = await crypto.subtle.sign({ name: 'HMAC', hash: 'SHA-256' }, key, enc.encode(data))
-  let s = ''
-  for (const b of new Uint8Array(sig)) s += String.fromCharCode(b)
-  return `${data}.${btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}`
-}
+// Signed by the app's own signSession(), so iat/exp and the encoding match login.
+const mint = payload => mintTestSession(payload, readEnv('SESSION_SECRET'))
 
 let MGR, SUB
 const call = (path, token, method = 'POST', body) => fetch(`${BASE}${path}`, {
@@ -80,7 +78,7 @@ async function main() {
   console.log(`Server confirmed on scratch DB (tenant "${me.tenantName}")`)
 
   // ===== settings/roles + role-permissions =================================
-  section('settings/roles — create seeds 23 permission rows')
+  section(`settings/roles — create seeds ${N_SECTIONS} permission rows`)
   const before = await prisma.roles.count({ where: { tenant_id: SEED.tenantA } })
   const cr = await call('/api/settings/roles', MGR, 'POST', { name: 'Scratch QA Role' })
   const role = await cr.json()
@@ -90,15 +88,15 @@ async function main() {
   ok('created_at is a full ISO string', /^\d{4}-\d{2}-\d{2}T.*Z$/.test(role.created_at), role.created_at)
   ok('role count went up by one', (await prisma.roles.count({ where: { tenant_id: SEED.tenantA } })) === before + 1)
   const seeded = await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role' } })
-  ok('23 permission rows were seeded', seeded === 23, seeded)
+  ok(`${N_SECTIONS} permission rows were seeded (one per ALL_SECTIONS entry)`, seeded === N_SECTIONS, seeded)
   ok('all seeded rows are all-false / own', (await prisma.role_permissions.findMany({
     where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role' },
   })).every(r => !r.can_view && !r.can_create && !r.can_edit && !r.can_delete && r.data_scope === 'own'))
 
-  section('roles POST is idempotent on the permission seed (skipDuplicates)')
+  section('roles POST refuses a duplicate name, and the permission seed never duplicates')
   const dup = await call('/api/settings/roles', MGR, 'POST', { name: 'Scratch QA Role' })
-  ok('a second role with the same name still seeds without erroring', [201, 500].includes(dup.status), dup.status)
-  ok('permission rows did NOT duplicate', (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role' } })) === 23)
+  ok('a second role with the same name -> 409', dup.status === 409, dup.status)
+  ok('permission rows did NOT duplicate', (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role' } })) === N_SECTIONS)
 
   section('role-permissions PUT — upsert on (tenant_id, profile, section)')
   const pu = await call('/api/settings/role-permissions', MGR, 'PUT', {
@@ -110,7 +108,7 @@ async function main() {
     where: { tenant_id_profile_section: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role', section: 'products' } },
   })
   ok('the existing row was UPDATED, not duplicated', row?.can_view === true && row?.data_scope === 'team', row)
-  ok('still exactly 23 rows for this profile', (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role' } })) === 23)
+  ok(`still exactly ${N_SECTIONS} rows for this profile`, (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role' } })) === N_SECTIONS)
 
   const pu2 = await call('/api/settings/role-permissions', MGR, 'PUT', {
     profile: 'Scratch QA Role', section: 'leads',
@@ -141,20 +139,18 @@ async function main() {
   const ru = await call(`/api/settings/roles/${qaRole.id}`, MGR, 'PUT', { name: 'Scratch QA Renamed' })
   ok('PUT /settings/roles/[id] -> 200', ru.status === 200, ru.status)
   ok('role_permissions rows followed the rename',
-    (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Renamed' } })) === 23)
+    (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Renamed' } })) === N_SECTIONS)
   ok('no rows left under the old profile name',
     (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Role' } })) === 0)
-  // /api/auth/me uses getCurrentUser(), i.e. the SESSION role string — it does
-  // not re-resolve from the database. A session minted before the rename keeps
-  // the old name and finds no permission rows. That is pre-existing behaviour,
-  // so assert with a session carrying the NEW name, which is what a user gets
-  // after their next login.
+  // /api/auth/me goes through requireUser(), which re-resolves the role from
+  // the database (users.role_id -> roles.name). So a session carrying either
+  // role name resolves to the role subA is attached to NOW — the renamed one.
   const renamedToken = await mint({ phone: '9000000002', userId: SEED.subA, name: 'Scratch Subordinate', role: 'Scratch QA Renamed', tenantId: SEED.tenantA, cv: 1 })
   const renamedMe = await (await call('/api/auth/me', renamedToken, 'GET')).json()
   ok('permissions STILL resolve after the rename — products view survives', renamedMe.permissions.products.view === true, renamedMe.permissions.products)
   const staleMe = await (await call('/api/auth/me', qaToken, 'GET')).json()
-  ok('a STALE session (pre-rename role name) sees all-false — pre-existing, unchanged',
-    staleMe.permissions.products.view === false, staleMe.permissions.products)
+  ok('a STALE session (pre-rename role name) gets the DB role, not the stale claim',
+    staleMe.role === 'Scratch QA Renamed' && staleMe.permissions?.products?.view === true, { role: staleMe.role, products: staleMe.permissions?.products })
 
   section('system roles are protected')
   const sysRole = await prisma.roles.create({ data: { tenant_id: SEED.tenantA, name: 'Scratch System', is_system: true } })
@@ -163,21 +159,23 @@ async function main() {
   ok('the system role survives', (await prisma.roles.count({ where: { id: sysRole.id } })) === 1)
 
   section('role DELETE is blocked while users are assigned')
-  // The guard counts users by PROFILE STRING, so set the profile to match.
-  await prisma.users.update({ where: { id: SEED.subA }, data: { profile: 'Scratch QA Renamed' } })
+  // The guard counts users by role_id, the link the FK enforces, so the
+  // profile string is irrelevant: subA has been attached by role_id since the
+  // permissions section above.
+  const IN_USE = /\d+ users? still ha(s|ve) this role/
   const blocked = await call(`/api/settings/roles/${qaRole.id}`, MGR, 'DELETE')
-  ok('delete with an assigned user -> 400', blocked.status === 400, blocked.status)
-  ok('error names the count', /\d+ user\(s\) still assigned/.test((await blocked.json()).error))
+  ok('delete with an assigned user -> 409', blocked.status === 409, blocked.status)
+  ok('error names the count', IN_USE.test((await blocked.json()).error ?? ''))
 
-  // PRE-EXISTING GAP, asserted so it is visible rather than assumed away: the
-  // guard checks users.profile, but the constraint that actually blocks the
-  // delete is the users.role_id FOREIGN KEY. A user attached by role_id whose
-  // profile string differs slips past the guard and gets a raw 500 instead of
-  // the friendly 400. See PLAN.md 13.5.
+  // Attached by role_id with a profile string that does not match. This used
+  // to slip past a profile-based guard and die on the FK as a raw 500.
   await prisma.users.update({ where: { id: SEED.subA }, data: { profile: 'Standard' } })
   const fkPath = await call(`/api/settings/roles/${qaRole.id}`, MGR, 'DELETE')
-  ok('assigned by role_id but NOT by profile -> 500 from the FK, not a 400 (pre-existing)', fkPath.status === 500, fkPath.status)
+  ok('assigned by role_id but NOT by profile -> 409, same message',
+    fkPath.status === 409 && IN_USE.test((await fkPath.json()).error ?? ''), fkPath.status)
   ok('the role survives that failed delete', (await prisma.roles.count({ where: { id: qaRole.id } })) === 1)
+  ok('its role_permissions rows survive too',
+    (await prisma.role_permissions.count({ where: { tenant_id: SEED.tenantA, profile: 'Scratch QA Renamed' } })) === N_SECTIONS)
 
   await prisma.users.update({ where: { id: SEED.subA }, data: { profile: 'Standard', role_id: null } })
   const del = await call(`/api/settings/roles/${qaRole.id}`, MGR, 'DELETE')

@@ -3,32 +3,25 @@ import { prisma, dateOnlyString, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { getVisibleUserIds } from '@/lib/visibility'
+import { checkPermission, PermSection } from '@/lib/permissions'
+import { scopedUserIds } from '@/lib/scope'
+import { addDays, businessDate } from '@/lib/business-date'
+import { mondayOf } from '@/lib/weekly-review'
 
 export const dynamic = 'force-dynamic'
-
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + 'T00:00:00')
-  d.setDate(d.getDate() + n)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
   const tid = getTenantId()
 
-  const weekStart = req.nextUrl.searchParams.get('weekStart') ?? (() => {
-    const d = new Date()
-    const day = d.getDay()
-    const diff = day === 0 ? -6 : 1 - day
-    d.setDate(d.getDate() + diff)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  })()
+  // Default: the Monday of the current BUSINESS week — the convention
+  // `week_start_date` is written in. The server's local clock put it on the
+  // previous week from 00:00 to 05:30 IST every Monday on a UTC host.
+  const weekStart = req.nextUrl.searchParams.get('weekStart') ?? mondayOf(businessDate())
   const weekEnd = addDays(weekStart, 6)
 
-  const subIds = await getVisibleUserIds(user.userId!, tid)
+  if (!user.userId) return NextResponse.json({ isManager: false })
+  const subIds = await getVisibleUserIds(user.userId, tid)
   if (!subIds.length) return NextResponse.json({ isManager: false })
 
   try {
@@ -43,34 +36,57 @@ export async function GET(req: NextRequest) {
 
   const activeSubIds = subordinates.map(s => s.id)
 
+  /*
+   * Four sections, four independent gates. The visibility chain says who the
+   * caller manages; it does not say they may read those people's plans,
+   * meetings, orders or expenses. Each dataset is read only with `view` on its
+   * own section, and only for the reports inside that section's data scope —
+   * the same answer the section's own list gives. A section the caller may not
+   * read contributes nothing rather than failing the whole dashboard.
+   */
+  const idsFor = async (section: PermSection): Promise<string[]> => {
+    if (!await checkPermission(user, section, 'view')) return []
+    const scoped = await scopedUserIds(user, section)
+    return scoped ? activeSubIds.filter(id => scoped.includes(id)) : activeSubIds
+  }
+  const [planIds, visitIds, orderIds, expenseIds] = await Promise.all([
+    idsFor('weekly_plan'), idsFor('meetings'), idsFor('orders'), idsFor('expenses'),
+  ])
+  // Sections whose data the caller cannot read for ANY of these reports —
+  // denied outright, or scoped to their own rows. Their numbers below are
+  // zeros that mean "unavailable", not "nothing happened"; this says which.
+  const denied = ([
+    ['weekly_plan', planIds], ['meetings', visitIds], ['orders', orderIds], ['expenses', expenseIds],
+  ] as const).filter(([, ids]) => activeSubIds.length > 0 && ids.length === 0).map(([section]) => section)
+
   // Parallel data fetch for the week. All four date columns are @db.Date, so the
   // "YYYY-MM-DD" bounds become Date objects.
   const weekStartDate = new Date(weekStart)
   const weekEndDate = new Date(weekEnd)
   const [planRows, visitRows, orderRows, expenseRows] = await Promise.all([
     prisma.weekly_plans.findMany({
-      where: { tenant_id: tid, week_start_date: weekStartDate, user_id: { in: activeSubIds } },
+      where: { tenant_id: tid, week_start_date: weekStartDate, user_id: { in: planIds } },
       select: {
         id: true, user_id: true, status: true, submitted_at: true,
         reopen_requested: true, reopen_request_message: true, week_start_date: true,
       },
     }),
     prisma.daily_visits.findMany({
-      where: { tenant_id: tid, user_id: { in: activeSubIds }, visit_date: { gte: weekStartDate, lte: weekEndDate } },
+      where: { tenant_id: tid, user_id: { in: visitIds }, visit_date: { gte: weekStartDate, lte: weekEndDate } },
       select: { id: true, user_id: true, status: true, visit_date: true },
     }),
     prisma.orders.findMany({
-      where: { tenant_id: tid, user_id: { in: activeSubIds }, order_date: { gte: weekStartDate, lte: weekEndDate } },
+      where: { tenant_id: tid, user_id: { in: orderIds }, order_date: { gte: weekStartDate, lte: weekEndDate } },
       select: { user_id: true, order_date: true, total_amount: true, status: true },
     }),
     prisma.expenses.findMany({
-      where: { tenant_id: tid, user_id: { in: activeSubIds }, expense_date: { gte: weekStartDate, lte: weekEndDate } },
+      where: { tenant_id: tid, user_id: { in: expenseIds }, expense_date: { gte: weekStartDate, lte: weekEndDate } },
       select: { user_id: true, expense_date: true, amount: true },
     }),
   ])
 
   // The per-day loops below compare these date columns against "YYYY-MM-DD"
-  // STRINGS built by addDays(). Supabase already returned strings; Prisma returns
+  // STRINGS built by addDays(). The old client returned strings; Prisma returns
   // Date objects, and `date === Date` is always false — every daily cell would
   // silently read zero. Reduce them to date-only strings up front (PLAN.md 5.1).
   const plans = planRows.map(p => ({ ...p, week_start_date: dateOnlyString(p.week_start_date) }))
@@ -89,7 +105,9 @@ export async function GET(req: NextRequest) {
     else if (p.status === 'Draft' || p.status === 'Edited by Manager') planStats.draft++
     else if (p.status === 'On Hold') planStats.onHold++
   }
-  planStats.notSubmitted = subordinates.length - plans.length
+  // Over the reports whose plans the caller may read — not the whole team,
+  // or a caller denied plans sees every report as "not submitted".
+  planStats.notSubmitted = planIds.length - plans.length
 
   // Pending plans (submitted + reopen requests)
   const pendingPlans = plans
@@ -154,6 +172,7 @@ export async function GET(req: NextRequest) {
     planStats,
     pendingPlans,
     teamPerformance,
+    denied,
   })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
