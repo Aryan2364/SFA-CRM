@@ -9,7 +9,6 @@ import {
   MapPinIcon,
   MessageSquareIcon,
   PencilIcon,
-  SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from 'lucide-react'
 
@@ -149,8 +148,23 @@ export function VisitCard({
               "Ramesh Kumar · ACME Traders" and reaches the edge on a
               narrow card where the company name alone did not.
             */}
+            {/*
+              P3-T11 §5.6. The name IS the way into the meeting page — the
+              Deals discussed, the Orders taken and the minutes. It replaced
+              an "Open meeting" button that said the same thing a second
+              time. It links for every meeting, including a Pending one: the
+              page renders the party's pipeline whether or not the stopwatch
+              has been started, so the link is never a dead end. Styled as a
+              record name in a row (kit §6.6): the text colour, underlined on
+              hover, with the primary-ring focus outline.
+            */}
             <h3 className="mt-1.5 text-card-heading font-medium text-text-primary">
-              <Truncate>{visit.entity_name}</Truncate>
+              <Link
+                href={`/daily-activity/meeting/${visit.id}`}
+                className="flex min-h-11 min-w-0 items-center rounded-lg text-text-primary underline-offset-2 outline-none hover:underline focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring sm:min-h-0"
+              >
+                <Truncate>{visit.entity_name}</Truncate>
+              </Link>
             </h3>
           </div>
 
@@ -185,29 +199,6 @@ export function VisitCard({
 
       {/* One action row, grouped, next to the meeting they act on. */}
       <div className="flex flex-wrap items-center gap-1.5 border-t border-border-light px-4 py-2.5">
-        {/*
-          P3-T11 §5.6. The only way INTO the meeting page, and the reason it
-          leads the row: everything else here acts on the meeting from the
-          outside, while this opens the record itself — the Deals discussed,
-          the Orders taken and the minutes. It is shown for every meeting,
-          including a Pending one: the page renders the party's pipeline
-          whether or not the stopwatch has been started, so there is no
-          state in which the link is a dead end.
-        */}
-        <Button
-          size="sm"
-          variant="secondary"
-          /* Base UI asserts on a button that renders as something else: an
-             anchor has no native button semantics, and saying so is what
-             stops it being submitted as one. `pagination.tsx` does the same
-             for the same reason. Without it this logs an error on every
-             card, which is how it was caught. */
-          nativeButton={false}
-          render={<Link href={`/daily-activity/meeting/${visit.id}`} />}
-        >
-          <SquareArrowOutUpRightIcon />
-          Open meeting
-        </Button>
         {(visit.status === 'Active' || visit.status === 'Completed') && (
           <PermissionTooltip
             allowed={canOrder !== false}
