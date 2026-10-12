@@ -34,10 +34,17 @@ export const dynamic = 'force-dynamic'
  * G4 — it previously called `requireUser()` and discarded the result, leaving
  * any authenticated user free to enumerate every company in the tenant).
  *
- * No data scope, deliberately: this is the meeting picker, and a rep logs
- * visits against parties a colleague owns, or nobody owns. Scoping it on
- * `companies` `owner_user_id` was tried and blocked that field work; narrowing
- * it is a product decision, not a security fix.
+ * Default: no data scope. `?mine=1` narrows to the caller's own parties
+ * (`owner_user_id` = the caller), whatever the role's scope, and is what the
+ * Daily Activity meeting form sends. That is a product decision (Aryan,
+ * 2026-10-12), the same one as commit 73b1918: Daily Activity is where a person
+ * enters their OWN work, so its pickers offer their own parties only, and an
+ * Administrator's Company scope no longer floods the form with every
+ * colleague's leads. It was once tried as a plain scope and blocked field work
+ * on colleagues' or unowned parties; the way through for those is the form's
+ * "new lead" path, or an approved weekly-plan line, which carries its own
+ * party and does not go through this list. Without the param the route
+ * behaves exactly as before.
  *
  * Phase 3 owns the Daily Activity screen and may fold this into the meeting
  * flow; until then it stays, response shape unchanged.
@@ -48,11 +55,16 @@ export async function GET(req: NextRequest) {
 
   const type   = req.nextUrl.searchParams.get('type') ?? ''
   const status = req.nextUrl.searchParams.get('status') ?? 'existing'
+  const mine   = req.nextUrl.searchParams.get('mine') === '1'
+  // A session with no user row owns nothing. Without this, `owner_user_id:
+  // undefined` would drop the predicate and return every party.
+  if (mine && !user.userId) return NextResponse.json([])
   try {
     const data = await prisma.companies.findMany({
       where: {
         tenant_id: getTenantId(),
         is_active: true,
+        ...(mine ? { owner_user_id: user.userId } : {}),
         ...(type ? { type } : {}),
         ...(status === 'all'
           ? {}

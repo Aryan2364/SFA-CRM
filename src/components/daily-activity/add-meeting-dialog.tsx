@@ -337,8 +337,9 @@ export function AddMeetingDialog({
 
     setEntLoading(true)
     // One list. No stage filter, no type filter — F6 removed both
-    // questions, so the form offers every active party at once.
-    fetch('/api/business-partners?status=all')
+    // questions, so the form offers every active party at once. `mine=1`:
+    // only the caller's own (Daily Activity is for entering your own work).
+    fetch('/api/business-partners?status=all&mine=1')
       .then(r => (r.ok ? r.json() : []))
       .then((d: Entity[]) => { setEntities(Array.isArray(d) ? d : []); setEntLoading(false) })
       .catch(() => { setEntLoading(false); toast('Failed to load leads', 'error') })
@@ -357,7 +358,8 @@ export function AddMeetingDialog({
   }, [open])
 
   /*
-   * Every active contact — the people half of the one picker.
+   * Every active contact the caller owns (`mine=1`) — the people half of
+   * the one picker.
    *
    * `/api/contacts` enforces `contacts:view` and the caller's data scope
    * itself. A rep who may log meetings but may not read the contact book gets
@@ -375,7 +377,7 @@ export function AddMeetingDialog({
     if (!open) { setPeopleLoad({ state: 'ready', contacts: [] }); return }
     let live = true
     setPeopleLoad({ state: 'loading' })
-    fetch('/api/contacts', { signal: AbortSignal.timeout(CONTACTS_TIMEOUT_MS) })
+    fetch('/api/contacts?mine=1', { signal: AbortSignal.timeout(CONTACTS_TIMEOUT_MS) })
       .then(async r => {
         if (!live) return
         if (r.status === 403) { setPeopleLoad({ state: 'forbidden' }); return }
@@ -692,10 +694,15 @@ export function AddMeetingDialog({
                   </div>
                 ) : (
                   /* Kit §2.3 — helper text is `text-muted`. */
+                  /* The list holds only the caller's own parties (`mine=1`),
+                     so "none" is a normal state for a new rep, and the way
+                     forward is the Create new lead action beside the label. */
                   <p className="text-meta text-text-muted">
-                    {people.length > 0
-                      ? 'Pick the company, or the person you met.'
-                      : 'Pick the company you met.'}
+                    {entities.length === 0 && people.length === 0
+                      ? 'You have no leads or companies of your own yet. Use Create new lead to add the one you met.'
+                      : people.length > 0
+                        ? 'Pick your company, or the person you met.'
+                        : 'Pick the company you met.'}
                   </p>
                 )}
               </div>

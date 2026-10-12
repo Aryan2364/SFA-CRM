@@ -35,10 +35,17 @@ export async function GET(req: NextRequest) {
   const active = req.nextUrl.searchParams.get('active') ?? ''
   const tid = getTenantId()
   // §6.6, same as companies — a Contact scopes on `owner_user_id` too.
-  const ids = intersectScope(
-    await scopedUserIds(user, 'contacts'),
-    req.nextUrl.searchParams.get('userId')
-  )
+  // `?mine=1` narrows to the caller's own contacts whatever the role's scope:
+  // the Daily Activity meeting form sends it, matching `?mine=1` on
+  // `/api/business-partners` (Daily Activity is for entering your own work).
+  const mine = req.nextUrl.searchParams.get('mine') === '1'
+  if (mine && !user.userId) return NextResponse.json([])
+  const ids = mine
+    ? [user.userId!]
+    : intersectScope(
+        await scopedUserIds(user, 'contacts'),
+        req.nextUrl.searchParams.get('userId')
+      )
 
   try {
     const rows = await prisma.contacts.findMany({
