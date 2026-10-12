@@ -307,7 +307,7 @@ function FollowUpRow({
               <Badge variant="primary">Next up</Badge>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              The earliest open follow-up — this is the one shown on the Deals list.
+              The earliest open follow-up — this is the one shown on the Opportunities list.
             </TooltipContent>
           </Tooltip>
         )}
@@ -322,7 +322,7 @@ function FollowUpRow({
         <div className="ml-auto flex items-center gap-1">
           <PermissionTooltip
             allowed={canEdit}
-            reason="Only someone who can edit deals can complete a follow-up."
+            reason="Only someone who can edit opportunities can complete a follow-up."
           >
             <Button
               variant={done ? 'ghost' : 'secondary'}
@@ -337,7 +337,7 @@ function FollowUpRow({
 
           <PermissionTooltip
             allowed={canEdit}
-            reason="Only someone who can edit deals can change a follow-up."
+            reason="Only someone who can edit opportunities can change a follow-up."
           >
             <Button
               variant="in-field"
@@ -352,7 +352,7 @@ function FollowUpRow({
 
           <PermissionTooltip
             allowed={canDelete}
-            reason="Only someone who can delete deals can remove a follow-up."
+            reason="Only someone who can delete opportunities can remove a follow-up."
           >
             <Button
               variant="in-field"
@@ -657,7 +657,7 @@ export function FollowUpsSection({
           </CardTitle>
           <PermissionTooltip
             allowed={canEdit}
-            reason="Only someone who can edit deals can add a follow-up."
+            reason="Only someone who can edit opportunities can add a follow-up."
           >
             <Button size="sm" disabled={!canEdit} onClick={openAdd}>
               <PlusIcon />
@@ -669,9 +669,9 @@ export function FollowUpsSection({
         <CardContent>
           {sorted.length === 0 ? (
             <p className="text-body text-text-secondary">
-              No follow-ups yet. A follow-up records what is due next on this deal —
+              No follow-ups yet. A follow-up records what is due next on this opportunity —
               a meeting, a call, an email — and the earliest open one is what shows
-              on the Deals list.
+              on the Opportunities list.
             </p>
           ) : (
             <ul className="flex flex-col divide-y divide-border-light">
@@ -702,8 +702,8 @@ export function FollowUpsSection({
             </DialogTitle>
             <DialogDescription>
               {editing === 'new'
-                ? 'The date and the mode are required. The earliest open follow-up is the one shown on the Deals list.'
-                : `Due ${fmtDate(editingRow?.due_date ?? null)}. Changing the date can change which follow-up the Deals list shows.`}
+                ? 'The date and the mode are required. The earliest open follow-up is the one shown on the Opportunities list.'
+                : `Due ${fmtDate(editingRow?.due_date ?? null)}. Changing the date can change which follow-up the Opportunities list shows.`}
             </DialogDescription>
           </DialogHeader>
 

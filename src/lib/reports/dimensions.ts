@@ -376,9 +376,9 @@ const DIMENSION_LIST: DimensionDef[] = [
   },
 
   // ── Deal (§7.2) ─────────────────────────────────────────────────────────
-  { key: 'deal_stage', label: 'Deal Stage', sort: 'value', on: { deals: related('deal_stages', 'No stage') } },
+  { key: 'deal_stage', label: 'Opportunity Stage', sort: 'value', on: { deals: related('deal_stages', 'No stage') } },
   { key: 'reason_for_loss', label: 'Reason for Loss', sort: 'value', on: { deals: related('reason_for_loss', 'No reason recorded') } },
-  { key: 'deal_source', label: 'Deal Source', sort: 'value', on: { deals: plain(['source'], 'No source') } },
+  { key: 'deal_source', label: 'Opportunity Source', sort: 'value', on: { deals: plain(['source'], 'No source') } },
   { key: 'deal_outcome', label: 'Won / Lost', sort: 'value', on: { deals: plain(['outcome'], 'Open') } },
   {
     key: 'probability_band',

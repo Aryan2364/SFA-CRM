@@ -143,32 +143,32 @@ export const MEASURES = {
 
   // ── Deals ───────────────────────────────────────────────────────────────
   deal_count: {
-    key: 'deal_count', label: 'Number of Deals', source: 'deals',
+    key: 'deal_count', label: 'Number of Opportunities', source: 'deals',
     kind: 'count', format: 'number',
   },
   deal_expected_value: {
-    key: 'deal_expected_value', label: 'Deal Expected Value', source: 'deals',
+    key: 'deal_expected_value', label: 'Opportunity Expected Value', source: 'deals',
     kind: 'sum', format: 'amount',
     select: { expected_value: true }, value: col('expected_value'),
   },
   weighted_deal_value: {
-    key: 'weighted_deal_value', label: 'Weighted Deal Value', source: 'deals',
+    key: 'weighted_deal_value', label: 'Weighted Opportunity Value', source: 'deals',
     kind: 'sum', format: 'amount',
     select: { expected_value: true, probability: true },
     value: row => D(readPath(row, ['expected_value'])).mul(D(readPath(row, ['probability']))).div(100),
   },
   deals_won: {
-    key: 'deals_won', label: 'Deals Won', source: 'deals',
+    key: 'deals_won', label: 'Opportunities Won', source: 'deals',
     kind: 'count', format: 'number',
     where: { outcome: 'won' },
   },
   deals_lost: {
-    key: 'deals_lost', label: 'Deals Lost', source: 'deals',
+    key: 'deals_lost', label: 'Opportunities Lost', source: 'deals',
     kind: 'count', format: 'number',
     where: { outcome: 'lost' },
   },
   won_value: {
-    key: 'won_value', label: 'Won Deal Value', source: 'deals',
+    key: 'won_value', label: 'Won Opportunity Value', source: 'deals',
     kind: 'sum', format: 'amount',
     where: { outcome: 'won' },
     select: { expected_value: true }, value: col('expected_value'),

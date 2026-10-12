@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (outcome === 'lost' && !reason_for_loss_id) {
     return NextResponse.json(
-      { error: 'A Reason for Loss is required when a deal is marked lost' },
+      { error: 'A Reason for Loss is required when an opportunity is marked lost' },
       { status: 400 }
     )
   }
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         where: { id: deal_stage_id, tenant_id: tid },
         select: { id: true },
       })
-      if (!stage) return NextResponse.json({ error: 'Unknown deal stage' }, { status: 400 })
+      if (!stage) return NextResponse.json({ error: 'Unknown opportunity stage' }, { status: 400 })
 
       // The stage a closing Deal lands in must be one the admin marked Closed
       // in the Lead Stages master — that setting is the whole meaning of
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const type = await readStageType(tid, stage.id)
         if (type !== 'Closed') {
           return NextResponse.json(
-            { error: 'A deal being closed must move to a stage marked Closed in the Lead Stages master' },
+            { error: 'An opportunity being closed must move to a stage marked Closed in the Lead Stages master' },
             { status: 400 }
           )
         }

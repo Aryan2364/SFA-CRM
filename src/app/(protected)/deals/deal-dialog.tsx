@@ -195,7 +195,7 @@ export function DealDialog({
    */
   function validate(): boolean {
     const next: Record<string, string> = {}
-    if (!form.name.trim()) next.name = 'Enter a name for this deal.'
+    if (!form.name.trim()) next.name = 'Enter a name for this opportunity.'
 
     if (form.expected_value.trim()) {
       const value = Number(form.expected_value)
@@ -250,8 +250,8 @@ export function DealDialog({
         form:
           data.error ??
           (res.status === 403
-            ? 'Only someone who can create deals can save this. Ask an administrator for access.'
-            : 'Could not save this deal.'),
+            ? 'Only someone who can create opportunities can save this. Ask an administrator for access.'
+            : 'Could not save this opportunity.'),
       })
       return
     }
@@ -270,9 +270,9 @@ export function DealDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>Create deal</DialogTitle>
+          <DialogTitle>Create opportunity</DialogTitle>
           <DialogDescription>
-            Only the deal name is required. A deal can be linked to a company, a
+            Only the opportunity name is required. An opportunity can be linked to a company, a
             contact, or neither — everything else can be filled in later.
           </DialogDescription>
         </DialogHeader>
@@ -285,7 +285,7 @@ export function DealDialog({
         */}
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12 sm:col-span-6">
-            <Label htmlFor="dd-name" required>Deal name</Label>
+            <Label htmlFor="dd-name" required>Opportunity name</Label>
             <Input
               id="dd-name"
               className="mt-1.5"
@@ -408,7 +408,7 @@ export function DealDialog({
               className="mt-1.5"
               value={form.source}
               onChange={e => set('source')(e.target.value)}
-              placeholder="Where this deal came from"
+              placeholder="Where this opportunity came from"
             />
           </div>
 
@@ -438,7 +438,7 @@ export function DealDialog({
         <DialogFooter>
           <DialogClose render={<Button variant="secondary">Cancel</Button>} />
           <Button onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Create deal'}
+            {saving ? 'Saving…' : 'Create opportunity'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -107,7 +107,7 @@ export const SOURCES = {
   },
   deals: {
     key: 'deals',
-    label: 'Deals',
+    label: 'Opportunities',
     model: 'deals',
     section: 'deals',
     // ⚠️ Party-side tables scope on owner_user_id, not user_id.

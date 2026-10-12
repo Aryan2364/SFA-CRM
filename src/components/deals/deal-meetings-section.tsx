@@ -76,7 +76,7 @@ export function DealMeetingsSection({ dealId }: { dealId: string }) {
         <CardTitle>
           Meetings
           <span className="ml-2 text-label font-normal text-text-secondary">
-            {meetings.length === 1 ? 'one meeting' : `${meetings.length} meetings`} on this deal
+            {meetings.length === 1 ? 'one meeting' : `${meetings.length} meetings`} on this opportunity
           </span>
         </CardTitle>
       </CardHeader>

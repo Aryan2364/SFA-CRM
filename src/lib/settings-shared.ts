@@ -62,7 +62,7 @@ export const TENANT_SETTINGS_LIMITS = Object.freeze({
 const FIELD_LABELS: Record<keyof TenantSettings, string> = {
   auto_checkout_minutes: 'Auto check-out time',
   location_flag_threshold_m: 'Location flag distance',
-  deal_stage_ageing_days: 'Deal stage ageing',
+  deal_stage_ageing_days: 'Opportunity stage ageing',
 }
 
 export type ValidationResult =

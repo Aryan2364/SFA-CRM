@@ -865,7 +865,7 @@ function SummaryTab({ userId, initialDate }: { userId: string; initialDate?: str
           </SummarySection>
 
           {/* Deal movement */}
-          <SummarySection title="Deal movement">
+          <SummarySection title="Opportunity movement">
             <div className="grid grid-cols-3 gap-2">
               <Figure label="Stages moved" value={String(summary.deals.stagesMoved)} />
               <Figure label="Won" value={String(summary.deals.won)} />

@@ -31,12 +31,12 @@ type StageType = 'Open' | 'Closed'
 const TYPE_CHOICES: { value: StageType; label: string; help: string }[] = [
   {
     value: 'Open',
-    label: 'Open — the deal is still running',
-    help: 'A deal in this stage is still in play, and can move on to another stage.',
+    label: 'Open — the opportunity is still running',
+    help: 'An opportunity in this stage is still in play, and can move on to another stage.',
   },
   {
     value: 'Closed',
-    label: 'Closed — the deal ends here',
+    label: 'Closed — the opportunity ends here',
     help: 'Nothing comes after this stage. Use it for outcomes such as Won and Lost.',
   },
 ]

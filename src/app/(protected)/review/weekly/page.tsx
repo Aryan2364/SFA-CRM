@@ -308,15 +308,15 @@ export default function WeeklyReviewPage() {
             <Card>
               <CardHeader><CardTitle>Funnel movement</CardTitle></CardHeader>
               <CardContent className="py-4">
-                <p className="mb-3 text-caption text-text-secondary">{fmtNumber(data.funnel.movedForward)} deals moved forward this week</p>
+                <p className="mb-3 text-caption text-text-secondary">{fmtNumber(data.funnel.movedForward)} opportunities moved forward this week</p>
                 {data.funnel.byStage.length > 0 ? (
                   <CategoryBarChart
                     data={data.funnel.byStage}
                     category={s => s.stage}
-                    series={[{ label: 'Deals', value: s => s.count, format: s => fmtNumber(s.count) }]}
+                    series={[{ label: 'Opportunities', value: s => s.count, format: s => fmtNumber(s.count) }]}
                   />
                 ) : (
-                  <p className="text-body text-text-secondary">No active deals owned by this user.</p>
+                  <p className="text-body text-text-secondary">No active opportunities owned by this user.</p>
                 )}
               </CardContent>
             </Card>

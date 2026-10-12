@@ -87,7 +87,7 @@ const MOVE_TIMEOUT_MS = 15000
  * hunting for a company name the query never reads.
  */
 const SEARCH_HINT =
-  'Searches the deal name. Owner, stage, company and expected closing month are filters.'
+  'Searches the opportunity name. Owner, stage, company and expected closing month are filters.'
 
 /**
  * Local midnight today. The follow-up comparison is date-only on both sides:
@@ -147,7 +147,7 @@ function dealColumns(onView: (id: string) => void, ageingLimit: number): ListCol
   return [
     {
       id: 'name',
-      header: 'Deal',
+      header: 'Opportunity',
       truncate: true,
       cellClassName: 'font-medium text-text-primary',
       skeletonWidth: 'w-40',
@@ -784,9 +784,9 @@ function DealsScreen() {
     {
       id: 'no-follow-up',
       count: totals?.noFollowUp ?? 0,
-      title: `${totals?.noFollowUp ?? 0} ${(totals?.noFollowUp ?? 0) === 1 ? 'deal has' : 'deals have'} no open follow-up`,
+      title: `${totals?.noFollowUp ?? 0} ${(totals?.noFollowUp ?? 0) === 1 ? 'opportunity has' : 'opportunities have'} no open follow-up`,
       detail: 'Missing a next follow-up date — nothing is scheduled to move these forward.',
-      actionLabel: 'View deals with no follow-up',
+      actionLabel: 'View opportunities with no follow-up',
       active: onlyNoFollowUp,
       onAction: () => { setOnlyNoFollowUp(true); setRefreshKey(k => k + 1) },
     },
@@ -831,7 +831,7 @@ function DealsScreen() {
             <PipelineStrip totals={totals} />
             {onlyNoFollowUp ? (
               <QuickFilterChip
-                label="Showing Deals without a follow-up only"
+                label="Showing opportunities without a follow-up only"
                 onClear={() => { setOnlyNoFollowUp(false); setRefreshKey(k => k + 1) }}
               />
             ) : null}
@@ -862,14 +862,14 @@ function DealsScreen() {
          */
         action={
           <div className="flex items-center gap-2">
-            <DataHealthAlerts alerts={healthAlerts} label="Deal data health" />
+            <DataHealthAlerts alerts={healthAlerts} label="Opportunity data health" />
             <PermissionTooltip
               allowed={!permissionsKnown || canCreate}
-              reason="Only someone who can create deals can add one."
+              reason="Only someone who can create opportunities can add one."
             >
               <Button disabled={!canCreate} onClick={() => setCreateOpen(true)}>
                 <PlusIcon />
-                Create deal
+                Create opportunity
               </Button>
             </PermissionTooltip>
           </div>
@@ -884,8 +884,8 @@ function DealsScreen() {
             </p>
           ) : undefined
         }
-        title="Deals"
-        noun={{ one: 'deal', many: 'deals' }}
+        title="Opportunities"
+        noun={{ one: 'opportunity', many: 'opportunities' }}
         columns={dealColumns(id => router.push(`/deals/${id}`), DEFAULT_STAGE_AGEING_DAYS)}
         rowKey={deal => deal.id}
         filters={filters}
@@ -917,22 +917,22 @@ function DealsScreen() {
                   )}
                   onMove={handleMove}
                   onOpenCard={id => router.push(`/deals/${id}`)}
-                  emptyColumnLabel="No deals in this stage"
+                  emptyColumnLabel="No opportunities in this stage"
                 />
               )
             : undefined
         }
-        searchPlaceholder="Search deals"
+        searchPlaceholder="Search opportunities"
         searchHint={SEARCH_HINT}
         emptyYet={{
-          heading: 'No deals yet',
+          heading: 'No opportunities yet',
           body: 'Every opportunity being worked — its stage, what it is worth and when it is expected to close — is listed here.',
           /* Section 13: "nothing yet" offers a primary create. It is left
              off for a user who may not create — an empty state's button
              cannot carry section 26's reason, and section 26's first rule is
              that no control may fail after being clicked. The header button
              above is where that user reads why. */
-          actionLabel: canCreate ? 'Create deal' : undefined,
+          actionLabel: canCreate ? 'Create opportunity' : undefined,
           onAction: canCreate ? () => setCreateOpen(true) : undefined,
         }}
       />
@@ -950,7 +950,7 @@ function DealsScreen() {
          * page going away and coming back.
          */
         onCreated={deal => {
-          toast(`Deal "${deal.name}" created`)
+          toast(`Opportunity "${deal.name}" created`)
           setRefreshKey(k => k + 1)
         }}
       />

@@ -242,9 +242,9 @@ export default function SystemSettingsPage() {
 
             {/* Deal stage ageing */}
             <div className="rounded-xl border border-border-light bg-surface p-4">
-              <Label htmlFor="deal-ageing">Deal stage ageing (days)</Label>
+              <Label htmlFor="deal-ageing">Opportunity stage ageing (days)</Label>
               <p className="mt-1 mb-2 text-label text-text-secondary">
-                A deal sitting in the same stage for longer than this reads as
+                An opportunity sitting in the same stage for longer than this reads as
                 ageing on the pipeline.
               </p>
               <div className="w-40">

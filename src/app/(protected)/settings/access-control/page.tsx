@@ -222,7 +222,7 @@ const OPERATION_ROWS: Record<OperationSection, OperationRow> = {
      and scoped by `src/lib/scope.ts`; none was grantable before. */
   companies:   { label: 'Companies',      group: 'parties_pipeline', isOperation: true },
   contacts:    { label: 'Contacts',       group: 'parties_pipeline', isOperation: true },
-  deals:       { label: 'Deals',          group: 'parties_pipeline', isOperation: true },
+  deals:       { label: 'Opportunities',  group: 'parties_pipeline', isOperation: true },
 
   system_settings: { label: 'System Settings', group: 'configuration', isOperation: false },
 }

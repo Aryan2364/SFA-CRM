@@ -79,7 +79,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key)
 
   if (has('name') && !body.name?.trim()) {
-    return NextResponse.json({ error: 'Deal name is required' }, { status: 400 })
+    return NextResponse.json({ error: 'Opportunity name is required' }, { status: 400 })
   }
   const bad = checkProbability(has('probability') ? body.probability : undefined)
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })

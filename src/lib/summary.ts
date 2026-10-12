@@ -335,7 +335,7 @@ export async function buildDailySummary(
 
   const movements = stageLogs.map(l => ({
     dealId: l.deal_id,
-    dealName: dealNameById.get(l.deal_id) ?? 'Unknown deal',
+    dealName: dealNameById.get(l.deal_id) ?? 'Unknown opportunity',
     fromStage: l.from_stage_id ? stageNameById.get(l.from_stage_id) ?? null : null,
     toStage: l.to_stage_id ? stageNameById.get(l.to_stage_id) ?? 'Unknown stage' : 'Unknown stage',
   }))
@@ -436,7 +436,7 @@ export async function buildDailySummary(
         .map(f => ({
           id: f.id,
           dealId: f.deal_id,
-          dealName: f.deals?.name ?? 'Unknown deal',
+          dealName: f.deals?.name ?? 'Unknown opportunity',
           mode: f.mode,
           notes: f.notes,
         })),

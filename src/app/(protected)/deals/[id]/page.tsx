@@ -340,11 +340,11 @@ export default function DealDetailPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink render={<Link href="/deals" />}>Deals</BreadcrumbLink>
+            <BreadcrumbLink render={<Link href="/deals" />}>Opportunities</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{deal?.name ?? 'Deal'}</BreadcrumbPage>
+            <BreadcrumbPage>{deal?.name ?? 'Opportunity'}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -356,29 +356,29 @@ export default function DealDetailPage() {
           {error === 'not-found' && (
             <EmptyState
               variant="failed"
-              heading="This deal is not here"
-              actionLabel="Go to Deals"
+              heading="This opportunity is not here"
+              actionLabel="Go to Opportunities"
               onAction={() => router.push('/deals')}
             >
               It may have been deleted, or it may belong to someone whose records
-              you cannot see. The Deals list shows everything you can open.
+              you cannot see. The Opportunities list shows everything you can open.
             </EmptyState>
           )}
           {error === 'forbidden' && (
             <EmptyState
               variant="failed"
-              heading="You cannot open deals"
-              actionLabel="Go to Deals"
+              heading="You cannot open opportunities"
+              actionLabel="Go to Opportunities"
               onAction={() => router.push('/deals')}
             >
-              Your role does not include viewing deals. An administrator can
+              Your role does not include viewing opportunities. An administrator can
               change that under Settings, Access Control.
             </EmptyState>
           )}
           {error === 'failed' && (
             <EmptyState
               variant="failed"
-              heading="The deal could not be loaded"
+              heading="The opportunity could not be loaded"
               onAction={() => void load()}
             >
               The connection dropped while fetching it. Nothing has changed.

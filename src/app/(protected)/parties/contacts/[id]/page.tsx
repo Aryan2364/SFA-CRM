@@ -487,7 +487,7 @@ function CompaniesCard({ companies }: { companies: LinkedCompany[] }) {
         <EmptyState variant="nothing-yet" heading="No company linked">
           A contact does not have to belong to a company — §3.4 makes the link
           optional — but linking one is what puts this person on that company&apos;s
-          page and lets a deal find them.
+          page and lets an opportunity find them.
         </EmptyState>
       ) : (
         <ul className="divide-y divide-border-light">

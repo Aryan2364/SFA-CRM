@@ -55,7 +55,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       select: { id: true },
     })
     if (!stage) {
-      return NextResponse.json({ error: 'Unknown deal stage' }, { status: 400 })
+      return NextResponse.json({ error: 'Unknown opportunity stage' }, { status: 400 })
     }
 
     // A drop back onto the column the card came from is a no-op, not a log

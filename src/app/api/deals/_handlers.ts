@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     product_id, product_category_id, source, remarks,
   } = body
 
-  if (!name?.trim()) return NextResponse.json({ error: 'Deal name is required' }, { status: 400 })
+  if (!name?.trim()) return NextResponse.json({ error: 'Opportunity name is required' }, { status: 400 })
 
   // Validated in the route AND in the database. The CHECK is what makes the
   // rule true; this is what makes it a sentence the user can read instead of a

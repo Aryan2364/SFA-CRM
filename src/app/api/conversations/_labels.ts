@@ -24,7 +24,7 @@ export const CONTEXT_LABELS: Record<ContextType, string> = {
   expense: 'Expense',
   weekly_plan: 'Weekly plan',
   weekly_plan_day: 'Weekly plan day',
-  deal: 'Deal note',
+  deal: 'Opportunity note',
   order: 'Order note',
   daily_summary: 'Daily Summary',
   weekly_summary: 'Weekly Summary',

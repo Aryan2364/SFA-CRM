@@ -71,23 +71,23 @@ export const PRESETS: ReportPreset[] = [
   {
     key: 'pipeline_summary',
     name: 'Pipeline Summary',
-    description: 'How much value sits at each Deal Stage, and how many Deals.',
+    description: 'How much value sits at each Opportunity Stage, and how many Opportunities.',
     spec: { measure: 'deal_expected_value', dimensions: ['deal_stage'] },
     companions: [
-      { name: 'Number of Deals', spec: { measure: 'deal_count', dimensions: ['deal_stage'] } },
+      { name: 'Number of Opportunities', spec: { measure: 'deal_count', dimensions: ['deal_stage'] } },
       { name: 'Weighted value', spec: { measure: 'weighted_deal_value', dimensions: ['deal_stage'] } },
     ],
   },
   {
     key: 'reason_for_loss',
     name: 'Reason for Loss Analysis',
-    description: 'Why Deals are dying, ranked. Reads the Reason for Loss master.',
+    description: 'Why Opportunities are dying, ranked. Reads the Reason for Loss master.',
     spec: { measure: 'deal_count', dimensions: ['reason_for_loss'], filters: { deal_outcome: 'lost' } },
   },
   {
     key: 'deal_ageing',
-    name: 'Deal Ageing',
-    description: 'Deals stuck too long at one stage, by ageing band.',
+    name: 'Opportunity Ageing',
+    description: 'Opportunities stuck too long at one stage, by ageing band.',
     // §7.4 says "oldest first". The bands come back in their KEY order, and the
     // keys are compared as text, so "8-14" sorts after "60+". Read the band
     // labels, not the row order, until the engine sorts a band dimension by the
@@ -160,7 +160,7 @@ export const PRESETS: ReportPreset[] = [
 export const HEADLINE_SPECS: { key: string; label: string; spec: PresetSpec }[] = [
   { key: 'order_value', label: 'Order Value', spec: { measure: 'order_amount', dimensions: ['time_month'] } },
   { key: 'meetings', label: 'Meetings', spec: { measure: 'meeting_count', dimensions: ['time_month'] } },
-  { key: 'deals_won', label: 'Deals Won', spec: { measure: 'deals_won', dimensions: ['time_month'] } },
+  { key: 'deals_won', label: 'Opportunities Won', spec: { measure: 'deals_won', dimensions: ['time_month'] } },
   { key: 'expense', label: 'Expense', spec: { measure: 'expense_amount', dimensions: ['time_month'] } },
 ]
 

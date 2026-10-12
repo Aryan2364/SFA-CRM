@@ -191,7 +191,7 @@ export const NAV_ITEMS: NavItem[] = [
      * reads on the server, so the entry appears exactly when
      * `GET /api/deals` would answer rather than 403.
      */
-    label: 'Deals',
+    label: 'Opportunities',
     href: '/deals',
     icon: Handshake,
     visible: me => canView(me, 'deals'),

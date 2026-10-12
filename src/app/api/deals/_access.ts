@@ -61,7 +61,7 @@ export function foreignDealRef(
       find: id => prisma.companies.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
     { value: body.contact_id, label: 'Contact',
       find: id => prisma.contacts.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
-    { value: body.deal_stage_id, label: 'Deal stage',
+    { value: body.deal_stage_id, label: 'Opportunity stage',
       find: id => prisma.deal_stages.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
     { value: body.product_id, label: 'Product',
       find: id => prisma.products.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },

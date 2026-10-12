@@ -64,7 +64,7 @@ export function NewDealDialog({
 
   async function save() {
     if (!name.trim()) {
-      toast('Give the deal a name', 'error')
+      toast('Give the opportunity a name', 'error')
       return
     }
     setSaving(true)
@@ -81,12 +81,12 @@ export function NewDealDialog({
     })
     if (!r.ok) {
       const err = await r.json().catch(() => ({}))
-      toast(err.error ?? 'Could not create the deal', 'error')
+      toast(err.error ?? 'Could not create the opportunity', 'error')
       setSaving(false)
       return
     }
     setSaving(false)
-    toast('Deal created')
+    toast('Opportunity created')
     onCreated()
     onClose()
   }
@@ -95,13 +95,13 @@ export function NewDealDialog({
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>New deal</DialogTitle>
+          <DialogTitle>New opportunity</DialogTitle>
           <DialogDescription>At {companyName}</DialogDescription>
         </DialogHeader>
 
         <DialogBody className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="new-deal-name">Deal name</Label>
+            <Label htmlFor="new-deal-name">Opportunity name</Label>
             <Input
               id="new-deal-name"
               className="text-base sm:text-body"
@@ -163,7 +163,7 @@ export function NewDealDialog({
         <DialogFooter>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={save} disabled={saving}>
-            {saving ? 'Creating…' : 'Create deal'}
+            {saving ? 'Creating…' : 'Create opportunity'}
           </Button>
         </DialogFooter>
       </DialogContent>

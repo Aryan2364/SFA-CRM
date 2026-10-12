@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
 
     const stageText = v('Stage')
     const stage = stageText ? stageByLower.get(stageText.toLowerCase()) : 'Prospect'
-    if (stage === undefined) error('Stage', `Stage "${stageText}" is not in the Deal Stages master`)
+    if (stage === undefined) error('Stage', `Stage "${stageText}" is not in the Lead Stages master`)
 
     const tempText = v('Temperature')
     const temperature = tempText ? TEMPERATURES.find(t => t.toLowerCase() === tempText.toLowerCase()) : null

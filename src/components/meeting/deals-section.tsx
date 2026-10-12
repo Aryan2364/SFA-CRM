@@ -146,7 +146,7 @@ export function DealsSection({
     <Card>
       <CardHeader>
         <CardTitle>
-          Open deals
+          Open opportunities
           {visible && openDealCount > 0 ? (
             <span className="ml-2 text-label font-normal text-text-secondary">
               {discussed.size} marked discussed
@@ -157,7 +157,7 @@ export function DealsSection({
           {canCreateDeal && companyId ? (
             <Button size="sm" variant="secondary" onClick={onCreate}>
               <PlusIcon />
-              New deal
+              New opportunity
             </Button>
           ) : null}
         </CardAction>
@@ -166,19 +166,19 @@ export function DealsSection({
       <CardContent className="flex flex-col gap-3">
         {!visible ? (
           <p className="py-6 text-center text-body text-text-secondary">
-            Deals are not part of your access. Ask an administrator if you need
+            Opportunities are not part of your access. Ask an administrator if you need
             to see this company&rsquo;s pipeline.
           </p>
         ) : !companyId ? (
           <p className="py-6 text-center text-body text-text-secondary">
             This meeting is not linked to a saved company, so there is no
-            pipeline to show. Save the party as a record to track deals against
+            pipeline to show. Save the party as a record to track opportunities against
             it.
           </p>
         ) : deals.length === 0 ? (
           <p className="py-6 text-center text-body text-text-secondary">
-            No open deals at {companyName}.
-            {canCreateDeal ? ' Start one from this meeting with New deal.' : ''}
+            No open opportunities at {companyName}.
+            {canCreateDeal ? ' Start one from this meeting with New opportunity.' : ''}
           </p>
         ) : (
           <>
@@ -257,7 +257,7 @@ export function DealsSection({
             </ul>
             {hidden > 0 ? (
               <p className="text-label text-text-secondary">
-                Showing {deals.length} of {openDealCount} open deals.{' '}
+                Showing {deals.length} of {openDealCount} open opportunities.{' '}
                 <Link
                   href={`/deals?companyId=${companyId}`}
                   className="text-text-primary underline underline-offset-2"

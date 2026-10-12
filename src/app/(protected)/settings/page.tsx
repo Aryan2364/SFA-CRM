@@ -46,7 +46,7 @@ const SETTINGS = [
     icon: SlidersHorizontalIcon,
     title: 'System Settings',
     description:
-      'Auto check-out, the meeting location flag, and deal stage ageing.',
+      'Auto check-out, the meeting location flag, and opportunity stage ageing.',
     visible: (me: Me | null) => me?.permissions?.system_settings?.view ?? false,
   },
 ]

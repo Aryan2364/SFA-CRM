@@ -667,9 +667,9 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     {
       id: 'no-deal',
       count: noDealCount,
-      title: `${noDealCount} ${noDealCount === 1 ? 'lead has' : 'leads have'} no deal`,
+      title: `${noDealCount} ${noDealCount === 1 ? 'lead has' : 'leads have'} no opportunity`,
       detail: 'Nothing in the pipeline is tied to these leads yet.',
-      actionLabel: 'View leads with no deal',
+      actionLabel: 'View leads with no opportunity',
       active: onlyNoDeal,
       onAction: () => { setOnlyNoDeal(true); setRefreshKey(k => k + 1) },
     },
@@ -691,7 +691,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
       )}
       {onlyNoDeal && (
         <QuickFilterChip
-          label="Showing leads without a deal"
+          label="Showing leads without an opportunity"
           onClear={() => { setOnlyNoDeal(false); setRefreshKey(k => k + 1) }}
         />
       )}
