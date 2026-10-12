@@ -158,6 +158,7 @@ const BATCH_FILES = {
     'src/app/api/business-partners/route.ts',
     'src/app/api/daily-activity/route.ts',
     'src/app/api/daily-activity/[id]/route.ts',
+    'src/app/api/daily-activity/[id]/history/route.ts',
     'src/app/api/daily-activity/calendar/route.ts',
     'src/app/api/attendance/route.ts',
     'src/app/api/attendance/check-in/route.ts',

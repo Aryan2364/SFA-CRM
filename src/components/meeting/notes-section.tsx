@@ -78,7 +78,7 @@ export function NotesSection({
   const options = Object.fromEntries(
     targets.map(t => [
       t.id,
-      t.kind === 'meeting' ? t.label : `${t.kind === 'deal' ? 'Deal' : 'Order'} · ${t.label}`,
+      t.kind === 'meeting' ? t.label : `${t.kind === 'deal' ? 'Opportunity' : 'Order'} · ${t.label}`,
     ])
   )
 
@@ -148,29 +148,33 @@ export function NotesSection({
 
   return (
     <Card>
-      <CardHeader className="flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-        <CardTitle className="flex items-center gap-2">
+      {/* Stacked at every width, never side by side: on desktop this card
+          lives in a one-third column, where a 256px picker beside the title
+          squeezed "Minutes of the meeting" onto three lines. The picker
+          takes the row under the title instead. */}
+      <CardHeader className="flex-col items-stretch gap-3">
+        <CardTitle className="flex items-center gap-2 whitespace-nowrap">
           Minutes of the meeting
           {linked ? (
             <Badge variant="primary" className="gap-1">
               <LinkIcon className="size-3" />
-              {target.kind === 'deal' ? 'Deal' : 'Order'}
+              {target.kind === 'deal' ? 'Opportunity' : 'Order'}
             </Badge>
           ) : null}
         </CardTitle>
         {targets.length > 1 ? (
-          <div className="flex items-center gap-2 sm:justify-end">
+          <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-label text-text-secondary">File under</span>
             {/* SearchableSelect: the list is the meeting plus every open Deal
                 plus every recent Order, which passes six on any busy party
                 (§16.3). It has no groups, so the KIND is carried in each
                 label — "Deal · …" — rather than in a heading above it. */}
             <SearchableSelect
-              className="w-full sm:w-64"
+              className="min-w-0 flex-1"
               options={options}
               value={target?.id ?? ''}
               onValueChange={setTargetId}
-              searchPlaceholder="Search deals and orders"
+              searchPlaceholder="Search opportunities and orders"
             />
           </div>
         ) : null}

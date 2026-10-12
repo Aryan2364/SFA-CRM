@@ -35,8 +35,9 @@
  * On a wide screen the notes column is sticky beside the record rather than
  * above it: §5.5 says minutes can be written "while the meeting is running",
  * which means they must be reachable while the user is reading the Deals, not
- * only after scrolling back up. On a phone it is one column and the notes come
- * first, because that is what somebody opens the screen to do.
+ * only after scrolling back up. On a phone it is one column: what was discussed
+ * last time first, then this meeting's notes, because reading the one and
+ * writing the other is what somebody opens the screen to do.
  *
  * ---------------------------------------------------------------------------
  * DELIBERATELY NOT BUILT HERE — P3-T11 is the cross-linking task. This page
@@ -67,6 +68,7 @@ import { DealsSection } from '@/components/meeting/deals-section'
 import { NewDealDialog } from '@/components/meeting/new-deal-dialog'
 import { NotesSection } from '@/components/meeting/notes-section'
 import { OrdersSection } from '@/components/meeting/orders-section'
+import { PreviousMeetingsSection } from '@/components/meeting/previous-meetings-section'
 import type {
   MeetingContext,
   MeetingDeal,
@@ -202,8 +204,15 @@ export default function MeetingPage() {
     <div className="flex flex-col gap-4">
       {/* Pinned. The negative margins pull it out to the scroll container's
           own padding so the bar spans the full width rather than floating
-          inside a gutter. */}
-      <header className="sticky top-0 z-20 -mx-6 -mt-6 flex flex-col gap-2 border-b border-border-light bg-surface px-6 py-4">
+          inside a gutter.
+
+          `-top-6`, not `top-0`: a sticky inset is measured from the scroll
+          container's CONTENT edge, which the shell's 24px `p-6` pushes 24px
+          down. With `top-0` the bar stopped 24px below the top bar and the
+          Deals and Orders scrolled visibly through that strip above it.
+          -24px cancels the padding, exactly as `-mt-6` does for the flow
+          position, so the bar pins flush against the top bar. */}
+      <header className="sticky -top-6 z-20 -mx-6 -mt-6 flex flex-col gap-2 border-b border-border-light bg-surface px-6 py-4">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -271,16 +280,26 @@ export default function MeetingPage() {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Notes first in the DOM so a phone reads them first, and moved to
-            the right on a wide screen where they stay in view. */}
-        <div className="lg:order-2 lg:col-span-1">
+      {/*
+        DOM order is the phone's reading order: what happened last time, then
+        this meeting's minutes, then Deals and Orders. On a wide screen the
+        grid places them explicitly — Previous meetings top-left above Deals,
+        the minutes in the right column spanning both rows so they stay sticky
+        beside everything on the left. The second row is `1fr` so the minutes'
+        height lands there, never as a gap under Previous meetings.
+      */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:grid-rows-[auto_1fr]">
+        <div className="lg:col-span-2 lg:col-start-1 lg:row-start-1">
+          <PreviousMeetingsSection visitId={visit.id} />
+        </div>
+
+        <div className="lg:col-start-3 lg:row-span-2 lg:row-start-1">
           <div className="lg:sticky lg:top-28">
             <NotesSection targets={noteTargets} canWrite={canWriteNotes} earlierNote={visit.notes} />
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 lg:order-1 lg:col-span-2">
+        <div className="flex flex-col gap-4 lg:col-span-2 lg:col-start-1 lg:row-start-2">
           <DealsSection
             visitId={visit.id}
             companyId={company?.id ?? null}
