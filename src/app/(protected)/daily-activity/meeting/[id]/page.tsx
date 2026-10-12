@@ -276,7 +276,7 @@ export default function MeetingPage() {
             the right on a wide screen where they stay in view. */}
         <div className="lg:order-2 lg:col-span-1">
           <div className="lg:sticky lg:top-28">
-            <NotesSection targets={noteTargets} canWrite={canWriteNotes} />
+            <NotesSection targets={noteTargets} canWrite={canWriteNotes} earlierNote={visit.notes} />
           </div>
         </div>
 

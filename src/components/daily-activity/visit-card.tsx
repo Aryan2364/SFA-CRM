@@ -7,15 +7,13 @@ import {
   HistoryIcon,
   MapIcon,
   MapPinIcon,
-  MessageSquareIcon,
-  PencilIcon,
+  NotebookPenIcon,
   Trash2Icon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
-import { Textarea } from '@/components/ui/textarea'
 import { Truncate } from '@/components/ui/truncate'
 import { MeetingToggle } from './meeting-toggle'
 import { formatDuration, formatTime, Visit } from './types'
@@ -31,7 +29,7 @@ import { formatDuration, formatTime, Visit } from './types'
  * SERVER decided on stop, not a box drawn in degrees in the browser.
  *
  * §5.3 rule 4: nothing on this card consults attendance. A completed
- * check-out does not disable the order button, the notes field or the
+ * check-out does not disable the order button, the minutes or the
  * delete action, and there is no `disabled` here that depends on the
  * working day being open.
  */
@@ -47,20 +45,19 @@ export function VisitCard({
   onStop,
   onDelete,
   onOrderEntry,
-  onRemarks,
-  onNotesUpdate,
+  onMinutes,
 }: {
   visit: Visit
   /** True when the list spans more than one person (Team/Company scope). */
   showOwner: boolean
   ownerName?: string | null
   /** The viewer's own meeting. A manager reads the team's day and does not
-   *  drive someone else's stopwatch, notes or delete, so on another
+   *  drive someone else's stopwatch or delete, so on another
    *  person's meeting those controls are not drawn at all. `null` while
    *  /me is loading (ownership not known yet): they are drawn, disabled
    *  with no reason, rather than hidden. */
   mine: boolean | null
-  /** Real permissions — meetings.edit (start, stop, notes), meetings.delete
+  /** Real permissions — meetings.edit (start, stop), meetings.delete
    *  and orders.create. `null` while they are still loading: the control is
    *  shown disabled with no reason, because "not known yet" is not "not
    *  allowed" (kit §26). `false` shows it disabled, saying who may. */
@@ -71,15 +68,11 @@ export function VisitCard({
   onStop: (id: string) => void | Promise<void>
   onDelete: (visit: Visit) => void
   onOrderEntry: (visit: Visit) => void
-  onRemarks: (visit: Visit) => void
-  onNotesUpdate: (id: string, notes: string) => Promise<void>
+  onMinutes: (visit: Visit) => void
 }) {
   // Ownership not known yet is the loading state too: disabled, no reason.
   const canEdit = mine === null ? null : canEditProp
   const canDelete = mine === null ? null : canDeleteProp
-  const [notesOpen, setNotesOpen] = useState(false)
-  const [notesText, setNotesText] = useState(visit.notes ?? '')
-  const [notesSaving, setNotesSaving] = useState(false)
   const [locationOpen, setLocationOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
 
@@ -215,31 +208,27 @@ export function VisitCard({
             </Button>
           </PermissionTooltip>
         )}
-        {mine !== false && visit.status === 'Completed' && (
-          <PermissionTooltip
-            allowed={canEdit !== false}
-            reason="Only someone who can edit meetings can write notes"
-          >
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setNotesOpen(o => !o)}
-              disabled={canEdit !== true}
-            >
-              <PencilIcon />
-              {visit.notes ? 'Notes ✓' : 'Notes'}
-            </Button>
-          </PermissionTooltip>
-        )}
+        {/*
+          ONE place for what was discussed. This row used to carry a Notes
+          button (Completed only, writing the single overwritable
+          `daily_visits.notes` column) AND a Remarks icon that opened the
+          meeting's `contextual_remarks` thread — which is the very thread the
+          meeting page calls Minutes of the meeting. Two names, two stores,
+          and the card's notes never showed inside the meeting. Both are now
+          this button, onto the thread, for every status: minutes can be
+          written while the meeting is running (§5.5). Older card notes are
+          shown read-only at the top of the thread, so none is hidden.
+        */}
+        <Button size="sm" variant="secondary" onClick={() => onMinutes(visit)}>
+          <NotebookPenIcon />
+          Minutes
+        </Button>
         {visit.latitude != null && (
           <Button size="sm" variant="secondary" onClick={() => setLocationOpen(o => !o)}>
             <MapPinIcon />
             Location
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={() => onRemarks(visit)} aria-label="Remarks">
-          <MessageSquareIcon />
-        </Button>
         {mine !== false && visit.status === 'Pending' && (
           <span className="ml-auto inline-flex">
             <PermissionTooltip
@@ -259,32 +248,6 @@ export function VisitCard({
           </span>
         )}
       </div>
-
-      {visit.status === 'Completed' && notesOpen && canEdit === true && (
-        <div className="border-t border-border-light px-4 py-3">
-          <p className="mb-1.5 text-label font-medium text-text-secondary">Meeting notes</p>
-          <Textarea
-            rows={4}
-            value={notesText}
-            onChange={e => setNotesText(e.target.value)}
-            placeholder="What was discussed, and what happens next…"
-          />
-          <div className="mt-2 flex justify-end">
-            <Button
-              size="sm"
-              disabled={notesSaving}
-              onClick={async () => {
-                setNotesSaving(true)
-                await onNotesUpdate(visit.id, notesText)
-                setNotesSaving(false)
-                setNotesOpen(false)
-              }}
-            >
-              {notesSaving ? 'Saving…' : 'Save notes'}
-            </Button>
-          </div>
-        </div>
-      )}
 
       {locationOpen && visit.latitude != null && (
         <div className="space-y-2 border-t border-border-light px-4 py-3">

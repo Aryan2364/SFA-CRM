@@ -31,6 +31,13 @@ import { NOTE_CONTEXT, type NoteTarget, type Remark } from './types'
  * next person to save overwrites, which is not what "notes on what was
  * discussed" during and after a meeting means.
  *
+ * The Daily Activity card used to write that column from a Notes box of its
+ * own, so one meeting had two records of what was discussed and neither screen
+ * showed the other's. That box is gone — the card's Minutes button opens this
+ * same thread — and nothing writes the column any more. A meeting that still
+ * carries text there shows it read-only at the top of its minutes
+ * (`earlierNote`), so no note written before the change is hidden.
+ *
  * ---------------------------------------------------------------------------
  * ⚠️ THE TWO HALVES OF `/api/remarks` TAKE DIFFERENT SPELLINGS
  *
@@ -46,10 +53,13 @@ import { NOTE_CONTEXT, type NoteTarget, type Remark } from './types'
 export function NotesSection({
   targets,
   canWrite,
+  earlierNote,
 }: {
   /** "This meeting" first, then each open Deal, then each recent Order. */
   targets: NoteTarget[]
   canWrite: boolean
+  /** `daily_visits.notes`, read-only. See the header. */
+  earlierNote?: string | null
 }) {
   const { toast } = useToast()
   const [targetId, setTargetId] = useState(targets[0]?.id ?? '')
@@ -134,6 +144,7 @@ export function NotesSection({
   }
 
   const linked = target && target.kind !== 'meeting'
+  const earlier = target?.kind === 'meeting' ? earlierNote?.trim() || null : null
 
   return (
     <Card>
@@ -175,7 +186,7 @@ export function NotesSection({
               <Skeleton className="h-4 w-1/3" />
               <Skeleton className="h-4 w-2/3" />
             </div>
-          ) : remarks.length === 0 ? (
+          ) : remarks.length === 0 && !earlier ? (
             /* Section 13: a real empty state, and one that says what to do
                next rather than the words "No data". */
             <p className="py-4 text-center text-body text-text-secondary">
@@ -185,6 +196,12 @@ export function NotesSection({
             </p>
           ) : (
             <ul className="space-y-3">
+              {earlier ? (
+                <li className="text-body text-text-primary">
+                  <p className="text-label text-text-secondary">Earlier note</p>
+                  <p className="whitespace-pre-wrap">{earlier}</p>
+                </li>
+              ) : null}
               {remarks.map(remark => (
                 <li key={remark.id} className="text-body text-text-primary">
                   <p className="text-label text-text-secondary">

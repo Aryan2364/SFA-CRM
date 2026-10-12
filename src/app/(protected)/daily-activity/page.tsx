@@ -120,7 +120,7 @@ function DailyActivityInner() {
   //
   // Each gate is the action its route checks, and nothing wider: POST
   // /api/daily-activity checks meetings.create; PATCH …/[id] checks
-  // meetings.edit for start, stop and update_notes and meetings.delete for
+  // meetings.edit for start and stop and meetings.delete for
   // delete. Attendance check-in/check-out check no permission at all, only
   // the session, and the card's own data loads under meetings.view — so
   // that is the most the buttons may ask for.
@@ -319,20 +319,6 @@ function DailyActivityInner() {
     else await loadVisits()
   }
 
-  async function handleNotesUpdate(id: string, notes: string) {
-    const r = await fetch(`/api/daily-activity/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'update_notes', notes }),
-    })
-    if (r.ok) {
-      const updated = await r.json()
-      // In place, same key — the card the user is typing in is not
-      // destroyed and rebuilt.
-      setVisits(prev => prev.map(v => (v.id === id ? { ...v, notes: updated.notes } : v)))
-    }
-  }
-
   /**
    * A planned line stops standing on its own once a meeting carries its
    * id — from then on the meeting IS the line, and showing both would be
@@ -489,8 +475,7 @@ function DailyActivityInner() {
                       onStop={handleStop}
                       onDelete={setPendingDelete}
                       onOrderEntry={setOrderEntry}
-                      onRemarks={v => setRemarksPanel({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
-                      onNotesUpdate={handleNotesUpdate}
+                      onMinutes={v => setRemarksPanel({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
                     />
                   ))}
                 </div>
@@ -587,6 +572,17 @@ function DailyActivityInner() {
           contextType={remarksPanel.contextType}
           contextId={remarksPanel.contextId}
           contextTitle={remarksPanel.title}
+          /* A meeting's thread is its Minutes of the meeting — the same rows
+             the meeting page shows — and carries any note the card used to
+             keep in `daily_visits.notes`, read-only, so none is hidden. Read
+             from the day's list at render, so a notification deep link
+             (`?remarks=`) gets it too. */
+          heading={remarksPanel.contextType === 'meeting' ? 'Minutes of the meeting' : undefined}
+          earlierNote={
+            remarksPanel.contextType === 'meeting'
+              ? visits.find(v => v.id === remarksPanel.contextId)?.notes
+              : undefined
+          }
         />
       )}
     </Tabs>

@@ -103,7 +103,7 @@ type Expense = {
   id: string; category: string; amount: number; notes: string | null; expense_date: string; photo_url: string | null
 }
 
-type RemarksState = { contextType: 'meeting' | 'expense' | 'weekly_plan'; contextId: string; title: string } | null
+type RemarksState = { contextType: 'meeting' | 'expense' | 'weekly_plan'; contextId: string; title: string; earlierNote?: string | null } | null
 
 const CATEGORY_COLORS: Record<string, string> = {
   Travel: 'bg-blue-100 text-blue-700', Food: 'bg-orange-100 text-orange-700',
@@ -416,15 +416,13 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
 
 // ---- Review Visit Card (read-only) ----
 function ReviewVisitCard({ v, onOpenRemarks }: {
-  v: Visit; onOpenRemarks: (ctx: { contextType: 'meeting'; contextId: string; title: string }) => void
+  v: Visit; onOpenRemarks: (ctx: { contextType: 'meeting'; contextId: string; title: string; earlierNote?: string | null }) => void
 }) {
-  const [notesOpen, setNotesOpen] = useState(false)
   const [locationOpen, setLocationOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
 
   const statusColor = (s: string) => s === 'Active' ? 'bg-warning-bg text-warning' : s === 'Completed' ? 'bg-success-bg text-success' : 'bg-surface-control text-text-secondary'
 
-  const hasNotes = !!v.notes?.trim()
   const hasLocation = v.latitude != null
   /*
    * §5.4, P3-T8. This was a hardcoded distance check computed here in the
@@ -466,15 +464,6 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
 
         {/* Action row */}
         <div className="mt-2 pt-2 border-t border-border-light flex items-center gap-2">
-          {hasNotes && (
-            <button onClick={() => setNotesOpen(o => !o)}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${notesOpen ? 'bg-warning-bg text-warning' : 'text-text-muted hover:text-warning hover:bg-warning-bg'}`}>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-              </svg>
-              Notes
-            </button>
-          )}
           {hasLocation && (
             <button onClick={() => setLocationOpen(o => !o)}
               className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${locationOpen ? 'bg-teal-50 text-teal-700' : 'text-gray-500 hover:text-teal-700 hover:bg-teal-50'}`}>
@@ -485,21 +474,17 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
               Location
             </button>
           )}
-          <button onClick={() => onOpenRemarks({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
-            className="ml-auto p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-subtle transition" title="Remarks">
+          {/* Minutes of the meeting: the one record of what was discussed,
+              the same thread the rep's card and the meeting page show. Any
+              older `daily_visits.notes` text rides along read-only — it used
+              to sit behind a separate Notes toggle here. */}
+          <button onClick={() => onOpenRemarks({ contextType: 'meeting', contextId: v.id, title: v.entity_name, earlierNote: v.notes })}
+            className="ml-auto p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-subtle transition" title="Minutes" aria-label="Minutes">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
             </svg>
           </button>
         </div>
-
-        {/* Meeting Notes (read-only) */}
-        {notesOpen && hasNotes && (
-          <div className="mt-3 pt-3 border-t border-border-light">
-            <p className="text-xs font-normal text-text-muted uppercase tracking-wide mb-2">Meeting Notes</p>
-            <p className="text-sm text-text-primary whitespace-pre-wrap bg-warning-bg rounded-xl px-3 py-2.5">{v.notes}</p>
-          </div>
-        )}
 
         {/* Location (read-only) */}
         {locationOpen && hasLocation && (
@@ -542,7 +527,7 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
 }
 
 // ---- Daily Activity Tab ----
-function DailyActivityTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks: (ctx: { contextType: 'meeting'; contextId: string; title: string }) => void }) {
+function DailyActivityTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks: (ctx: { contextType: 'meeting'; contextId: string; title: string; earlierNote?: string | null }) => void }) {
   const [selectedDate, setSelectedDate] = useState(toDateStr(new Date()))
   const [weekOffset, setWeekOffset] = useState(0)
   const [visits, setVisits] = useState<Visit[]>([])
@@ -1132,6 +1117,8 @@ function ReviewUserInner() {
           contextType={remarksPanel.contextType}
           contextId={remarksPanel.contextId}
           contextTitle={remarksPanel.title}
+          heading={remarksPanel.contextType === 'meeting' ? 'Minutes of the meeting' : undefined}
+          earlierNote={remarksPanel.earlierNote}
         />
       )}
     </div>

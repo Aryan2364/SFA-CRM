@@ -356,6 +356,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ ok: true })
     }
 
+    // No screen calls this any more: what was discussed lives in the meeting's
+    // Minutes (`contextual_remarks`, context `meeting`), and the column it
+    // writes is only read back as the read-only "Earlier note" above them.
+    // Kept so a page still open from before that change does not 400.
     if (action === 'update_notes') {
       const data = await prisma.daily_visits.update({
         where: { id: params.id, tenant_id: tid },

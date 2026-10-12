@@ -21,6 +21,15 @@ interface RemarksPanelProps {
   contextType: 'meeting' | 'expense' | 'weekly_plan_day' | 'weekly_plan'
   contextId: string
   contextTitle: string
+  /** The panel's name. A meeting's thread IS its Minutes of the meeting — the
+   *  same `contextual_remarks` rows the meeting page shows — so a meeting
+   *  caller names it that; everything else keeps "Remarks". */
+  heading?: string
+  /** Text from `daily_visits.notes`, the single overwritable column the
+   *  Daily Activity card used to write before its Notes box was folded into
+   *  the minutes. Nothing writes it any more; it is shown read-only above
+   *  the thread so a meeting's earlier notes are never hidden. */
+  earlierNote?: string | null
 }
 
 function formatRelativeTime(iso: string) {
@@ -47,7 +56,7 @@ function getAvatarColor(userId: string) {
   return AVATAR_COLORS[hash]
 }
 
-export default function RemarksPanel({ isOpen, onClose, contextType, contextId, contextTitle }: RemarksPanelProps) {
+export default function RemarksPanel({ isOpen, onClose, contextType, contextId, contextTitle, heading = 'Remarks', earlierNote }: RemarksPanelProps) {
   const { toast } = useToast()
   const [remarks, setRemarks] = useState<Remark[]>([])
   const [loading, setLoading] = useState(true)
@@ -141,7 +150,7 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
             </svg>
             <div className="min-w-0">
-              <p className="text-xs text-text-muted uppercase tracking-wide font-normal">Remarks</p>
+              <p className="text-xs text-text-muted uppercase tracking-wide font-normal">{heading}</p>
               <p className="text-sm font-medium text-text-primary truncate">{contextTitle}</p>
             </div>
           </div>
@@ -154,9 +163,17 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
 
         {/* Remarks list */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          {earlierNote?.trim() && (
+            <div>
+              <p className="text-xs font-medium text-text-secondary mb-1">Earlier note</p>
+              <div className="bg-surface-sunken rounded-xl px-3 py-2">
+                <p className="text-sm text-text-secondary whitespace-pre-wrap">{earlierNote}</p>
+              </div>
+            </div>
+          )}
           {loading ? (
             <div className="text-center py-12 text-text-muted text-sm">Loading remarks...</div>
-          ) : topLevel.length === 0 ? (
+          ) : topLevel.length === 0 && earlierNote?.trim() ? null : topLevel.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-12 h-12 bg-surface-control rounded-2xl flex items-center justify-center mx-auto mb-3">
                 <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
