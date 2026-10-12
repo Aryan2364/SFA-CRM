@@ -23,13 +23,18 @@ export async function GET(req: NextRequest) {
   // route enforced it before P4-T1. A scope filter without a permission check
   // is half a fix.
   if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
+  if (!user.userId) return NextResponse.json([])
   const date = req.nextUrl.searchParams.get('date') ?? businessDate()
-  // Was hard-wired `user_id: user.userId` — Self for everyone, so a Team-scoped
-  // manager could not see their team at all.
-  const ids = intersectScope(
-    await scopedUserIds(user, 'meetings'),
-    req.nextUrl.searchParams.get('userId')
-  )
+  // Daily Activity is where the caller ENTERS their own day, not where they
+  // review anyone else's (that is /review/[userId], on /api/review/*). So the
+  // default target is Self whatever the role's scope — an Administrator's
+  // Company scope used to put every colleague's meetings on their own entry
+  // screen. `?userId=` can only NARROW the `meetings` scope, the same as
+  // `/api/attendance` and `/api/daily-activity/calendar`.
+  const requested = req.nextUrl.searchParams.get('userId')
+  const ids = requested
+    ? intersectScope(await scopedUserIds(user, 'meetings'), requested)
+    : [user.userId]
   const tid = getTenantId()
   try {
     const data = await prisma.daily_visits.findMany({

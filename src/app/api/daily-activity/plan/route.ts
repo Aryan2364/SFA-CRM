@@ -20,10 +20,10 @@ export const dynamic = 'force-dynamic'
  *     as a state the user still has to resubmit from. Auto-populating
  *     the day from it would put a manager's unaccepted edit on the
  *     executive's screen as work to do.
- *  2. **Scope.** `/api/daily-activity` is Self/Team/Company since P4-T1,
- *     so a Team-scoped manager sees the team's meetings. The planned
- *     lines beside them have to follow the same scope or the two halves
- *     of one list disagree about whose day it is.
+ *  2. **Whose day.** `/api/daily-activity` answers the caller's own
+ *     meetings (Self by default). The planned lines beside them have to
+ *     follow the same rule or the two halves of one list disagree about
+ *     whose day it is.
  *  3. **The party's name.** `weekly_plan_items.party_id` is a bare uuid.
  *     The card cannot say who to meet without resolving it, and the
  *     whole point of rule 1 is that the user never picks that person
@@ -40,11 +40,15 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get('date')
   if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })
 
+  if (!user.userId) return NextResponse.json({ items: [] })
   const tenantId = getTenantId()
-  const ids = intersectScope(
-    await scopedUserIds(user, 'weekly_plan'),
-    req.nextUrl.searchParams.get('userId')
-  )
+  // Self by default, like `/api/daily-activity` beside it: Daily Activity is
+  // the caller's own entry screen, so its planned lines are the caller's own
+  // plan. `?userId=` can only narrow the `weekly_plan` scope.
+  const requested = req.nextUrl.searchParams.get('userId')
+  const ids = requested
+    ? intersectScope(await scopedUserIds(user, 'weekly_plan'), requested)
+    : [user.userId]
 
   try {
     // plan_date, week_start_date and week_end_date are all @db.Date.

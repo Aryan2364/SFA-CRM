@@ -14,12 +14,15 @@ export async function GET(req: NextRequest) {
   const user = await requireUser()
   // `expenses` drove nav visibility only — no route enforced it before P4-T1.
   if (!await checkPermission(user, 'expenses', 'view')) return forbidden()
+  if (!user.userId) return NextResponse.json([])
   const date = req.nextUrl.searchParams.get('date') ?? businessDate()
-  // Was hard-wired Self for every role, ignoring role_permissions.data_scope.
-  const ids = intersectScope(
-    await scopedUserIds(user, 'expenses'),
-    req.nextUrl.searchParams.get('userId')
-  )
+  // Self by default: this list is Daily Activity's Expenses tab, where the
+  // caller enters their own expenses. Reviewing someone else's is
+  // /api/review/expenses. `?userId=` can only narrow the `expenses` scope.
+  const requested = req.nextUrl.searchParams.get('userId')
+  const ids = requested
+    ? intersectScope(await scopedUserIds(user, 'expenses'), requested)
+    : [user.userId]
   try {
     const data = await prisma.expenses.findMany({
       where: {

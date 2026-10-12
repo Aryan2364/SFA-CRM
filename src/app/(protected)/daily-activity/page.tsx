@@ -107,7 +107,6 @@ function DailyActivityInner() {
   const [orderEntry, setOrderEntry] = useState<Visit | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Visit | null>(null)
   const [locationDenied, setLocationDenied] = useState<{ visitId: string; action: 'start' | 'stop' } | null>(null)
-  const [userNames, setUserNames] = useState<Record<string, string>>({})
 
   const [remarksPanel, setRemarksPanel] = useState<{ contextType: 'meeting' | 'expense'; contextId: string; title: string } | null>(null)
   const initialRemarks = searchParams.get('remarks')
@@ -180,28 +179,6 @@ function DailyActivityInner() {
   useEffect(() => { void loadVisits() }, [loadVisits])
   useEffect(() => { void loadPlanned() }, [loadPlanned])
   useEffect(() => { void loadExpenses() }, [loadExpenses])
-
-  /*
-   * Whose day is on screen. `/api/daily-activity` is Self/Team/Company
-   * since P4-T1, so a Team-scoped manager's list spans several people and
-   * a row without a name on it is unattributable. The names are fetched
-   * ONLY when the list actually spans more than one person — a Self-scoped
-   * executive never makes this request.
-   */
-  const ownerIds = useMemo(
-    () => Array.from(new Set([...visits.map(v => v.user_id), ...planned.map(p => p.user_id)].filter(Boolean) as string[])),
-    [visits, planned]
-  )
-  const multiUser = ownerIds.length > 1
-  useEffect(() => {
-    if (!multiUser || Object.keys(userNames).length > 0) return
-    fetch('/api/masters/users')
-      .then(r => (r.ok ? r.json() : []))
-      .then((rows: { id: string; name: string }[]) => {
-        if (Array.isArray(rows)) setUserNames(Object.fromEntries(rows.map(u => [u.id, u.name])))
-      })
-      .catch(() => {})
-  }, [multiUser, userNames])
 
   // Week navigation, relative to the week currently in view rather than to
   // "today", so paging back twice lands two weeks back.
@@ -473,7 +450,7 @@ function DailyActivityInner() {
                     <PlannedCard
                       key={item.id}
                       item={item}
-                      showOwner={multiUser}
+                      showOwner={false}
                       /* A line naming a party is started in one press,
                          which creates the meeting and then PATCHes it to
                          start, so it needs both; a line without one only
@@ -501,8 +478,7 @@ function DailyActivityInner() {
                     <VisitCard
                       key={visit.id}
                       visit={visit}
-                      showOwner={multiUser}
-                      ownerName={visit.user_id ? userNames[visit.user_id] : null}
+                      showOwner={false}
                       /* A manager may read the team's meetings and may not
                          drive someone else's stopwatch. */
                       mine={!visit.user_id ? true : me ? visit.user_id === me.userId : null}
