@@ -362,7 +362,7 @@ export default function NewCompanyPage() {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink render={<Link href="/parties?tab=companies" />}>
-              Leads
+              Accounts
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

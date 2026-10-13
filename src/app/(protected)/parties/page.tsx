@@ -136,7 +136,7 @@ const CONTACTS = 'contacts'
  * than the ambition.
  */
 const COMPANY_SEARCH_HINT =
-  'Searches the company name. Type, status and completeness are filters.'
+  'Searches the account name. Type, status and completeness are filters.'
 const CONTACT_SEARCH_HINT =
   'Searches the contact name. Contact type and status are filters.'
 
@@ -715,8 +715,8 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
       <div className="flex min-h-0 flex-col md:h-full">
       <ListPage<CompanyRow>
         className="md:h-auto md:min-h-0 md:flex-1"
-        title="Leads"
-        noun={{ one: 'company', many: 'companies' }}
+        title="Accounts"
+        noun={{ one: 'account', many: 'accounts' }}
         sectionTabs={<>{sectionTabs}{banners}</>}
         /*
          * Section 6.1 rules 1 and 2: exactly ONE primary per screen, everything
@@ -740,16 +740,16 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
            rights, since looking at the alerts is not an edit. */
         action={
             <div className="flex items-center gap-2">
-              <DataHealthAlerts alerts={healthAlerts} label="Lead data health" />
+              <DataHealthAlerts alerts={healthAlerts} label="Account data health" />
               {/* Shown and disabled with a reason for a role without
                   companies.create, rather than hidden (section 26). */}
-              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create companies can import them">
+              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create accounts can import them">
                 <Button variant="secondary" onClick={() => setBulkOpen(true)} disabled={!canCreate}>
                   <UploadIcon />
                   Bulk Upload
                 </Button>
               </PermissionTooltip>
-              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create companies can add them">
+              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create accounts can add them">
                 <Button variant="secondary" onClick={() => setQuickOpen(true)} disabled={!canCreate}>
                   <ZapIcon />
                   Quick create
@@ -767,10 +767,10 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
                 It also keeps the three peers identical — all buttons, same
                 behaviour — instead of one anchor among two buttons.
               */}
-              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create companies can add them">
+              <PermissionTooltip allowed={!createKnown || canCreate} reason="Only someone who can create accounts can add them">
                 <Button onClick={() => router.push('/parties/companies/new')} disabled={!canCreate}>
                   <PlusIcon />
-                  Add company
+                  Add account
                 </Button>
               </PermissionTooltip>
             </div>
@@ -786,14 +786,14 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
         filters={filters}
         load={load}
         refreshKey={refreshKey}
-        searchPlaceholder="Search companies"
+        searchPlaceholder="Search accounts"
         searchHint={COMPANY_SEARCH_HINT}
         emptyYet={{
-          heading: 'No companies yet',
+          heading: 'No accounts yet',
           body: 'Every organisation this tenant sells to — prospects, dealers, distributors and institutions — is listed here.',
-          actionLabel: 'Add company',
+          actionLabel: 'Add account',
           onAction: canCreate ? () => router.push('/parties/companies/new') : undefined,
-          actionDisabledReason: !createKnown ? null : canCreate ? undefined : 'Only someone who can create companies can add them',
+          actionDisabledReason: !createKnown ? null : canCreate ? undefined : 'Only someone who can create accounts can add them',
         }}
       />
       </div>
@@ -1162,7 +1162,7 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
       <div className="flex min-h-0 flex-col md:h-full">
       <ListPage<ContactRow>
         className="md:h-auto md:min-h-0 md:flex-1"
-        title="Leads"
+        title="Accounts"
         noun={{ one: 'contact', many: 'contacts' }}
         sectionTabs={<>{sectionTabs}{banners}</>}
         /*
@@ -1255,7 +1255,7 @@ function PartiesScreen() {
    * routes enforce the permission regardless of what this renders.
    */
   const allowed: SectionTab[] = [
-    { value: COMPANIES, label: 'Companies' },
+    { value: COMPANIES, label: 'Accounts' },
     { value: CONTACTS, label: 'Contacts' },
   ].filter(tab => {
     if (!me) return true

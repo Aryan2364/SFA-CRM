@@ -244,7 +244,7 @@ function ContactDetail() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink render={<Link href={listHref} />}>Leads</BreadcrumbLink>
+            <BreadcrumbLink render={<Link href={listHref} />}>Accounts</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
@@ -261,18 +261,18 @@ function ContactDetail() {
             <EmptyState
               variant="failed"
               heading="This contact is not here"
-              actionLabel="Go to Leads"
+              actionLabel="Go to Accounts"
               onAction={() => router.push(listHref)}
             >
               It may have been deleted, or the link may point at a record in a
-              different account. The Leads list shows everything you can open.
+              different firm. The Accounts list shows everything you can open.
             </EmptyState>
           )}
           {error === 'forbidden' && (
             <EmptyState
               variant="failed"
               heading="You cannot open contacts"
-              actionLabel="Go to Leads"
+              actionLabel="Go to Accounts"
               onAction={() => router.push(listHref)}
             >
               Your role does not include viewing contacts. An administrator can
