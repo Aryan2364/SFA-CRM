@@ -97,6 +97,8 @@ type Contact = {
   name: string
   mobile: string
   alternate_mobile: string | null
+  /** Null until set, and until the column exists (src/lib/party-landline.ts). */
+  landline?: string | null
   whatsapp: string | null
   email: string | null
   designation: string | null
@@ -157,7 +159,9 @@ function PhoneValue({ number }: { number: string | null }) {
         'inline-flex min-h-11 items-center text-primary hover:text-primary-hover',
         'rounded-lg outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
       )}
-      href={`tel:${number}`}
+      // The dial string drops spaces and hyphens a landline is typed with;
+      // the text keeps them.
+      href={`tel:${number.replace(/[\s-]/g, '')}`}
     >
       {number}
     </a>
@@ -399,6 +403,9 @@ function ContactDetail() {
                     </Field>
                     <Field label="Alternate number">
                       <PhoneValue number={contact.alternate_mobile} />
+                    </Field>
+                    <Field label="Landline">
+                      <PhoneValue number={contact.landline ?? null} />
                     </Field>
                     {/*
                       §3.4: "WhatsApp Number — if different from mobile." When

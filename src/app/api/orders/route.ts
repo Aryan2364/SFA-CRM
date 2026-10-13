@@ -5,6 +5,8 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { firstForeignTenantRef } from '@/lib/tenant-fk'
+import { getGstRequiredForOrders } from '@/lib/gst-setting'
+import { effectiveBlockedReason, effectiveMissing, effectivelyComplete } from '@/lib/gst-policy'
 import {
   isOrderStatus,
   orderTotals,
@@ -169,9 +171,13 @@ async function placementBlock(
     select: { is_complete: true, completeness_missing: true },
   })
   if (!party) return 'Party is not a saved record'
-  if (party.is_complete) return null
+  // A tenant that does not require GST lets a party missing only its GST
+  // number through (src/lib/gst-policy.ts). The stored is_complete is the
+  // full five-field rule either way.
+  const gstRequired = await getGstRequiredForOrders(tenantId)
+  if (effectivelyComplete(party.is_complete, party.completeness_missing, gstRequired)) return null
 
-  return `Party is incomplete: ${party.completeness_missing || 'required details missing'}`
+  return `Party is incomplete: ${effectiveMissing(party.completeness_missing, gstRequired) || 'required details missing'}`
 }
 
 export async function GET(req: NextRequest) {
@@ -193,7 +199,10 @@ export async function GET(req: NextRequest) {
         where: { tenant_id: tid, visit_id: visitId, ...scopeWhere(allowedIds) },
         include: { order_items: true },
       })
-      return NextResponse.json(order ? serialize(order, 'orders') : null)
+      if (!order) return NextResponse.json(null)
+      const gstRequired = await getGstRequiredForOrders(tid)
+      const body = serialize(order, 'orders') as Record<string, unknown>
+      return NextResponse.json({ ...body, blocked_reason: effectiveBlockedReason(order.blocked_reason, gstRequired) })
     } catch (err) {
       return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
     }
@@ -277,9 +286,16 @@ export async function GET(req: NextRequest) {
     // PostgREST returned a nested count as `order_items: [{ count: N }]`.
     // Prisma reports it as `_count.order_items`, so reshape it back — the wire
     // format stays byte-compatible even though the orders page ignores it.
+    // A Draft blocked only for its GST number before the tenant stopped
+    // requiring GST no longer reads as blocked (src/lib/gst-policy.ts).
+    const gstRequired = await getGstRequiredForOrders(tid)
     const data = (serialize(rows, 'orders') as Record<string, unknown>[]).map(row => {
-      const { _count, ...rest } = row as { _count?: { order_items: number } }
-      return { ...rest, order_items: [{ count: _count?.order_items ?? 0 }] }
+      const { _count, ...rest } = row as { _count?: { order_items: number }; blocked_reason?: string | null }
+      return {
+        ...rest,
+        blocked_reason: effectiveBlockedReason(rest.blocked_reason, gstRequired),
+        order_items: [{ count: _count?.order_items ?? 0 }],
+      }
     })
 
     return NextResponse.json(data)

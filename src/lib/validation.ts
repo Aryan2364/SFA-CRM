@@ -73,6 +73,23 @@ export function checkEmail(value: unknown, label = 'Email'): string | null {
 }
 
 /**
+ * A landline or office number — `022 2654 1234`, `0265-234-5678`.
+ *
+ * Deliberately looser than `checkMobile`: STD codes and local numbers vary in
+ * length, so the rule is only digits, spaces and hyphens, with 6 to 12 digits
+ * once those separators are removed. The value is stored as typed (trimmed),
+ * not reformatted. Used by the client forms and the routes alike, so the two
+ * cannot disagree. See src/lib/party-landline.ts for why this is its own field.
+ */
+export function checkLandline(value: unknown, label = 'Landline'): string | null {
+  if (blank(value)) return null
+  const raw = String(value).trim()
+  if (!/^[\d\s-]+$/.test(raw)) return `${label} can contain only digits, spaces and hyphens`
+  const digits = raw.replace(/\D/g, '').length
+  return digits >= 6 && digits <= 12 ? null : `${label} must have 6 to 12 digits`
+}
+
+/**
  * The first failure among the checks given, or null when all pass.
  *
  * ```ts

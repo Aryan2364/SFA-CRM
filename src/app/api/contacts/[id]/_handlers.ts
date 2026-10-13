@@ -4,7 +4,8 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from '../_shape'
-import { checkEmail, checkPhone, firstError, trimmed } from '@/lib/validation'
+import { checkEmail, checkLandline, checkPhone, firstError, trimmed } from '@/lib/validation'
+import { LANDLINE_NOT_SAVED, readLandlines, writeLandline } from '@/lib/party-landline'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { findScopedContact, foreignContactRef } from '../_access'
 import { ownerOutsideScope } from '../../companies/_access'
@@ -34,7 +35,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     })
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    return NextResponse.json(shapeContact(serialize(row, 'contacts') as Record<string, unknown>))
+    // `null` until the column exists (src/lib/party-landline.ts).
+    const landline = (await readLandlines(tid, 'contacts', [row.id]))?.get(row.id) ?? null
+    return NextResponse.json({ ...shapeContact(serialize(row, 'contacts') as Record<string, unknown>), landline })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -78,6 +81,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     checkPhone(body.alternate_mobile, 'Alternate Number'),
     checkPhone(body.whatsapp, 'WhatsApp Number'),
     checkEmail(body.email),
+    checkLandline(body.landline),
   )
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
 
@@ -178,7 +182,24 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       })
     })
 
-    return NextResponse.json(shapeContact(serialize(updated, 'contacts') as Record<string, unknown>))
+    // Landline only when the form sent the key, as on a company. Until the
+    // column exists the rest is saved and the response says the landline was
+    // not stored; a blank sent then loses nothing, so it carries no warning.
+    let landline: string | null
+    let landlineWarning = false
+    if ('landline' in body) {
+      landline = trimmed(body.landline)
+      const saved = await writeLandline(tid, 'contacts', params.id, landline)
+      if (!saved) { landlineWarning = landline !== null; landline = null }
+    } else {
+      landline = (await readLandlines(tid, 'contacts', [params.id]))?.get(params.id) ?? null
+    }
+
+    return NextResponse.json({
+      ...shapeContact(serialize(updated, 'contacts') as Record<string, unknown>),
+      landline,
+      ...(landlineWarning ? { warning: LANDLINE_NOT_SAVED } : {}),
+    })
   } catch (err) {
     if (typeof err === 'object' && err !== null && (err as { code?: string }).code === 'P2025')
       return NextResponse.json({ error: 'Not found' }, { status: 404 })

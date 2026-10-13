@@ -640,6 +640,11 @@ model contact_types {
   @@index([tenant_id])
 }
 
+// PENDING COLUMN: `landline TEXT` (nullable) — deliberately NOT declared here
+// until it exists in the database. Declaring it would make every unselected
+// read, create and update of this table ask for it and fail. It is read and
+// written only through src/lib/party-landline.ts. Once added (same SQL as on
+// `companies`), run `npm run prisma:sync` to bring it into this model.
 model contacts {
   id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id            String             @db.Uuid
@@ -710,6 +715,11 @@ model industries {
   @@index([tenant_id])
 }
 
+// PENDING COLUMN: `landline TEXT` (nullable) — deliberately NOT declared here
+// until it exists in the database; see the note above `model contacts` and
+// src/lib/party-landline.ts. ⚠️ Once a landline column exists locally, a
+// `scratch:push` (db push --accept-data-loss) made before `prisma:sync` would
+// drop it, because this model does not declare it.
 model companies {
   id                                        String              @id(map: "business_partners_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                                 String              @db.Uuid
@@ -931,6 +941,14 @@ model tenant_settings {
   auto_checkout_minutes     Int      @default(0)
   location_flag_threshold_m Int      @default(500)
   deal_stage_ageing_days    Int      @default(15)
+  /// Whether a missing GST number stops an order being placed. Default true is
+  /// the behaviour that shipped before the setting existed.
+  /// NOT YET PUSHED to any database — see src/lib/gst-setting.ts, which reads
+  /// and writes this column through guarded raw SQL so every screen keeps
+  /// working until the column exists. No Prisma call may select it, and every
+  /// Prisma read or write of tenant_settings needs an explicit `select` so the
+  /// generated client does not ask for it.
+  gst_required_for_orders   Boolean  @default(true)
   created_at                DateTime @default(now()) @db.Timestamptz(6)
   updated_at                DateTime @default(now()) @db.Timestamptz(6)
   updated_by_user_id        String?  @db.Uuid

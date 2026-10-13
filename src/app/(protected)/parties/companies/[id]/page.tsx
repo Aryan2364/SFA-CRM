@@ -91,6 +91,7 @@ type CompanyContact = {
   name: string
   mobile: string
   alternate_mobile: string | null
+  landline?: string | null
   whatsapp: string | null
   email: string | null
   designation: string | null
@@ -132,8 +133,12 @@ type Company = {
   is_active: boolean
   is_complete: boolean
   completeness_missing: string | null
+  /** Absent from an older response; only `false` drops GST from the copy. */
+  gst_required_for_orders?: boolean
   mobile_1: string | null
   mobile_2: string | null
+  /** Null until set, and until the column exists (src/lib/party-landline.ts). */
+  landline?: string | null
   email: string | null
   website: string | null
   gst_number: string | null
@@ -157,6 +162,8 @@ type Company = {
  */
 const COMPANY_REQUIRED_FIELDS =
   'Primary Address, City, State, Pincode and GST Number'
+/** The same list for a firm that does not require GST (Settings › System). */
+const COMPANY_REQUIRED_FIELDS_NO_GST = 'Primary Address, City, State and Pincode'
 
 /** A failed load, told apart so the empty state can say the right thing. */
 type LoadError = 'not-found' | 'forbidden' | 'failed'
@@ -407,8 +414,12 @@ function CompanyDetail() {
                 ) : (
                   <>
                     No individual field is recorded as missing, so the record
-                    needs re-checking against the five a full record requires:{' '}
-                    <strong className="font-medium">{COMPANY_REQUIRED_FIELDS}</strong>.
+                    needs re-checking against the fields a full record requires:{' '}
+                    <strong className="font-medium">
+                      {company.gst_required_for_orders === false
+                        ? COMPANY_REQUIRED_FIELDS_NO_GST
+                        : COMPANY_REQUIRED_FIELDS}
+                    </strong>.
                     Until it is marked complete, an order against it stays in
                     Draft and cannot be placed.
                   </>
@@ -460,6 +471,21 @@ function CompanyDetail() {
                           href={`tel:${company.mobile_2}`}
                         >
                           {company.mobile_2}
+                        </a>
+                      ) : (
+                        EMPTY
+                      )}
+                    </Field>
+                    {/* Shown like its sibling numbers, dash when blank. The
+                        dial string drops the spaces and hyphens it was typed
+                        with; the text keeps them. */}
+                    <Field label="Landline">
+                      {company.landline ? (
+                        <a
+                          className="text-primary hover:text-primary-hover"
+                          href={`tel:${company.landline.replace(/[\s-]/g, '')}`}
+                        >
+                          {company.landline}
                         </a>
                       ) : (
                         EMPTY

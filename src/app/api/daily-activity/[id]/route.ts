@@ -8,6 +8,8 @@ import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { getTenantSettings } from '@/lib/settings'
 import { businessDate } from '@/lib/business-date'
 import { readVisitContact, VISIT_SELECT } from '@/lib/visit-contact'
+import { getGstRequiredForOrders } from '@/lib/gst-setting'
+import { effectiveBlockedReason, withGstPolicy } from '@/lib/gst-policy'
 
 /**
  * How many Deals and how many past Orders the meeting screen is given.
@@ -199,10 +201,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         })
       : null
 
+    // The tenant's GST rule, applied to everything below that says whether
+    // the party is complete or an order is blocked (src/lib/gst-policy.ts).
+    const gstRequired = await getGstRequiredForOrders(tid)
+
     const shape = (rows: unknown) =>
       (serialize(rows, 'orders') as Record<string, unknown>[]).map(row => {
-        const { _count, ...rest } = row as { _count?: { order_items: number } }
-        return { ...rest, item_count: _count?.order_items ?? 0 }
+        const { _count, ...rest } = row as { _count?: { order_items: number }; blocked_reason?: string | null }
+        return {
+          ...rest,
+          blocked_reason: effectiveBlockedReason(rest.blocked_reason, gstRequired),
+          item_count: _count?.order_items ?? 0,
+        }
       })
 
     /* The person met, when one was named. Null while the column is unpushed,
@@ -211,7 +221,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     return NextResponse.json({
       visit: { ...(serialize(visit, 'daily_visits') as Record<string, unknown>), contact },
-      company: company ? serialize(company, 'companies') : null,
+      company: company ? withGstPolicy(serialize(company, 'companies') as typeof company, gstRequired) : null,
       discussed_deal_ids: discussed.map(d => d.deal_id),
       deals_visible: canViewDeals,
       deals: serialize(openDeals, 'deals'),
@@ -220,7 +230,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       recent_orders: shape(recentOrders),
       order_count: orderCount,
       draft_orders: shape(draftOrders),
-      visit_order: visitOrder ? serialize(visitOrder, 'orders') : null,
+      visit_order: visitOrder
+        ? {
+            ...(serialize(visitOrder, 'orders') as Record<string, unknown>),
+            blocked_reason: effectiveBlockedReason(visitOrder.blocked_reason, gstRequired),
+          }
+        : null,
     })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

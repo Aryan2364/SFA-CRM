@@ -84,7 +84,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/contexts/ToastContext'
-import { checkEmail, checkGstin, checkMobile, checkPincode } from '@/lib/validation'
+import { checkEmail, checkGstin, checkLandline, checkMobile, checkPincode } from '@/lib/validation'
 import { cn } from '@/lib/utils'
 
 import {
@@ -112,6 +112,7 @@ const BLANK = {
   owner_user_id: '',
   mobile_1: '',
   mobile_2: '',
+  landline: '',
   email: '',
   website: '',
   gst_number: '',
@@ -192,6 +193,8 @@ export default function NewCompanyPage() {
     if (m1) next.mobile_1 = m1
     const m2 = checkMobile(form.mobile_2, 'Mobile Number 2')
     if (m2) next.mobile_2 = m2
+    const land = checkLandline(form.landline)
+    if (land) next.landline = land
     const gst = checkGstin(form.gst_number)
     if (gst) next.gst_number = gst
     const email = checkEmail(form.email)
@@ -235,6 +238,7 @@ export default function NewCompanyPage() {
         owner_user_id: ownerValue || null,
         mobile_1: form.mobile_1.trim() || null,
         mobile_2: form.mobile_2.trim() || null,
+        landline: form.landline.trim() || null,
         email: form.email.trim() || null,
         website: form.website.trim() || null,
         gst_number: form.gst_number.trim() || null,
@@ -276,6 +280,9 @@ export default function NewCompanyPage() {
     }
 
     const created = data as CreatedCompany
+    // The company is saved; only its landline may not be, until the database
+    // has the column (src/lib/party-landline.ts).
+    const landlineWarning = (data as { warning?: string }).warning
 
     /*
      * Status is its own write, and only when it is not the default.
@@ -343,7 +350,8 @@ export default function NewCompanyPage() {
 
     setSaving(false)
     setCompany(finalCompany)
-    toast('Company saved. Add its contact people next.')
+    if (landlineWarning) toast(landlineWarning, 'warning')
+    else toast('Company saved. Add its contact people next.')
   }
 
   const stepTwo = company !== null
@@ -483,6 +491,23 @@ export default function NewCompanyPage() {
                     aria-invalid={Boolean(errors.mobile_2)}
                   />
                   <InlineFieldError>{errors.mobile_2}</InlineFieldError>
+                </div>
+
+                {/* Its own field, not the alternate mobile: a landline has an
+                    STD code and a looser check (src/lib/party-landline.ts). */}
+                <div className="col-span-12 sm:col-span-6">
+                  <Label htmlFor="co-landline">Landline</Label>
+                  <Input
+                    id="co-landline"
+                    className="mt-1.5"
+                    type="tel"
+                    inputMode="tel"
+                    value={form.landline}
+                    onChange={e => set('landline')(e.target.value)}
+                    aria-invalid={Boolean(errors.landline)}
+                    placeholder="022 2654 1234"
+                  />
+                  <InlineFieldError>{errors.landline}</InlineFieldError>
                 </div>
 
                 <div className="col-span-12 sm:col-span-6">

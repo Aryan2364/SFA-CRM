@@ -5,6 +5,8 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { isOrderStatus, type OrderStatus } from '@/lib/order-math'
+import { getGstRequiredForOrders } from '@/lib/gst-setting'
+import { effectiveBlockedReason, effectiveMissing, effectivelyComplete } from '@/lib/gst-policy'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,7 +69,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // `serialize` is declared `unknown` (it walks an arbitrary shape), so the
     // cast is what lets the one extra key be spread alongside it.
     const body = serialize(order, 'orders') as Record<string, unknown>
-    return NextResponse.json({ ...body, meeting })
+    const gstRequired = await getGstRequiredForOrders(tid)
+    return NextResponse.json({
+      ...body,
+      blocked_reason: effectiveBlockedReason(body.blocked_reason as string | null, gstRequired),
+      meeting,
+    })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -116,11 +123,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           })
         : null
 
+      // Missing GST does not count when the tenant does not require it
+      // (src/lib/gst-policy.ts) — the same rule as POST /api/orders.
+      const gstRequired = await getGstRequiredForOrders(tid)
       const blocked = !party
         ? 'Party is not a saved record'
-        : party.is_complete
+        : effectivelyComplete(party.is_complete, party.completeness_missing, gstRequired)
           ? null
-          : `Party is incomplete: ${party.completeness_missing || 'required details missing'}`
+          : `Party is incomplete: ${effectiveMissing(party.completeness_missing, gstRequired) || 'required details missing'}`
 
       if (blocked) {
         await prisma.orders.update({

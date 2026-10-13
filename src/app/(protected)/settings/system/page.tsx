@@ -14,7 +14,9 @@ import { Button } from '@/components/ui/button'
 import { InlineFieldError } from '@/components/ui/inline-field-error'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { TimePicker, type TimeValue } from '@/components/ui/time-picker'
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
@@ -59,6 +61,13 @@ function timeValueToMinutes(value: TimeValue): number {
 
 type NumericField = 'location_flag_threshold_m' | 'deal_stage_ageing_days'
 
+/** GET /api/settings/system: the three values plus the GST switch, which is
+ *  read separately because its column may not exist yet. */
+type SystemSettingsResponse = TenantSettings & {
+  gst_required_for_orders: boolean
+  gst_setting_available: boolean
+}
+
 export default function SystemSettingsPage() {
   const me = useMe()
   const { toast } = useToast()
@@ -72,6 +81,11 @@ export default function SystemSettingsPage() {
   const [checkoutTime, setCheckoutTime] = useState<TimeValue | undefined>()
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  /* The GST switch commits on its own (kit: switch.tsx), so it is held apart
+     from the form values and never waits for Save. */
+  const [gstRequired, setGstRequired] = useState(true)
+  const [gstAvailable, setGstAvailable] = useState(true)
+  const [gstSaving, setGstSaving] = useState(false)
 
   /* The real permission, not a role name. /api/auth/me returns every section
      true for Administrator, so this covers that case without naming the role. */
@@ -85,11 +99,17 @@ export default function SystemSettingsPage() {
           const body = await r.json().catch(() => ({}))
           throw new Error(body.error ?? 'Could not load settings.')
         }
-        return r.json() as Promise<TenantSettings>
+        return r.json() as Promise<SystemSettingsResponse>
       })
       .then(data => {
         if (cancelled) return
-        setSettings(data)
+        setSettings({
+          auto_checkout_minutes: data.auto_checkout_minutes,
+          location_flag_threshold_m: data.location_flag_threshold_m,
+          deal_stage_ageing_days: data.deal_stage_ageing_days,
+        })
+        setGstRequired(data.gst_required_for_orders !== false)
+        setGstAvailable(data.gst_setting_available !== false)
         setThreshold(String(data.location_flag_threshold_m))
         setAgeing(String(data.deal_stage_ageing_days))
         setCheckoutTime(minutesToTimeValue(data.auto_checkout_minutes))
@@ -152,6 +172,23 @@ export default function SystemSettingsPage() {
     setSaving(false)
   }
 
+  async function changeGstRequired(next: boolean) {
+    setGstSaving(true)
+    const res = await fetch('/api/settings/system', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gst_required_for_orders: next }),
+    })
+    if (res.ok) {
+      setGstRequired(next)
+      toast(next ? 'GST number is now required to place orders' : 'Orders can now be placed without a GST number')
+    } else {
+      const failure = await res.json().catch(() => ({ error: null }))
+      toast(failure.error ?? 'Could not change the GST setting. Try again.', 'error')
+    }
+    setGstSaving(false)
+  }
+
   return (
     <div className="space-y-6">
       <Breadcrumb>
@@ -186,6 +223,7 @@ export default function SystemSettingsPage() {
         </div>
       ) : settings === null ? (
         <div className="space-y-4">
+          <Skeleton className="h-28" />
           <Skeleton className="h-28" />
           <Skeleton className="h-28" />
           <Skeleton className="h-28" />
@@ -258,6 +296,41 @@ export default function SystemSettingsPage() {
                 />
               </div>
               <InlineFieldError>{ageingError}</InlineFieldError>
+            </div>
+
+            {/* GST for orders. A switch, so it commits on its own and the Save
+                button below never covers it. One value for the whole firm. */}
+            <div className="rounded-xl border border-border-light bg-surface p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <Label htmlFor="gst-required">GST number required to place orders</Label>
+                  <p className="mt-1 text-label text-text-secondary">
+                    Applies to everyone in your company. When off, orders can be
+                    placed for customers without a GST number, and a missing GST
+                    number is no longer shown as a gap. A GST number that is
+                    entered is still checked.
+                  </p>
+                  {!gstAvailable && (
+                    <p className="mt-2 text-label text-text-secondary">
+                      This setting needs a database update before it can be
+                      changed. Until then GST stays required.
+                    </p>
+                  )}
+                </div>
+                {/* "Not known yet" is not "not allowed": while /me loads the
+                    switch is disabled with no reason (kit §26.1). */}
+                <PermissionTooltip
+                  allowed={!me || canEdit}
+                  reason="Only someone who can edit system settings can change this"
+                >
+                  <Switch
+                    id="gst-required"
+                    checked={gstRequired}
+                    disabled={!canEdit || !gstAvailable || gstSaving}
+                    onCheckedChange={v => void changeGstRequired(Boolean(v))}
+                  />
+                </PermissionTooltip>
+              </div>
             </div>
           </div>
 

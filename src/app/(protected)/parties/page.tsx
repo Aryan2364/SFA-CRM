@@ -516,7 +516,11 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
       toast((data as { error?: string }).error ?? (editing ? 'Update failed' : 'Create failed'), 'error')
       return
     }
-    toast(editing ? 'Updated successfully' : 'Created successfully')
+    // Saved; only the landline may not be, until the database has the column
+    // (src/lib/party-landline.ts).
+    const warning = (data as { warning?: string }).warning
+    if (warning) toast(warning, 'warning')
+    else toast(editing ? 'Updated successfully' : 'Created successfully')
     setRefreshKey(k => k + 1)
     setOpen(false)
   }

@@ -4,7 +4,8 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from './_shape'
-import { checkEmail, checkPhone, firstError, trimmed } from '@/lib/validation'
+import { checkEmail, checkLandline, checkPhone, firstError, trimmed } from '@/lib/validation'
+import { attachLandlines, LANDLINE_NOT_SAVED, writeLandline } from '@/lib/party-landline'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { foreignContactRef } from './_access'
 import { ownerOutsideScope } from '../companies/_access'
@@ -69,7 +70,8 @@ export async function GET(req: NextRequest) {
     // Prisma generated (src/lib/db.ts, "Detection is keyed on MODEL + FIELD").
     const data = (serialize(rows, 'contacts') as Record<string, unknown>[]).map(shapeContact)
 
-    return NextResponse.json(data)
+    // `null` until the column exists (src/lib/party-landline.ts).
+    return NextResponse.json(await attachLandlines(data as (Record<string, unknown> & { id: string })[], tid, 'contacts'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest) {
   const {
     name, mobile, alternate_mobile, whatsapp, email, designation,
     contact_type_id, owner_user_id, birthday, anniversary, notes,
-    company_ids, primary_company_id, is_active,
+    company_ids, primary_company_id, is_active, landline,
   } = await req.json()
 
   // §3.4: Contact Person Name and Mobile Number are the two compulsory fields.
@@ -96,6 +98,7 @@ export async function POST(req: NextRequest) {
     checkPhone(alternate_mobile, 'Alternate Number'),
     checkPhone(whatsapp, 'WhatsApp Number'),
     checkEmail(email),
+    checkLandline(landline),
   )
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
 
@@ -179,8 +182,18 @@ export async function POST(req: NextRequest) {
     // City, State, Pincode, GST Number — and REBUILD-PLAN.md §3.5 defines no
     // Full-Record level for a Contact. Writing a guess would put a value in the
     // column that nothing else agrees with.
+    // Beside the insert, through the guarded helper: until the column exists
+    // the contact is still created and the response says the landline was not
+    // stored (src/lib/party-landline.ts).
+    const phone = trimmed(landline)
+    const landlineSaved = phone === null || await writeLandline(tid, 'contacts', created.id, phone)
+
     return NextResponse.json(
-      shapeContact(serialize(created, 'contacts') as Record<string, unknown>),
+      {
+        ...shapeContact(serialize(created, 'contacts') as Record<string, unknown>),
+        landline: landlineSaved ? phone : null,
+        ...(landlineSaved ? {} : { warning: LANDLINE_NOT_SAVED }),
+      },
       { status: 201 }
     )
   } catch (err) {

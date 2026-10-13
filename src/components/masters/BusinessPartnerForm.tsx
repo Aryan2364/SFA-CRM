@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, ReactNode } from 'react'
 import SearchableSelect from '@/components/ui/SearchableSelect'
 import { useToast } from '@/contexts/ToastContext'
+import { checkLandline } from '@/lib/validation'
 
 type LeadStage = { id: string; name: string; sort_order: number; is_fixed: boolean }
 type LeadTemp  = { id: string; name: string; sort_order: number }
@@ -19,7 +20,7 @@ const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 // ── Shared form shape ─────────────────────────────────────────────────────────
 export const EMPTY_BP_FORM = {
   name: '', contact_person_name: '', pincode: '', gst_number: '',
-  mobile_1: '', mobile_2: '', place: '', state_id: '', district_id: '',
+  mobile_1: '', mobile_2: '', landline: '', place: '', state_id: '', district_id: '',
   taluka_id: '', village_id: '', address: '', description: '',
   distributor_id: '',        // dealers only
   sub_type: '',              // legacy; never sent by buildBody()
@@ -38,6 +39,7 @@ export function useBPForm() {
   const [mobile1Error, setMobile1Error] = useState('')
   const [mobile2Error, setMobile2Error] = useState('')
   const [gstError, setGstError] = useState('')
+  const [landlineError, setLandlineError] = useState('')
 
   const [districts, setDistricts] = useState<DistrictItem[]>([])
   const [talukas,   setTalukas]   = useState<TalukaItem[]>([])
@@ -73,7 +75,7 @@ export function useBPForm() {
   }, [districts, talukas, villages])
 
   function reset(row?: Record<string, unknown>) {
-    setMobile1Error(''); setMobile2Error(''); setGstError('')
+    setMobile1Error(''); setMobile2Error(''); setGstError(''); setLandlineError('')
     if (!row) {
       setForm(EMPTY_BP_FORM)
       setShowMobile2(false)
@@ -87,6 +89,7 @@ export function useBPForm() {
       gst_number:           String(row.gst_number ?? ''),
       mobile_1:             String(row.mobile_1 ?? ''),
       mobile_2:             String(row.mobile_2 ?? ''),
+      landline:             String(row.landline ?? ''),
       place,
       state_id:             String(row.state_id ?? ''),
       district_id:          String(row.district_id ?? ''),
@@ -114,8 +117,10 @@ export function useBPForm() {
   function validate(): boolean {
     if (form.mobile_1 && !/^\d{10}$/.test(form.mobile_1.trim())) { setMobile1Error('Must be exactly 10 digits'); return false }
     if (form.mobile_2 && !/^\d{10}$/.test(form.mobile_2.trim())) { setMobile2Error('Must be exactly 10 digits'); return false }
+    const land = checkLandline(form.landline)
+    if (land) { setLandlineError(land); return false }
     if (form.gst_number && !GSTIN_RE.test(form.gst_number.trim().toUpperCase())) { setGstError('Please enter a valid GST Number'); return false }
-    setMobile1Error(''); setMobile2Error(''); setGstError('')
+    setMobile1Error(''); setMobile2Error(''); setGstError(''); setLandlineError('')
     return true
   }
 
@@ -128,6 +133,7 @@ export function useBPForm() {
       gst_number:          form.gst_number.trim().toUpperCase() || null,
       mobile_1:            form.mobile_1.trim() || null,
       mobile_2:            form.mobile_2.trim() || null,
+      landline:            form.landline.trim() || null,
       state_id:            form.state_id  || null,
       district_id:         form.district_id || null,
       taluka_id:           form.taluka_id || null,
@@ -149,6 +155,7 @@ export function useBPForm() {
     mobile1Error, setMobile1Error,
     mobile2Error, setMobile2Error,
     gstError, setGstError,
+    landlineError, setLandlineError,
     placeOptions, handlePlaceChange,
     reset, validate, buildBody,
     F, setF,
@@ -177,6 +184,7 @@ export function BusinessPartnerFormFields({
     mobile1Error, setMobile1Error,
     mobile2Error, setMobile2Error,
     gstError, setGstError,
+    landlineError, setLandlineError,
     placeOptions, handlePlaceChange, F,
   } = hook
 
@@ -269,6 +277,17 @@ export function BusinessPartnerFormFields({
           {mobile2Error && <p className="text-xs text-danger mt-1">{mobile2Error}</p>}
         </div>
       )}
+
+      {/* Its own field, not Mobile Number 2: an STD code and a looser check
+          (src/lib/party-landline.ts). Spaces and hyphens are kept as typed. */}
+      <div>
+        <label htmlFor="bp-landline" className="block text-sm font-medium text-text-secondary mb-1">Landline</label>
+        <input id="bp-landline" name="landline" type="tel" inputMode="tel" value={form.landline}
+          onChange={e => { F('landline')(e); setLandlineError('') }}
+          placeholder="022 2654 1234"
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring ${landlineError ? 'border-danger-border' : 'border-border'}`} />
+        {landlineError && <p className="text-xs text-danger mt-1">{landlineError}</p>}
+      </div>
 
       <div>
         <label htmlFor="bp-address" className="block text-sm font-medium text-text-secondary mb-1">Address</label>

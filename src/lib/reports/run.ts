@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma, serialize } from '@/lib/db'
+import { getGstRequiredForOrders } from '@/lib/gst-setting'
+import { effectivelyComplete } from '@/lib/gst-policy'
 import type { SessionUser } from '@/lib/auth'
 import { checkPermission, type PermSection } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
@@ -378,17 +380,22 @@ async function buildLookups(
         where: { tenant_id: tenantId, id: { in: ids } },
         select: {
           id: true, name: true, type: true, pincode: true, is_complete: true,
+          completeness_missing: true,
           industries: { select: { name: true } },
           states: { select: { name: true } },
         },
       })
+      // Complete / Incomplete as this tenant counts it: with GST not
+      // required, a company missing only its GST number is Complete
+      // (src/lib/gst-policy.ts).
+      const gstRequired = await getGstRequiredForOrders(tenantId)
       for (const c of companies) {
         lookups.companies.set(c.id, {
           id: c.id,
           name: c.name,
           type: c.type ?? null,
           pincode: c.pincode ?? null,
-          is_complete: c.is_complete,
+          is_complete: effectivelyComplete(c.is_complete, c.completeness_missing, gstRequired),
           industry: c.industries?.name ?? null,
           state: c.states?.name ?? null,
         })

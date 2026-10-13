@@ -4,12 +4,16 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { recomputeCompanyCompleteness } from '@/lib/completeness'
+import { getGstRequiredForOrders } from '@/lib/gst-setting'
+import { withGstPolicy } from '@/lib/gst-policy'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
+import { attachLandlines, LANDLINE_NOT_SAVED, writeLandline } from '@/lib/party-landline'
 import { COMPANY_INCLUDE, shapeCompany } from './_shape'
 import { foreignCompanyRef, ownerOutsideScope } from './_access'
 import {
   checkEmail,
   checkGstin,
+  checkLandline,
   checkMobile,
   checkPincode,
   firstError,
@@ -57,9 +61,18 @@ export async function GET(req: NextRequest) {
     })
 
     // DATE next_follow_up_date (PLAN.md 5.1).
-    const data = (serialize(rows, 'companies') as Record<string, unknown>[]).map(shapeCompany)
+    // Completeness as this tenant counts it: with GST not required, a company
+    // missing only its GST number reads as complete (src/lib/gst-policy.ts).
+    // The Parties list's badge, filter and data-health alerts all read these.
+    const gstRequired = await getGstRequiredForOrders(tid)
+    const data = (serialize(rows, 'companies') as Record<string, unknown>[])
+      .map(shapeCompany)
+      .map(row => withGstPolicy(row as Record<string, unknown> & { is_complete?: boolean; completeness_missing?: string | null }, gstRequired))
 
-    return NextResponse.json(data)
+    // The edit dialog prefills from this list, so it carries the landline too
+    // — one guarded query for every row, `null` until the column exists
+    // (src/lib/party-landline.ts).
+    return NextResponse.json(await attachLandlines(data as (Record<string, unknown> & { id: string })[], tid, 'companies'))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -76,7 +89,7 @@ export async function POST(req: NextRequest) {
     mobile_1, mobile_2, address, description,
     state_id, district_id, taluka_id, village_id,
     temperature, next_follow_up_date,
-    email, website, industry_id, owner_user_id,
+    email, website, industry_id, owner_user_id, landline,
   } = await req.json()
 
   // Quick Create compulsory: Name and a mobile number (REBUILD-PLAN.md:181).
@@ -92,6 +105,7 @@ export async function POST(req: NextRequest) {
     checkPincode(pincode),
     checkGstin(gst_number),
     checkEmail(email),
+    checkLandline(landline),
   )
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
 
@@ -152,8 +166,19 @@ export async function POST(req: NextRequest) {
     // column default as if it had been computed.
     const completeness = await recomputeCompanyCompleteness(created.id, created.tenant_id)
 
+    // The landline is written beside the insert, through the guarded helper:
+    // until the column exists the company is still created and the response
+    // says the landline was not stored (src/lib/party-landline.ts).
+    const phone = trimmed(landline)
+    const landlineSaved = phone === null || await writeLandline(tid, 'companies', created.id, phone)
+
+    const gstRequired = await getGstRequiredForOrders(created.tenant_id)
     return NextResponse.json(
-      { ...(serialize(created, 'companies') as Record<string, unknown>), ...completeness },
+      {
+        ...withGstPolicy({ ...(serialize(created, 'companies') as Record<string, unknown>), ...completeness }, gstRequired),
+        landline: landlineSaved ? phone : null,
+        ...(landlineSaved ? {} : { warning: LANDLINE_NOT_SAVED }),
+      },
       { status: 201 }
     )
   } catch (err) {

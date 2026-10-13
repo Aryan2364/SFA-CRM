@@ -61,7 +61,8 @@ import { PhoneField } from '@/components/ui/phone-field'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Textarea } from '@/components/ui/textarea'
 import { DEFAULT_COUNTRY_CODE, joinPhone } from '@/lib/country-codes'
-import { checkEmail, checkPhone } from '@/lib/validation'
+import { checkEmail, checkLandline, checkPhone } from '@/lib/validation'
+import { useToast } from '@/contexts/ToastContext'
 
 import { useOwnerChoice, type NamedRef, type UserRef } from './party-masters'
 
@@ -72,6 +73,7 @@ const BLANK = {
   mobile: '',
   alternate_mobile: '',
   whatsapp: '',
+  landline: '',
   email: '',
   designation: '',
   contact_type_id: '',
@@ -122,6 +124,7 @@ export function ContactDialog({
   markPrimary?: boolean
   onCreated: (contact: CreatedContact) => void
 }) {
+  const { toast } = useToast()
   const [form, setForm] = useState(BLANK)
   /* Own scope: Owner is the user, locked (see the Owner field below). */
   const ownerChoice = useOwnerChoice('contacts')
@@ -211,6 +214,8 @@ export function ContactDialog({
       ? null
       : checkPhone(joinPhone(whatsappCode, form.whatsapp), 'WhatsApp Number')
     if (wa) next.whatsapp = wa
+    const land = checkLandline(form.landline)
+    if (land) next.landline = land
     const email = checkEmail(form.email)
     if (email) next.email = email
 
@@ -236,6 +241,7 @@ export function ContactDialog({
         mobile: joinPhone(mobileCode, form.mobile) ?? form.mobile.trim(),
         alternate_mobile: joinPhone(altCode, form.alternate_mobile),
         whatsapp: joinPhone(waCode, waNumber),
+        landline: form.landline.trim() || null,
         email: form.email.trim() || null,
         designation: form.designation.trim() || null,
         contact_type_id: form.contact_type_id || null,
@@ -259,6 +265,10 @@ export function ContactDialog({
     }
 
     const created = data as CreatedContact
+    // Saved; only the landline may not be, until the database has the column
+    // (src/lib/party-landline.ts).
+    const warning = (data as { warning?: string }).warning
+    if (warning) toast(warning, 'warning')
     onCreated({ id: created.id, name: created.name, mobile: created.mobile })
     onOpenChange(false)
   }
@@ -407,6 +417,23 @@ export function ContactDialog({
                 Same as primary number
               </Label>
             </div>
+          </div>
+
+          {/* Its own field, not the alternate number: a landline has an STD
+              code and no country-code picker (src/lib/party-landline.ts). */}
+          <div className="col-span-12 sm:col-span-6">
+            <Label htmlFor="cd-landline">Landline</Label>
+            <Input
+              id="cd-landline"
+              className="mt-1.5"
+              type="tel"
+              inputMode="tel"
+              value={form.landline}
+              onChange={e => set('landline')(e.target.value)}
+              aria-invalid={Boolean(errors.landline)}
+              placeholder="022 2654 1234"
+            />
+            <InlineFieldError>{errors.landline}</InlineFieldError>
           </div>
 
           <div className="col-span-12 sm:col-span-6">

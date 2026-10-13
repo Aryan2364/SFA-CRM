@@ -4,12 +4,16 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { recomputeCompanyCompleteness } from '@/lib/completeness'
+import { getGstRequiredForOrders } from '@/lib/gst-setting'
+import { withGstPolicy } from '@/lib/gst-policy'
+import { LANDLINE_NOT_SAVED, readLandlines, writeLandline } from '@/lib/party-landline'
 import { COMPANY_INCLUDE, shapeCompany } from '../_shape'
 import { findScopedCompany, foreignCompanyRef, ownerOutsideScope } from '../_access'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import {
   checkEmail,
   checkGstin,
+  checkLandline,
   checkMobile,
   checkPincode,
   firstError,
@@ -78,14 +82,27 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     }
 
     const { company_contacts, company_addresses, ...company } = serialised
+    // Completeness as this tenant counts it (src/lib/gst-policy.ts).
+    const gstRequired = await getGstRequiredForOrders(tid)
+    // The company's own landline and its contacts', in one guarded query each;
+    // `null` until the column exists (src/lib/party-landline.ts).
+    const [ownLandline, contactLandlines] = await Promise.all([
+      readLandlines(tid, 'companies', [row.id]),
+      readLandlines(tid, 'contacts', company_contacts.map(cc => String(cc.contacts.id))),
+    ])
     return NextResponse.json({
-      ...shapeCompany(company),
+      ...withGstPolicy(shapeCompany(company) as Record<string, unknown> & { is_complete?: boolean; completeness_missing?: string | null }, gstRequired),
+      landline: ownLandline?.get(row.id) ?? null,
       contacts: company_contacts.map(cc => ({
         ...cc.contacts,
+        landline: contactLandlines?.get(String(cc.contacts.id)) ?? null,
         is_primary: cc.is_primary,
         link_id: cc.id,
       })),
       addresses: company_addresses,
+      // So the "no field recorded" banner names only the fields this tenant
+      // actually requires.
+      gst_required_for_orders: gstRequired,
     })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
@@ -137,6 +154,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     checkPincode(body.pincode),
     checkGstin(body.gst_number),
     checkEmail(body.email),
+    checkLandline(body.landline),
   )
   if (bad) return NextResponse.json({ error: bad }, { status: 400 })
 
@@ -209,9 +227,29 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       data,
     })
     const completeness = await recomputeCompanyCompleteness(updated.id, updated.tenant_id)
+
+    // Landline only when the form sent the key — the Active toggle PUTs
+    // `is_active` alone and must not clear it. Until the column exists the
+    // rest is saved and the response says the landline was not stored; a
+    // blank sent then loses nothing, so it carries no warning.
+    let landline: string | null
+    let landlineWarning = false
+    if ('landline' in body) {
+      landline = trimmed(body.landline)
+      const saved = await writeLandline(tid, 'companies', updated.id, landline)
+      if (!saved) { landlineWarning = landline !== null; landline = null }
+    } else {
+      landline = (await readLandlines(tid, 'companies', [updated.id]))?.get(updated.id) ?? null
+    }
+
+    const gstRequired = await getGstRequiredForOrders(tid)
     return NextResponse.json({
-      ...(serialize(updated, 'companies') as Record<string, unknown>),
-      ...completeness,
+      ...withGstPolicy({
+        ...(serialize(updated, 'companies') as Record<string, unknown>),
+        ...completeness,
+      }, gstRequired),
+      landline,
+      ...(landlineWarning ? { warning: LANDLINE_NOT_SAVED } : {}),
     })
   } catch (err) {
     // An id that belongs to another tenant matches nothing, and update() throws
