@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
     ])
     if (tenant && userCount >= tenant.license_count) {
       return NextResponse.json(
-        { error: `User limit reached (${userCount}/${tenant.license_count}). Please contact My Prosys Support team to upgrade your plan.` },
+        { error: `User limit reached (${userCount}/${tenant.license_count}). Please contact the RGB Business Growth Consulting support team to upgrade your plan.` },
         { status: 403 }
       )
     }

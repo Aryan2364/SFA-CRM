@@ -603,7 +603,7 @@ export default function UsersPage() {
                 <h3 className="font-medium text-text-primary mb-1">User Limit Reached</h3>
                 <p className="text-sm text-text-secondary">
                   Active user limit reached ({license?.used}/{license?.limit}). To add more users, please contact{' '}
-                  <span className="font-medium text-text-primary">My Prosys Support team</span> to upgrade your plan.
+                  the <span className="font-medium text-text-primary">RGB Business Growth Consulting support team</span> to upgrade your plan.
                 </p>
               </div>
             </div>
