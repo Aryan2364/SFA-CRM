@@ -6,9 +6,10 @@ import { checkPermission, forbidden } from '@/lib/permissions'
 import { CONTACT_INCLUDE, loadCompanies, readCompanyIds, shapeContact } from '../_shape'
 import { checkEmail, checkLandline, checkPhone, firstError, trimmed } from '@/lib/validation'
 import { LANDLINE_NOT_SAVED, readLandlines, writeLandline } from '@/lib/party-landline'
-import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { findScopedContact, foreignContactRef } from '../_access'
+import { getCompanyAccessLevel } from '@/lib/sharing'
 import { ownerOutsideScope } from '../../companies/_access'
+import { contactHasHistory, contactLinkedAccountNames, findSelfAccountForContact } from '@/lib/account-kind'
 
 
 /**
@@ -24,20 +25,46 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    const ids = await scopedUserIds(user, 'contacts')
+    // The list's own rule (§6.6), widened by sharing — see `../_access.ts`.
+    const found = await findScopedContact(user, tid, params.id, 'read')
+    if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     // findFirst, not findUnique: the tenant filter is not part of the primary
     // key and it must be in the `where`, or a contact id from another tenant
-    // resolves. Dropping it leaks across tenants with nothing crashing. The
-    // scope predicate is the list's own (§6.6) — see `../_access.ts`.
+    // resolves. Dropping it leaks across tenants with nothing crashing.
     const row = await prisma.contacts.findFirst({
-      where: { id: params.id, tenant_id: tid, ...scopeWhere(ids, 'owner_user_id') },
+      where: { id: found.id, tenant_id: tid },
       include: CONTACT_INCLUDE,
     })
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // `null` until the column exists (src/lib/party-landline.ts).
     const landline = (await readLandlines(tid, 'contacts', [row.id]))?.get(row.id) ?? null
-    return NextResponse.json({ ...shapeContact(serialize(row, 'contacts') as Record<string, unknown>), landline })
+    const shaped = shapeContact(serialize(row, 'contacts') as Record<string, unknown>) as Record<string, unknown> & {
+      companies: (Record<string, unknown> & { id?: unknown })[]
+    }
+    // Privacy with sharing (docs/accounts-contacts-spec.md §9): "A contact
+    // reached through a shared account shows only its links to accounts the
+    // viewer can access." Someone who reaches this contact only through a
+    // SHARED account must not learn it is ALSO linked to some other account
+    // they cannot open — even the other account's NAME is other-tenant-owner
+    // data the viewer has no access to. Not filtered for owner-scope viewers,
+    // whose page is exactly as before (every link visible, as always).
+    if (found.access !== 'owner-scope') {
+      const checked = await Promise.all(
+        shaped.companies.map(async c => ({
+          row: c,
+          accessible: (await getCompanyAccessLevel(user, tid, String(c.id))) !== null,
+        }))
+      )
+      shaped.companies = checked.filter(c => c.accessible).map(c => c.row)
+    }
+    return NextResponse.json({
+      ...shaped,
+      landline,
+      // 'owner-scope' | 'work' | 'view' — so the page can disable its write
+      // controls for a 'view' member without deciding access itself.
+      access: found.access,
+    })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -91,19 +118,19 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const value = body[key]
 
     switch (key) {
-      // NOT NULL, and compulsory per §3.4. Sending them blank is a 400, not a
-      // silent no-op — the form's own required check would have to be bypassed
-      // to get here.
-      case 'name':
-      case 'mobile': {
+      // NOT NULL and compulsory. Sending it blank is a 400, not a silent no-op
+      // — the form's own required check would have to be bypassed to get here.
+      case 'name': {
         const text = trimmed(value)
-        if (text === null) {
-          const label = key === 'name' ? 'Name' : 'Mobile Number'
-          return NextResponse.json({ error: `${label} is required` }, { status: 400 })
-        }
-        data[key] = text
+        if (text === null) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+        data.name = text
         break
       }
+      // Mobile is optional (docs/accounts-contacts-spec.md §2). NOT NULL in the
+      // database, so a cleared mobile stores '' rather than null.
+      case 'mobile':
+        data.mobile = trimmed(value) ?? ''
+        break
       // @db.Date — the client sends "YYYY-MM-DD", Prisma wants a Date, and a
       // blank clears it.
       case 'birthday':
@@ -140,8 +167,42 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     // contact_id, and doing them for a contact that turned out to belong to
     // someone else would have rewritten their links before update() raised
     // P2025.
-    const exists = await findScopedContact(user, tid, params.id)
+    // 'write': owner-scope, or a 'work' member of an account it is linked to.
+    const exists = await findScopedContact(user, tid, params.id, 'write')
     if (!exists) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // A shared member works the contact; they do not get to re-own it or move
+    // it between accounts (they cannot even see every account it is linked
+    // to). The form posts its whole state back, so an UNCHANGED owner or
+    // company set is accepted and simply not rewritten.
+    if (exists.access !== 'owner-scope') {
+      const current = await prisma.contacts.findFirst({
+        where: { id: exists.id, tenant_id: tid },
+        select: {
+          owner_user_id: true,
+          company_contacts: { where: { tenant_id: tid }, select: { company_id: true } },
+        },
+      })
+      if ('owner_user_id' in data) {
+        if ((current?.owner_user_id ?? null) !== (data.owner_user_id ?? null)) {
+          return NextResponse.json(
+            { error: 'Only the owner, or someone whose team includes the owner, can change who owns this contact.' },
+            { status: 403 }
+          )
+        }
+        delete data.owner_user_id
+      }
+      if (replaceLinks) {
+        const now = new Set((current?.company_contacts ?? []).map(l => l.company_id))
+        const same = now.size === ids.length && ids.every(id => now.has(id))
+        if (!same) {
+          return NextResponse.json(
+            { error: "Only the contact's owner, or someone whose team includes the owner, can change which accounts it belongs to." },
+            { status: 403 }
+          )
+        }
+      }
+    }
 
     const miss = await foreignContactRef(tid, data)
     if (miss) return NextResponse.json({ error: miss }, { status: 400 })
@@ -208,25 +269,54 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 /**
- * DELETE — a **soft** delete: `is_active = false`, the row stays.
+ * DELETE — a **soft** delete: `is_active = false`, the row stays (existing
+ * behaviour, kept as-is per the build instructions).
  *
- * A contact is referenced by `company_contacts` and, from Phase 2, by deals and
- * activity; a hard delete would either fail on the FK or take history with it.
- * The list hides inactive contacts by default, so this reads as a delete.
+ * docs/accounts-contacts-spec.md §5 adds three checks ahead of the write:
+ *   - a Self contact is refused outright, naming the Individual account;
+ *   - a contact with any history (an opportunity, or a meeting logged against
+ *     it) is refused — "make inactive" is exactly what this soft delete does,
+ *     so the message points at the same verb;
+ *   - otherwise the client must confirm (`?confirm=1`); without it this
+ *     returns the list of linked accounts as a 409 dry run so the UI can warn
+ *     before the user commits.
  *
  * An id that is not the caller's to see — another tenant's, another rep's on
- * `own` scope, or one that does not exist — is a 404, found before the write.
- * `updateMany`, not `update`, so a row that vanishes in between stays silent
- * rather than throwing P2025 into a 500 carrying the raw Prisma message.
+ * `own` scope, or one that does not exist — is a 404, found before any of it.
  */
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'contacts', 'delete')) return forbidden()
   const tid = getTenantId()
   try {
-    // Outside the caller's scope is a 404, as on GET and PUT.
-    const found = await findScopedContact(user, tid, params.id)
+    // Outside the caller's scope is a 404, as on GET and PUT. 'owner': a
+    // shared member never deletes the contact.
+    const found = await findScopedContact(user, tid, params.id, 'owner')
     if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const selfAccountId = await findSelfAccountForContact(tid, found.id)
+    if (selfAccountId) {
+      const acct = await prisma.companies.findFirst({ where: { id: selfAccountId, tenant_id: tid }, select: { name: true } })
+      return NextResponse.json({
+        error: `This person is the Self contact of ${acct?.name ?? 'an Individual account'}. Delete or deactivate that Individual account instead.`,
+        self_account_id: selfAccountId,
+      }, { status: 409 })
+    }
+
+    if (await contactHasHistory(tid, found.id)) {
+      return NextResponse.json(
+        { error: 'This contact has meetings or opportunities on record. Make it inactive instead of deleting it.' },
+        { status: 409 }
+      )
+    }
+
+    const confirmed = req.nextUrl.searchParams.get('confirm') === '1'
+    if (!confirmed) {
+      const accounts = await contactLinkedAccountNames(tid, found.id)
+      if (accounts.length > 0) {
+        return NextResponse.json({ error: 'confirm_required', linked_accounts: accounts }, { status: 409 })
+      }
+    }
 
     await prisma.contacts.updateMany({
       where: { id: found.id, tenant_id: tid },

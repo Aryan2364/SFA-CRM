@@ -50,7 +50,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { MapPinIcon, TriangleAlertIcon } from 'lucide-react'
+import { CalendarClockIcon, MapPinIcon, TriangleAlertIcon } from 'lucide-react'
 
 import { useMe } from '@/hooks/useMe'
 import {
@@ -62,8 +62,12 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { MeetingAttendeesSection } from '@/components/daily-activity/meeting-attendees-section'
+import { NextMeetingDialog } from '@/components/daily-activity/next-meeting-dialog'
 import { DealsSection } from '@/components/meeting/deals-section'
 import { NewDealDialog } from '@/components/meeting/new-deal-dialog'
 import { NotesSection } from '@/components/meeting/notes-section'
@@ -89,7 +93,21 @@ export default function MeetingPage() {
   const [ctx, setCtx] = useState<MeetingContext | null>(null)
   const [state, setState] = useState<LoadState>('loading')
   const [stages, setStages] = useState<Stage[]>([])
+  /* Answered, not just empty: see DealsSection's no-stages note. */
+  const [stagesLoaded, setStagesLoaded] = useState(false)
   const [newDeal, setNewDeal] = useState(false)
+  const [nextMeetingOpen, setNextMeetingOpen] = useState(false)
+  const [nextMeeting, setNextMeeting] = useState<{ due_date: string; deal_name: string | null } | null>(null)
+
+  const loadNextMeeting = useCallback(async () => {
+    if (!visitId) return
+    const r = await fetch(`/api/daily-activity/${visitId}/next-meeting`)
+    if (!r.ok) return
+    const d = await r.json()
+    setNextMeeting(d.next_meeting ?? null)
+  }, [visitId])
+
+  useEffect(() => { void loadNextMeeting() }, [loadNextMeeting])
 
   const load = useCallback(async () => {
     if (!visitId) return
@@ -120,8 +138,12 @@ export default function MeetingPage() {
     if (!needsStages) return
     let cancelled = false
     fetch('/api/deals/stages')
-      .then(r => (r.ok ? r.json() : []))
-      .then(d => { if (!cancelled) setStages(Array.isArray(d) ? d : []) })
+      .then(async r => {
+        if (cancelled || !r.ok) return
+        const d = await r.json()
+        setStages(Array.isArray(d) ? d : [])
+        setStagesLoaded(true)
+      })
       .catch(() => {})
     return () => { cancelled = true }
   }, [needsStages])
@@ -155,16 +177,33 @@ export default function MeetingPage() {
   const { visit, company } = ctx
   const day = visit.visit_date.slice(0, 10)
 
-  const canWriteNotes = !!me?.permissions?.meetings?.edit
+  /*
+   * `ctx.can_write` is false only when this meeting was reached through
+   * sharing rather than the viewer's own `meetings` scope (src/lib/
+   * sharing.ts, Aryan 2026-10-13) — a colleague's meeting on a shared
+   * opportunity or account. Every write on the meeting (minutes, discussed
+   * flag, next meeting) is gated on it in addition to the role permission:
+   * the server re-checks its own scope regardless, but the controls must
+   * not invite a tap that will 403.
+   */
+  const canWriteMeeting = ctx.can_write
+  const canWriteNotes = canWriteMeeting && !!me?.permissions?.meetings?.edit
   const canMarkDiscussed = canWriteNotes && !!me?.permissions?.deals?.view
+  /* Three-state, for MeetingAttendeesSection: `null` while `useMe()` has not
+     resolved yet — its controls render disabled with no reason rather than a
+     wrong "not allowed" shown before the answer is in (kit §26's "not known
+     yet is not not allowed"). `ctx` is already loaded by this point (the page
+     returns earlier otherwise), so only `me` can still be in flight. */
+  const canEditAttendees: boolean | null = me === null ? null : canWriteNotes
   /* POST /api/orders with a visit_id checks orders.create, and — when the
      meeting already carries an order, so the post is a re-punch — orders.edit
      as well. */
   const canCreateOrder =
+    canWriteMeeting &&
     !!me?.permissions?.orders?.create && (!ctx.visit_order || !!me?.permissions?.orders?.edit)
   /* POST /api/deals checks deals.create; the stage and close routes check
      deals.edit, which is canEditDeals above. */
-  const canCreateDeal = !!me?.permissions?.deals?.create
+  const canCreateDeal = canWriteMeeting && !!me?.permissions?.deals?.create
 
   /*
    * §5.5's "a note … linked to a specific Deal or Order" — the meeting always
@@ -232,7 +271,7 @@ export default function MeetingPage() {
             {/* The party leads: largest, first. Status and metadata sit
                 under it, smaller. */}
             <h1 className="truncate text-page-title font-medium text-text-primary">
-              {company ? (
+              {company && company.can_open !== false ? (
                 <Link
                   href={`/parties/companies/${company.id}`}
                   className="underline-offset-4 hover:underline"
@@ -276,7 +315,37 @@ export default function MeetingPage() {
                 Incomplete party
               </Badge>
             ) : null}
+            {!canWriteMeeting ? (
+              <Badge variant="neutral">Shared with you: view only</Badge>
+            ) : null}
           </div>
+        </div>
+
+        {/* "Set next meeting" is ALWAYS available here, whatever the
+            meeting's status — including Completed — but it is a write on
+            THIS meeting, so a shared, read-only viewer gets it disabled with
+            a reason rather than hidden (section 26). */}
+        <div className="flex flex-wrap items-center gap-2 text-body text-text-secondary">
+          {nextMeeting && (
+            <span>
+              Next meeting: {fmtDate(nextMeeting.due_date)}
+              {nextMeeting.deal_name ? ` · ${nextMeeting.deal_name}` : ''}
+            </span>
+          )}
+          <PermissionTooltip
+            allowed={canWriteMeeting}
+            reason="This meeting is shared with you to view only."
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setNextMeetingOpen(true)}
+              disabled={!canWriteMeeting}
+            >
+              <CalendarClockIcon />
+              {nextMeeting ? 'Change next meeting' : 'Set next meeting'}
+            </Button>
+          </PermissionTooltip>
         </div>
       </header>
 
@@ -289,7 +358,15 @@ export default function MeetingPage() {
         height lands there, never as a gap under Previous meetings.
       */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:grid-rows-[auto_1fr]">
-        <div className="lg:col-span-2 lg:col-start-1 lg:row-start-1">
+        <div className="flex flex-col gap-4 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+          {/*
+            Attendees (§8, Stage 2). Edit gate matches `canWriteNotes` above
+            exactly: the meeting must be the viewer's own (not reached only
+            through sharing) AND their role carries `meetings.edit` — the
+            same two conditions the new PATCH route itself re-checks, so a
+            control shown here can never 403.
+          */}
+          <MeetingAttendeesSection visitId={visit.id} canEdit={canEditAttendees} />
           <PreviousMeetingsSection visitId={visit.id} />
         </div>
 
@@ -313,6 +390,7 @@ export default function MeetingPage() {
             openDealCount={ctx.open_deal_count}
             discussedIds={ctx.discussed_deal_ids}
             stages={stages}
+            stagesLoaded={stagesLoaded}
             visible={ctx.deals_visible}
             canEditDeals={canEditDeals}
             canCreateDeal={canCreateDeal}
@@ -340,6 +418,15 @@ export default function MeetingPage() {
           />
         </div>
       </div>
+
+      {nextMeetingOpen && (
+        <NextMeetingDialog
+          visitId={visit.id}
+          mode="manage"
+          onClose={() => setNextMeetingOpen(false)}
+          onSaved={loadNextMeeting}
+        />
+      )}
 
       {newDeal && company ? (
         <NewDealDialog

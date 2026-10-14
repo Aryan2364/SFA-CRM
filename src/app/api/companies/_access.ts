@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/db'
 import { SessionUser } from '@/lib/auth'
 import { PermSection } from '@/lib/permissions'
-import { scopedUserIds, scopeWhere } from '@/lib/scope'
-import { firstForeignTenantRef } from '@/lib/tenant-fk'
+import { scopedUserIds } from '@/lib/scope'
+import { asId, firstForeignTenantRef } from '@/lib/tenant-fk'
+import { AccessLevel, AccessNeed, getCompanyAccessLevel, meets } from '@/lib/sharing'
 
 /**
  * "May this user touch THIS Company?" — the Companies twin of
@@ -12,20 +13,33 @@ import { firstForeignTenantRef } from '@/lib/tenant-fk'
  * test here, a rep on `own` scope who cannot SEE a colleague's company in the
  * list could still open it, edit it or delete it by id.
  *
- * Resolves to the company's id when it exists, is in this tenant, and is inside
- * the caller's scope — and to `null` otherwise. The caller answers a plain 404
- * for `null`: telling an unauthorised caller that a row exists is itself a leak.
+ * Sharing (src/lib/sharing.ts) widens that by the caller's `account_members`
+ * row, and `need` says how much access the calling verb requires:
+ *   'read'   owner-scope, or a 'work' / 'view' member
+ *   'write'  owner-scope, or a 'work' member
+ *   'owner'  owner-scope only — delete, reassign the owner
+ * With nothing shared, every `need` is exactly the old owner-scope test.
+ *
+ * Resolves to the company's id and the caller's level when it exists, is in
+ * this tenant, and `need` is met — and to `null` otherwise. The caller answers a
+ * plain 404 for `null`: telling an unauthorised caller that a row exists is
+ * itself a leak (a 'view' member trying to write gets the same 404 as anyone
+ * else — the UI never offers them the control).
  */
 export async function findScopedCompany(
   user: SessionUser,
   tenantId: string,
-  companyId: string
-): Promise<{ id: string } | null> {
-  const ids = await scopedUserIds(user, 'companies')
-  return prisma.companies.findFirst({
-    where: { id: companyId, tenant_id: tenantId, ...scopeWhere(ids, 'owner_user_id') },
-    select: { id: true },
+  companyId: string,
+  need: AccessNeed
+): Promise<{ id: string; access: AccessLevel } | null> {
+  if (!asId(companyId)) return null
+  const row = await prisma.companies.findFirst({
+    where: { id: companyId, tenant_id: tenantId },
+    select: { id: true, owner_user_id: true },
   })
+  if (!row) return null
+  const access = await getCompanyAccessLevel(user, tenantId, row.id, row)
+  return meets(access, need) ? { id: row.id, access: access! } : null
 }
 
 /**
@@ -101,7 +115,7 @@ export async function ownerOutsideScope(
   if (ids === null) return null
   const owner = typeof ownerId === 'string' ? ownerId.trim() : ''
   if (owner && ids.includes(owner)) return null
-  const noun = section === 'companies' ? 'companies' : 'contacts'
+  const noun = section === 'companies' ? 'accounts' : 'contacts'
   // `[caller]` is `own` scope — or `team` with nobody below, where the answer
   // is the same person and so the same sentence. "Assign", not "create": the
   // same refusal answers a create and a PUT that reassigns the owner.

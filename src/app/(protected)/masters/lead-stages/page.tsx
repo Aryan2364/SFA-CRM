@@ -5,13 +5,16 @@ import { CircleDashed, Flag, Info } from 'lucide-react'
 import CrudPage, { Column, masterLocks } from '@/components/ui/CrudPage'
 import Modal from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/badge'
-import { Banner, BannerDescription, BannerTitle } from '@/components/ui/banner'
+import { Banner, BannerAction, BannerDescription, BannerTitle } from '@/components/ui/banner'
+import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import { useToast } from '@/contexts/ToastContext'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useCrud } from '@/hooks/useCrud'
 import { useMe } from '@/hooks/useMe'
 
 /**
- * Lead Stages master (the `deal_stages` table — the names diverged when Leads
+ * Opportunity Stages master (labelled Lead Stages until 13 Oct 2026; the `deal_stages` table — the names diverged when Leads
  * became Deals; `lead_stages` is still the immutable permission key).
  *
  * Each stage carries a **stage type**, Open or Closed. Closed is terminal: the
@@ -65,10 +68,12 @@ const COLS: Column[] = [
 export default function LeadStagesPage() {
   const crud = useCrud('/api/masters/lead-stages')
   const me = useMe()
+  const { toast } = useToast()
+  const [addingStandard, setAddingStandard] = useState(false)
 
   // The real permission map, never a role name — Administrators get every
   // section from /api/auth/me. Denied actions show disabled with a reason.
-  const locks = masterLocks(me, 'lead_stages', 'lead stages', 'create')
+  const locks = masterLocks(me, 'lead_stages', 'opportunity stages', 'create')
 
   const [open, setOpen]         = useState(false)
   const [editing, setEditing]   = useState<Record<string, unknown> | null>(null)
@@ -83,6 +88,35 @@ export default function LeadStagesPage() {
   // nothing either way, so it must not raise the notice.
   const typeUnavailable =
     crud.allRows.length > 0 && crud.allRows.every(r => r.stage_type == null)
+
+  /*
+   * The firm has no opportunity stages at all (`Existing` is the account
+   * sentinel, not a funnel stage). Then the Opportunities board does not
+   * exist and nothing can be moved, so the screen offers the standard set in
+   * one action. Only once the list has actually loaded: an empty list while
+   * loading or after a failure is not "no stages".
+   */
+  const noFunnelStages =
+    !crud.isLoading && !crud.loadError &&
+    crud.allRows.filter(r => String(r.name ?? '').trim().toLowerCase() !== 'existing').length === 0
+
+  async function addStandardStages() {
+    setAddingStandard(true)
+    try {
+      const r = await fetch('/api/masters/lead-stages/defaults', { method: 'POST' })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        toast(body.error ?? 'Could not add the standard stages', 'error')
+      } else {
+        const added: string[] = Array.isArray(body.added) ? body.added : []
+        toast(added.length > 0 ? `Added ${added.length} stages: ${added.join(', ')}` : 'The standard stages are already here')
+        crud.refetch()
+      }
+    } catch {
+      toast('Could not add the standard stages', 'error')
+    }
+    setAddingStandard(false)
+  }
 
   function openAdd() {
     setName(''); setStageType('Open'); setEditing(null); setOpen(true)
@@ -124,7 +158,7 @@ export default function LeadStagesPage() {
   return (
     <>
       <CrudPage
-        title="Lead Stages" backHref="/masters" columns={COLS}
+        title="Opportunity Stages" backHref="/masters" columns={COLS}
         rows={crud.rows} allRowsCount={crud.allRows.length}
         isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
         loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
@@ -145,7 +179,32 @@ export default function LeadStagesPage() {
         onDelete={r => crud.remove(r.id as string)} deleteMode="soft"
         deleteDisabledReason={r => r.is_fixed ? "Fixed stages can't be deleted" : null}
         onReorder={handleReorder}
-        filterBar={typeUnavailable ? (
+        filterBar={noFunnelStages || typeUnavailable ? (
+          <div className="flex flex-col gap-3">
+          {noFunnelStages && (
+            <Banner variant="warning">
+              <Info />
+              <BannerTitle>No opportunity stages yet</BannerTitle>
+              <BannerDescription>
+                Without stages the Opportunities board is not shown and an opportunity cannot be moved on.
+                Add the standard set, Prospect, Contacted, Qualified, Proposal, Negotiation, Won and Lost,
+                then rename or remove any you do not use.
+              </BannerDescription>
+              <BannerAction>
+                {/* `locks.add`: null = permissions not known yet (disabled,
+                    no reason), undefined = allowed, string = the reason. */}
+                <PermissionTooltip
+                  allowed={typeof locks.add !== 'string'}
+                  reason={locks.add ?? ''}
+                >
+                  <Button size="sm" disabled={locks.add !== undefined || addingStandard} onClick={addStandardStages}>
+                    {addingStandard ? 'Adding…' : 'Add standard stages'}
+                  </Button>
+                </PermissionTooltip>
+              </BannerAction>
+            </Banner>
+          )}
+          {typeUnavailable && (
           <Banner>
             <Info />
             <BannerTitle>Stage type is waiting on a database update</BannerTitle>
@@ -154,6 +213,8 @@ export default function LeadStagesPage() {
               pending <code>stage_type</code> column is added. Everything else on this screen works normally.
             </BannerDescription>
           </Banner>
+          )}
+          </div>
         ) : undefined}
       />
       <Modal title={editing ? 'Edit Stage' : 'Add Stage'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>

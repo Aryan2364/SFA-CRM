@@ -3,7 +3,6 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { findScopedDeal, notFound } from '../../_access'
 
 export const dynamic = 'force-dynamic'
@@ -17,21 +16,25 @@ export const dynamic = 'force-dynamic'
  * one table rather than two lists that can disagree.
  *
  * ---------------------------------------------------------------------------
- * TWO SCOPES, APPLIED SEPARATELY, AND WHY NEITHER IMPLIES THE OTHER
+ * ⚠️ RULE CHANGED, Aryan, 2026-10-13: "if an opportunity is shared then
+ * meetings against that opportunity should also be shared — else what is the
+ * meaning of sharing an opportunity."
  *
- * `deal_meetings` joins a record owned by a Deal owner to a record owned by
- * whoever held the meeting, and those are routinely different people. So:
+ * `findScopedDeal(…, 'read')` already proves the caller may read THIS Deal —
+ * owner-scope, an account member, or a deal member (`src/lib/sharing.ts`).
+ * Once that is true, EVERY meeting linked to the Deal is listed, whoever held
+ * it: the caller's own `meetings` data scope is no longer applied to this
+ * list at all. That used to be the second gate (see the old header below, kept
+ * because the reasoning about WHY a fully separate test existed still applies
+ * to any similar join); sharing replaces it, because the whole point of
+ * sharing a Deal is that the people it is shared with see its history.
  *
- *   deals     decides whether this Deal may be opened at all — `findScopedDeal`
- *   meetings  decides which of its meetings may be NAMED
- *
- * Inferring the second from the first is the leak: a Sales Executive who owns a
- * Deal would otherwise be handed the party name, the date and the owner of a
- * colleague's meeting simply because that colleague ticked the Deal. The visit
- * rows are therefore re-queried under the meetings scope, and a link that does
- * not survive it is dropped from the list entirely rather than rendered
- * unclickable — §5.6's rule is that a link the viewer cannot follow must not
- * appear, and `/daily-activity/meeting/[id]` already 404s the same request.
+ * `can_open` is always `true` for a row that reaches this response: reading
+ * the Deal is exactly what also makes `GET /api/daily-activity/[id]` readable
+ * for the same meeting (`canReadVisitViaSharing`), so every linked meeting
+ * named here can be opened — read-only, if the viewer is not its holder and
+ * has no other scope over it. The field stays on the wire so the UI never has
+ * to re-derive that rule.
  *
  * A caller with no `meetings:view` at all gets `[]`, not a 403: the Deal is
  * theirs to read and only this section of it is not, so the page renders the
@@ -40,6 +43,13 @@ export const dynamic = 'force-dynamic'
  * ⚠️ An empty array is a NORMAL answer, not a failure. §5.6: a Meeting is not
  * compulsory for a Deal, and the section is absent — not empty — when there
  * are none.
+ *
+ * ---------------------------------------------------------------------------
+ * The old gate, for context: `deal_meetings` joins a record owned by a Deal
+ * owner to a record owned by whoever held the meeting, and those are
+ * routinely different people — which is exactly why "the caller may read the
+ * Deal" was not enough on its own before sharing existed, and why it is enough
+ * now: sharing is the explicit act of widening that reach.
  */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
@@ -47,7 +57,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'read')
     if (!deal) return notFound()
 
     if (!await checkPermission(user, 'meetings', 'view')) {
@@ -65,13 +75,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
      * only to `deals` — so this is a second query by id rather than an
      * `include`. `tenant_id` is in the `where` beside the ids: an id list is
      * not a tenant filter, and a visit id that leaked in from elsewhere would
-     * otherwise resolve.
+     * otherwise resolve. No `meetings` scope filter here any more — see the
+     * header: read access to the Deal is now the whole gate.
      */
     const visits = await prisma.daily_visits.findMany({
       where: {
         id: { in: links.map(l => l.visit_id) },
         tenant_id: tid,
-        ...scopeWhere(await scopedUserIds(user, 'meetings')),
       },
       select: {
         id: true,
@@ -89,7 +99,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     // `visit_date` is @db.Date and must come back "YYYY-MM-DD"; `start_time` is
     // a timestamp. The model name is what tells `serialize` which is which.
-    return NextResponse.json(serialize(visits, 'daily_visits'))
+    const rows = serialize(visits, 'daily_visits') as Record<string, unknown>[]
+    return NextResponse.json(rows.map(row => ({ ...row, can_open: true })))
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

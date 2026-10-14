@@ -40,6 +40,27 @@ function isBlank(value: string | null | undefined): boolean {
 }
 
 /**
+ * DISPLAY-SIDE ONLY — Mobile Number joins the five stored fields in what a
+ * response reports as missing/incomplete, but never in what is stored
+ * (`COMPANY_REQUIRED_FIELDS` above, `scripts/backfill-parties.mjs`) and never
+ * in the order-placement gate (`placementBlock` in `src/app/api/orders/route.ts`,
+ * the `Placed` transition in `orders/[id]/route.ts`), which both read the
+ * stored columns directly and never pass through this function.
+ *
+ * Apply this AFTER `withGstPolicy` (src/lib/gst-policy.ts) at every place a
+ * company row is shaped for a response, so a missing mobile shows in
+ * `completeness_missing` without ever blocking an order.
+ */
+export function withMobileCompleteness<
+  T extends { is_complete?: boolean | null; completeness_missing?: string | null; mobile_1?: string | null }
+>(row: T): T {
+  if (!isBlank(row.mobile_1)) return row
+  const parts = row.completeness_missing ? row.completeness_missing.split(', ').filter(Boolean) : []
+  if (!parts.includes('Mobile Number')) parts.push('Mobile Number')
+  return { ...row, is_complete: false, completeness_missing: parts.join(', ') }
+}
+
+/**
  * Recompute and persist `is_complete` / `completeness_missing` for one company.
  *
  * Call it after every write that could change the answer — a company create or

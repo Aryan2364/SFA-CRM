@@ -10,6 +10,15 @@ import { businessDate } from '@/lib/business-date'
 import { readVisitContact, VISIT_SELECT } from '@/lib/visit-contact'
 import { getGstRequiredForOrders } from '@/lib/gst-setting'
 import { effectiveBlockedReason, withGstPolicy } from '@/lib/gst-policy'
+import { withMobileCompleteness } from '@/lib/completeness'
+import {
+  canReadVisitViaSharing,
+  getCompanyMemberships,
+  getDealMemberships,
+  opportunityOnlyDealIds,
+  widenScope,
+  type MemberAccess,
+} from '@/lib/sharing'
 
 /**
  * How many Deals and how many past Orders the meeting screen is given.
@@ -46,6 +55,18 @@ const RECENT_ORDERS_LIMIT = 5
  * meeting's, and why each section is omitted entirely (not merely empty) when
  * the caller lacks `view` on it. `deals_visible` / `orders_visible` say which
  * happened, so the screen can tell "nothing here" from "not for you".
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠️ READING THE MEETING ITSELF CAN NOW BE REACHED THROUGH SHARING, Aryan,
+ * 2026-10-13: "if an opportunity is shared then meetings against that
+ * opportunity should also be shared." If the visit is outside the caller's own
+ * `meetings` scope, `canReadVisitViaSharing()` (`src/lib/sharing.ts`) is tried
+ * next — true when the meeting's account, or a Deal it is linked to
+ * (`deal_meetings`), is one the caller has at least READ access to. That is
+ * READ ONLY: `can_write` on the response says so, and every WRITE route below
+ * (`PATCH`) keeps the plain `meetings` scope check unchanged — a shared viewer
+ * can open a colleague's meeting, never start/stop/delete it, change its
+ * notes, or touch anything on it.
  */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
@@ -57,16 +78,28 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // another tenant, or another rep's visit under Self scope, resolves to
     // null and gets a plain 404. Telling an unauthorised caller that a row
     // exists is itself a leak (the same answer `findScopedDeal` gives).
-    const visit = await prisma.daily_visits.findFirst({
+    const visitSelect = { ...VISIT_SELECT, users: { select: { id: true, name: true } } }
+    let visit = await prisma.daily_visits.findFirst({
       where: {
         id: params.id,
         tenant_id: tid,
         ...scopeWhere(await scopedUserIds(user, 'meetings')),
       },
-      // Explicit scalars, not the default whole row: see VISIT_SELECT for
-      // why an unselected read breaks once the client learns about contact_id.
-      select: { ...VISIT_SELECT, users: { select: { id: true, name: true } } },
+      select: visitSelect,
     })
+    let canWrite = true
+    if (!visit) {
+      // Outside the caller's own scope — try sharing before giving up. Read
+      // only: `canWrite` stays false for anything resolved this way.
+      const raw = await prisma.daily_visits.findFirst({
+        where: { id: params.id, tenant_id: tid },
+        select: visitSelect,
+      })
+      if (raw && await canReadVisitViaSharing(user, tid, { id: raw.id, entity_id: raw.entity_id })) {
+        visit = raw
+        canWrite = false
+      }
+    }
     if (!visit) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const companyId = visit.entity_id
@@ -102,12 +135,30 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
      * across a table needs. `open_deal_count` is the unbounded number so the
      * screen can say "showing 8 of 12" rather than silently truncating.
      */
+    /*
+     * Sharing (src/lib/sharing.ts), OR-ed into the Deals scope and never in
+     * place of it: every Deal of this account when the ACCOUNT is shared with
+     * the caller at 'work', plus any Deal of it shared with them directly at
+     * 'work'. Only 'work': this list carries stage controls and the "discussed"
+     * tick, which a 'view' share cannot use (the routes 404 them). Nothing
+     * shared → the predicate is the plain scope, as before.
+     */
+    const dealScope = await scopedUserIds(user, 'deals')
+    const [accountShares, dealShares] = companyId
+      ? await Promise.all([getCompanyMemberships(user, tid), getDealMemberships(user, tid)])
+      : [new Map<string, MemberAccess>(), new Map<string, MemberAccess>()]
+    const accountShared = !!companyId && accountShares.has(companyId)
+    const accountWork = !!companyId && accountShares.get(companyId) === 'work'
+    const dealWork = [...dealShares.entries()].filter(([, a]) => a === 'work').map(([dealId]) => dealId)
     const dealWhere = {
       tenant_id: tid,
       company_id: companyId ?? '',
       is_active: true,
       closed_at: null,
-      ...scopeWhere(await scopedUserIds(user, 'deals'), 'owner_user_id'),
+      ...widenScope(scopeWhere(dealScope, 'owner_user_id'), [
+        ...(accountWork ? [{ company_id: companyId }] : []),
+        ...(dealWork.length ? [{ id: { in: dealWork } }] : []),
+      ]),
     }
     const [openDeals, openDealCount] = canViewDeals && companyId
       ? await Promise.all([
@@ -148,7 +199,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
             { entity_id: companyId },
             { daily_visits: { is: { tenant_id: tid, entity_id: companyId } } },
           ],
-          ...scopeWhere(await scopedUserIds(user, 'orders')),
+          // An account shared with the caller shows all of its orders (the
+          // predicate above already confines this to the account); otherwise
+          // the plain `orders` scope. Opportunity-only sharing adds nothing.
+          ...(accountShared ? {} : scopeWhere(await scopedUserIds(user, 'orders'))),
         }
       : null
 
@@ -221,7 +275,21 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     return NextResponse.json({
       visit: { ...(serialize(visit, 'daily_visits') as Record<string, unknown>), contact },
-      company: company ? withGstPolicy(serialize(company, 'companies') as typeof company, gstRequired) : null,
+      // False only when the meeting was reached through sharing rather than
+      // the caller's own `meetings` scope (see the header). The page uses
+      // this to show the meeting read-only — every write route still re-checks
+      // its own scope regardless of what this says.
+      can_write: canWrite,
+      company: company
+        ? {
+            ...withMobileCompleteness(withGstPolicy(serialize(company, 'companies') as typeof company, gstRequired)),
+            // False only for an opportunity-only member (src/lib/sharing.ts):
+            // they were let in to one opportunity, not the account, so the
+            // screen shows the account's name without a link to a page that
+            // would 404 for them. True for everyone else, exactly as before.
+            can_open: (await opportunityOnlyDealIds(user, tid, company.id)).length === 0,
+          }
+        : null,
       discussed_deal_ids: discussed.map(d => d.deal_id),
       deals_visible: canViewDeals,
       deals: serialize(openDeals, 'deals'),
@@ -362,6 +430,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
         select: VISIT_SELECT,
       })
+
+      /*
+       * Auto-done: a follow-up to-do "started" by opening this meeting from it
+       * (see `handleStartFollowUp` on the Daily Activity page) carries this
+       * visit's id in `deal_follow_ups.visit_id` — the column's OWN meaning,
+       * "the meeting that fulfilled it". Stopping that meeting is the natural
+       * close of the loop, mirroring the PATCH on
+       * `/api/deals/[id]/follow-ups/[fid]` that marks a follow-up Done:
+       * `completed_at` is stamped here, never accepted from the caller.
+       */
+      await prisma.deal_follow_ups.updateMany({
+        where: { tenant_id: tid, visit_id: params.id, status: { not: 'done' } },
+        data: { status: 'done', completed_at: new Date(), updated_at: new Date() },
+      })
+
       return NextResponse.json(serialize(data, 'daily_visits'))
     }
 

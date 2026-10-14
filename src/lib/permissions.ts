@@ -7,6 +7,7 @@ import {
   MASTER_SECTION_KEYS,
   OPERATION_SECTIONS,
   POINTS_SECTIONS,
+  UNSTORABLE_MASTERS,
 } from './masters-registry'
 
 // Master sections, operation sections and points sections all come from the
@@ -24,7 +25,10 @@ export type OperationSection = typeof OPERATION_SECTIONS[number]
 // Points sections
 export type PointsSection = typeof POINTS_SECTIONS[number]
 
-export type PermSection = MasterSection | OperationSection | PointsSection
+/** Never written to role_permissions — see UNSTORABLE_MASTERS. */
+export type UnstorableSection = typeof UNSTORABLE_MASTERS[number]['key']
+
+export type PermSection = MasterSection | OperationSection | PointsSection | UnstorableSection
 export type PermAction = 'view' | 'create' | 'edit' | 'delete'
 export type DataScope = 'own' | 'team' | 'all'
 

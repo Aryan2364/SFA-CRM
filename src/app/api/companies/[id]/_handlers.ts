@@ -3,13 +3,14 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { recomputeCompanyCompleteness } from '@/lib/completeness'
+import { recomputeCompanyCompleteness, withMobileCompleteness } from '@/lib/completeness'
 import { getGstRequiredForOrders } from '@/lib/gst-setting'
 import { withGstPolicy } from '@/lib/gst-policy'
 import { LANDLINE_NOT_SAVED, readLandlines, writeLandline } from '@/lib/party-landline'
 import { COMPANY_INCLUDE, shapeCompany } from '../_shape'
 import { findScopedCompany, foreignCompanyRef, ownerOutsideScope } from '../_access'
-import { scopedUserIds, scopeWhere } from '@/lib/scope'
+import { canShareCompany, deleteAllCompanyMembers, isSharingAvailable } from '@/lib/sharing'
+import { companyHasHistory, readAccountKind, typeAppliesToKind } from '@/lib/account-kind'
 import {
   checkEmail,
   checkGstin,
@@ -41,14 +42,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    const ids = await scopedUserIds(user, 'companies')
+    // The list's own rule (§6.6) widened by sharing: owner-scope, or an
+    // `account_members` row at any level — see `../_access.ts`. A company the
+    // caller cannot see in the list is a 404 here too.
+    const found = await findScopedCompany(user, tid, params.id, 'read')
+    if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     // findFirst, not findUnique: the tenant filter is not part of the primary
     // key, and it must be in the `where` or a company id from another tenant
-    // resolves. Dropping it leaks across tenants with nothing crashing. The
-    // scope predicate is the list's own (§6.6), so a company the caller cannot
-    // see in the list is a 404 here too — see `../_access.ts`.
+    // resolves. Dropping it leaks across tenants with nothing crashing.
     const row = await prisma.companies.findFirst({
-      where: { id: params.id, tenant_id: tid, ...scopeWhere(ids, 'owner_user_id') },
+      where: { id: found.id, tenant_id: tid },
       include: {
         ...COMPANY_INCLUDE,
         states: { select: { name: true } },
@@ -84,6 +87,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const { company_contacts, company_addresses, ...company } = serialised
     // Completeness as this tenant counts it (src/lib/gst-policy.ts).
     const gstRequired = await getGstRequiredForOrders(tid)
+    const kind = await readAccountKind(tid, row.id)
     // The company's own landline and its contacts', in one guarded query each;
     // `null` until the column exists (src/lib/party-landline.ts).
     const [ownLandline, contactLandlines] = await Promise.all([
@@ -91,7 +95,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       readLandlines(tid, 'contacts', company_contacts.map(cc => String(cc.contacts.id))),
     ])
     return NextResponse.json({
-      ...withGstPolicy(shapeCompany(company) as Record<string, unknown> & { is_complete?: boolean; completeness_missing?: string | null }, gstRequired),
+      ...withMobileCompleteness(withGstPolicy(
+        shapeCompany(company) as Record<string, unknown> & { is_complete?: boolean; completeness_missing?: string | null; mobile_1?: string | null },
+        gstRequired && kind !== 'Individual'
+      )),
+      account_kind: kind,
       landline: ownLandline?.get(row.id) ?? null,
       contacts: company_contacts.map(cc => ({
         ...cc.contacts,
@@ -103,6 +111,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       // So the "no field recorded" banner names only the fields this tenant
       // actually requires.
       gst_required_for_orders: gstRequired,
+      // How the caller reaches this account ('owner-scope' | 'work' | 'view')
+      // and whether they may change its "Shared with" list. Decided here, on
+      // the server, so the page never re-derives either (src/lib/sharing.ts).
+      access: found.access,
+      can_share: await canShareCompany(user, { owner_user_id: row.owner_user_id }),
+      // False until `account_members` exists; the page then shows no
+      // "Shared with" section at all, exactly as before sharing.
+      sharing_available: await isSharingAvailable(tid, ['account_members']),
     })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
@@ -205,13 +221,45 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const tid = getTenantId()
 
   try {
-    const found = await findScopedCompany(user, tid, params.id)
+    // 'write': owner-scope, or a 'work' member of the account. A 'view' member
+    // gets the same 404 as anyone outside it.
+    const found = await findScopedCompany(user, tid, params.id, 'write')
     if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // Handing the account to a new owner is the owner's call, not a shared
+    // member's: sharing grants record access, not ownership.
+    if ('owner_user_id' in data && found.access !== 'owner-scope') {
+      const current = await prisma.companies.findFirst({
+        where: { id: found.id, tenant_id: tid },
+        select: { owner_user_id: true },
+      })
+      if ((current?.owner_user_id ?? null) !== (data.owner_user_id ?? null)) {
+        return NextResponse.json(
+          { error: 'Only the owner, or someone whose team includes the owner, can change who owns this account.' },
+          { status: 403 }
+        )
+      }
+      // The edit form posts its whole state back, owner included. Unchanged,
+      // it is not a reassignment — drop it, or the scope check below would
+      // refuse every edit a member makes (the owner is outside their scope by
+      // definition, which is why they needed sharing).
+      delete data.owner_user_id
+    }
 
     // Only keys that survived the allow-list reach the check; an absent or
     // cleared FK is skipped.
     const miss = await foreignCompanyRef(tid, data)
     if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
+    // Applies to (spec §1), against the account's CURRENT kind — changing kind
+    // is its own endpoint (POST /api/companies/[id]/kind) and is not done here.
+    if (typeof data.type === 'string' && data.type) {
+      const kind = await readAccountKind(tid, found.id)
+      const typeRow = await prisma.company_types.findFirst({ where: { tenant_id: tid, name: data.type }, select: { id: true } })
+      if (typeRow && !(await typeAppliesToKind(tid, typeRow.id, kind))) {
+        return NextResponse.json({ error: `This type does not apply to ${kind} accounts.` }, { status: 400 })
+      }
+    }
 
     // Reassigning (or clearing) the owner is held to the caller's scope, as
     // POST is: an `own`-scope rep handing a company to someone else would make
@@ -243,11 +291,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 
     const gstRequired = await getGstRequiredForOrders(tid)
+    const kind = await readAccountKind(tid, updated.id)
     return NextResponse.json({
-      ...withGstPolicy({
+      ...withMobileCompleteness(withGstPolicy({
         ...(serialize(updated, 'companies') as Record<string, unknown>),
         ...completeness,
-      }, gstRequired),
+      }, gstRequired && kind !== 'Individual')),
+      account_kind: kind,
       landline,
       ...(landlineWarning ? { warning: LANDLINE_NOT_SAVED } : {}),
     })
@@ -270,13 +320,41 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   try {
     // A company outside the caller's scope is a 404, as on GET and PUT —
     // without this an `own`-scope rep could hard-delete anyone's company.
-    const found = await findScopedCompany(user, tid, params.id)
+    // 'owner': sharing never lets a member delete the account.
+    const found = await findScopedCompany(user, tid, params.id, 'owner')
     if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // deleteMany: a no-match was silent before (PLAN.md 8.4).
-    await prisma.companies.deleteMany({
-      where: { id: found.id, tenant_id: tid },
-    })
+    // docs/accounts-contacts-spec.md §5: any meeting, opportunity or order on
+    // the account refuses the delete — "make it inactive" instead.
+    if (await companyHasHistory(tid, found.id)) {
+      return NextResponse.json(
+        { error: 'This account has meetings, opportunities or orders on record. Make it inactive instead of deleting it.' },
+        { status: 409 }
+      )
+    }
+
+    // `account_members` (src/lib/sharing.ts) has no FK to `companies` at all,
+    // so nothing but this call would ever clear a deleted account's sharing
+    // rows; it is a hard delete, not the usual close-the-row removal, because
+    // there is no account left for them to be history of. Guarded: a no-op
+    // until the table exists. Not part of the transaction below — losing a
+    // stray membership row to a later failure is harmless (it just points at
+    // a company id that no longer resolves to anything), unlike the FK-backed
+    // deletes, which must all succeed together or the company delete 500s.
+    await deleteAllCompanyMembers(tid, found.id)
+
+    // Its links and addresses go first — both `company_contacts` and
+    // `company_addresses` have a FK to `companies` with onDelete: NoAction,
+    // so a company with either would otherwise fail the delete outright.
+    // Deleting a LINK here is fine even when it is the account's Self link:
+    // the account itself is going away. (companies is the only other NoAction
+    // child besides deals, which companyHasHistory() above already blocks on.)
+    await prisma.$transaction([
+      prisma.company_contacts.deleteMany({ where: { company_id: found.id, tenant_id: tid } }),
+      prisma.company_addresses.deleteMany({ where: { company_id: found.id, tenant_id: tid } }),
+      // deleteMany: a no-match was silent before (PLAN.md 8.4).
+      prisma.companies.deleteMany({ where: { id: found.id, tenant_id: tid } }),
+    ])
     return NextResponse.json({ ok: true })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import type { SessionUser } from '@/lib/auth'
 import type { PermSection } from '@/lib/permissions'
 import { intersectScope, scopedUserIds } from '@/lib/scope'
+import { canReadVisitViaSharing, getCompanyMemberships, getDealAccessLevel, meets } from '@/lib/sharing'
 import {
   CONTEXT_TYPES,
   isContextType,
@@ -218,9 +219,52 @@ export async function resolveRemarkContext(
    * by a person", not "allowed".
    */
   const denied = ownerId ? await denyIfHidden(user, contextType, ownerId) : null
-  if (denied) return denied
+  // Sharing (src/lib/sharing.ts) widens the two record types that can be
+  // shared: a deal's notes follow the deal, an order's follow its account.
+  // Reading (GET, `style: 'query'`) needs any level; writing (POST) needs
+  // 'work'. Only consulted after the plain scope refused, so nothing changes
+  // for anyone nothing is shared with.
+  if (denied && !(await reachableBySharing(user, tenantId, contextType, contextId, style === 'query' ? 'read' : 'write'))) {
+    return denied
+  }
 
   return { contextType, contextId, ownerId }
+}
+
+async function reachableBySharing(
+  user: SessionUser,
+  tenantId: string,
+  contextType: ContextType,
+  contextId: string,
+  need: 'read' | 'write'
+): Promise<boolean> {
+  if (contextType === 'deal') {
+    return meets(await getDealAccessLevel(user, tenantId, contextId), need)
+  }
+  if (contextType === 'meeting') {
+    // Minutes of the Meeting follow the same rule as the meeting itself
+    // (Aryan, 2026-10-13): a colleague the meeting's account or Deal is
+    // shared with may READ the thread, never post to it — posting is a write
+    // on the meeting and stays scope-only, exactly as every other write on it.
+    if (need === 'write') return false
+    const visit = await prisma.daily_visits.findFirst({
+      where: { id: contextId, tenant_id: tenantId },
+      select: { id: true, entity_id: true },
+    })
+    return !!visit && (await canReadVisitViaSharing(user, tenantId, visit))
+  }
+  if (contextType === 'order') {
+    const order = await prisma.orders.findFirst({
+      where: { id: contextId, tenant_id: tenantId },
+      select: { entity_id: true, daily_visits: { select: { tenant_id: true, entity_id: true } } },
+    })
+    const visitCompany = order?.daily_visits?.tenant_id === tenantId ? order.daily_visits.entity_id : null
+    const companyId = order?.entity_id ?? visitCompany
+    if (!companyId) return false
+    const level = (await getCompanyMemberships(user, tenantId)).get(companyId) ?? null
+    return meets(level, need)
+  }
+  return false
 }
 
 /**

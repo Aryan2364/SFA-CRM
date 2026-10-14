@@ -158,9 +158,10 @@ export function useOwnerChoice(section: 'companies' | 'contacts'): OwnerChoice {
   // the safe side — the route's 403 is the real gate either way.
   const scope = me.permissions[section]?.scope
   if (scope === 'team' || scope === 'all') return { state: 'any' }
+  const noun = section === 'companies' ? 'accounts' : 'contacts'
   return {
     state: 'self',
     userId: me.userId,
-    message: `You can only assign ${section} to yourself.`,
+    message: `You can only assign ${noun} to yourself.`,
   }
 }

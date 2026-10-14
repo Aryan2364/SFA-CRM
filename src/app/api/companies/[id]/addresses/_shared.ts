@@ -60,9 +60,17 @@ export function addressData(
  * Every verb calls this before writing: without it an address could be attached
  * to another tenant's company by guessing its id, and nothing would crash. The
  * scope half is the list's own (§6.6) — see `../../_access.ts`.
+ *
+ * `need`: GET reads ('read' — any sharing level), every write needs 'write'
+ * (owner-scope or a 'work' member of the account; src/lib/sharing.ts).
  */
-export async function findCompany(user: SessionUser, companyId: string, tenantId: string) {
-  return findScopedCompany(user, tenantId, companyId)
+export async function findCompany(
+  user: SessionUser,
+  companyId: string,
+  tenantId: string,
+  need: 'read' | 'write'
+) {
+  return findScopedCompany(user, tenantId, companyId, need)
 }
 
 /** The location embeds both verbs return, so a saved row renders immediately. */

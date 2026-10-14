@@ -59,7 +59,7 @@ export async function PUT(
   if ('error' in built) return NextResponse.json({ error: built.error }, { status: 400 })
 
   try {
-    if (!await findCompany(user, params.id, tid))
+    if (!await findCompany(user, params.id, tid, 'write'))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // The address must belong to THIS company AND this tenant. Checking only
@@ -129,7 +129,7 @@ export async function DELETE(
   const tid = getTenantId()
 
   try {
-    if (!await findCompany(user, params.id, tid))
+    if (!await findCompany(user, params.id, tid, 'write'))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const current = await prisma.company_addresses.findFirst({

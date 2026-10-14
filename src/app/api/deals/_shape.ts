@@ -88,7 +88,9 @@ export const DEAL_LIST_INCLUDE = {
 
 /** Everything the Deal detail screen reads (§4.4 Logs, §4.5 Follow-ups, §4.8 Attachments). */
 export const DEAL_DETAIL_INCLUDE = {
-  companies: { select: { id: true, name: true, mobile_1: true } },
+  // `type` so the page's "Log a meeting" can file the meeting under the
+  // account's own type, the rule the Daily Activity form follows.
+  companies: { select: { id: true, name: true, mobile_1: true, type: true } },
   contacts: { select: { id: true, name: true, mobile: true } },
   deal_stages: { select: { id: true, name: true, sort_order: true } },
   users: { select: { id: true, name: true } },

@@ -43,10 +43,10 @@ import { toast } from "@/components/ui/sonner"
  *
  * WHAT THIS COMPONENT OWNS, so a call site cannot get it wrong:
  *
- *   - SEVEN COLUMNS MAXIMUM, and it throws past that. Section 12.1
- *     caps the sidebar at seven for the reason that applies here:
- *     beyond seven people stop scanning and start hunting. A limit
- *     that renders the eighth column anyway is not a limit.
+ *   - EVERY COLUMN THE STATUS FIELD DECLARES, with no maximum
+ *     (section 35.4). The stages are the client's master data, so the
+ *     board draws all of them and scrolls sideways when they do not
+ *     fit (section 35.8).
  *   - TWENTY-FIVE CARDS A COLUMN, then Load more (section 35.7). The
  *     column header states the TRUE total throughout, never the
  *     rendered count, so a column reading 48 with 25 cards under it is
@@ -95,9 +95,6 @@ import { toast } from "@/components/ui/sonner"
  * first until its range is spent. Read that section before building the
  * host; this file still only fills the height it is given.
  */
-
-/** Section 35.4. Past this the component throws rather than rendering. */
-const MAX_COLUMNS = 7
 
 /** Section 35.7. Matches section 11.1's default page size of 25. */
 const CARDS_PER_COLUMN = 25
@@ -252,7 +249,7 @@ function Board({
   className,
   ...props
 }: Omit<React.ComponentProps<"div">, "onDrop"> & {
-  /** In the order the work moves in. Seven maximum. */
+  /** In the order the work moves in. */
   columns: BoardColumn[]
   cards: BoardCard[]
   /**
@@ -287,16 +284,6 @@ function Board({
    */
   moveErrorMessage?: string
 }) {
-  if (columns.length > MAX_COLUMNS) {
-    throw new Error(
-      `[design-system] A board was given ${columns.length} columns. ` +
-        `AGENTS.md section 35.4: maximum seven. Beyond seven people ` +
-        `stop scanning and start hunting, and a pipeline with more ` +
-        `stages than that has a process problem the interface cannot ` +
-        `solve.`,
-    )
-  }
-
   /*
    * The optimistic layer. `moved` holds cardId -> columnId for moves
    * that have been shown but not yet confirmed, and `pending` holds
@@ -891,6 +878,5 @@ export {
   useBoardAvailable,
   type BoardColumn,
   type BoardCard,
-  MAX_COLUMNS as BOARD_MAX_COLUMNS,
   CARDS_PER_COLUMN as BOARD_CARDS_PER_COLUMN,
 }

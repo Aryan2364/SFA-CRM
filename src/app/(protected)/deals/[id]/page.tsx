@@ -5,12 +5,15 @@
  * §4.5 (Follow-ups). P2-T7's companion: the list's View action had nowhere to
  * go, and a link to a 404 is the dead end §13 exists to prevent.
  *
- * DELIBERATELY SMALL, AND DISPLAY ONLY. It reads one Deal and shows it. The
- * three things it does not do are other people's tasks, not omissions:
+ * It reads one Deal and shows it, and since 13 Oct 2026 it is where the Deal
+ * is changed too: the record header carries Edit (the create dialog in edit
+ * mode) and section 11.2's three-dot menu, which moves the stage and closes
+ * the Deal Won or Lost — see `components/deals/deal-status.tsx`. Before that
+ * the only ways to move a Deal were the board (not offered on a phone) and a
+ * meeting page, so a rep in the field could not update one at all.
  *
- *   P2-T9   creating and completing follow-ups — the list here is read-only
- *   P2-T11  attachments — there is no upload component in the kit yet
- *   §4.1    editing the Deal, including closing it Won/Lost
+ * Still not here: attachments (P2-T11 — no upload component in the kit yet)
+ * and Reopen (no route can clear an outcome yet).
  *
  * ⚠️ Probability is rendered as a FIGURE, never a control. §4.3 and §12 closed
  * that: it is edited inside the Deal's own editor and nowhere else, and this
@@ -39,7 +42,9 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
   BuildingIcon,
+  CalendarPlusIcon,
   CheckIcon,
+  PencilIcon,
   ClockIcon,
   TriangleAlertIcon,
   UserRoundIcon,
@@ -61,6 +66,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EMPTY, fmtAmount, fmtDate, fmtDateTime, parseApiDate } from '@/lib/format'
 import { FollowUpsSection, type FollowUp } from '@/components/deals/follow-ups-section'
 import { DealMeetingsSection } from '@/components/deals/deal-meetings-section'
+import {
+  DealCloseDialog,
+  DealStatusMenu,
+  EDIT_REASON,
+  moveDealStage,
+  type DealOutcome,
+  type StageOption,
+} from '@/components/deals/deal-status'
+import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import { useMe } from '@/hooks/useMe'
+import { SharedWithCard } from '@/components/sharing/shared-with-card'
+import { toast } from '@/components/ui/sonner'
+import { DealDialog, type NamedRow as DialogRow } from '../deal-dialog'
 
 // ─────────────────────────────────────────────────────────────
 // The wire shape
@@ -110,7 +129,7 @@ type Deal = {
   is_active: boolean
   created_at: string
   days_in_stage: number | null
-  company: (NamedRef & { mobile_1: string | null }) | null
+  company: (NamedRef & { mobile_1: string | null; type?: string | null }) | null
   contact: (NamedRef & { mobile: string | null }) | null
   stage: NamedRef | null
   owner: NamedRef | null
@@ -119,7 +138,21 @@ type Deal = {
   reason_for_loss: NamedRef | null
   follow_ups: FollowUp[]
   deal_stage_logs: StageLog[]
+  /*
+   * Sharing (src/lib/sharing.ts), all decided by the server and absent from an
+   * older response: how the caller reaches this opportunity, whether they may
+   * open its account (null for someone the opportunity ALONE was shared with),
+   * whether they may change its "Shared with" list, and whether sharing exists
+   * in this database yet.
+   */
+  access?: 'owner-scope' | 'work' | 'view'
+  company_access?: 'owner-scope' | 'work' | 'view' | null
+  can_share?: boolean
+  sharing_available?: boolean
 }
+
+/** Section 26.2, a record rule: what a view-only share leaves disabled. */
+const VIEW_ONLY_REASON = 'This opportunity is shared with you to view only.'
 
 /** A failed load, told apart so the empty state can say the right thing. */
 type LoadError = 'not-found' | 'forbidden' | 'failed'
@@ -284,6 +317,60 @@ export default function DealDetailPage() {
   const [stageNames, setStageNames] = useState<Record<string, string>>({})
   const [error, setError] = useState<LoadError | null>(null)
   const [loading, setLoading] = useState(true)
+  /* The funnel stages the menu moves between, with `stage_type`. `stagesLoaded`
+     is true only once the request has ANSWERED, so "no stages yet" is never
+     read off a request still in flight. */
+  const [stages, setStages] = useState<StageOption[]>([])
+  const [stagesLoaded, setStagesLoaded] = useState(false)
+  const [closing, setClosing] = useState<DealOutcome | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  /* The edit dialog's pickers, read the first time it opens and not before. */
+  const [companies, setCompanies] = useState<DialogRow[]>([])
+  const [team, setTeam] = useState<DialogRow[]>([])
+
+  /* Section 26.1: `null` until /api/auth/me answers — "not known yet" is
+     drawn disabled with no reason. All three routes behind the header's
+     controls check `deals.edit`. */
+  const me = useMe()
+  const canEditRole: boolean | null = me ? Boolean(me.permissions?.deals?.edit) : null
+  const canSetUpStages = Boolean(me?.permissions?.lead_stages?.create)
+  /* A view-only share (src/lib/sharing.ts) is a record rule on top of the
+     role: the routes 404 every write, so every write control here is disabled
+     with that reason instead of the permission sentence. */
+  const viewOnly = deal?.access === 'view'
+  const canEdit: boolean | null = viewOnly ? false : canEditRole
+  const editReason = viewOnly ? VIEW_ONLY_REASON : EDIT_REASON
+  /* "Log a meeting": offered to someone the opportunity is shared with at
+     'work', whose Daily Activity picker may not list this account at all
+     (opportunity-only sharing). The meeting is linked to this opportunity. */
+  const canLogMeetingRole: boolean | null = me ? Boolean(me.permissions?.meetings?.create) : null
+  const [logging, setLogging] = useState(false)
+  async function logMeeting() {
+    if (!deal?.company || logging) return
+    setLogging(true)
+    try {
+      const res = await fetch('/api/daily-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_type: deal.company.type?.trim() || 'Other',
+          entity_id: deal.company.id,
+          entity_name: deal.company.name,
+          deal_id: deal.id,
+        }),
+      })
+      const body = (await res.json().catch(() => null)) as { id?: string; error?: string } | null
+      if (!res.ok || !body?.id) {
+        toast.error(body?.error || 'The meeting could not be logged. Nothing was saved.')
+        return
+      }
+      router.push(`/daily-activity/meeting/${body.id}`)
+    } catch {
+      toast.error('The connection dropped. The meeting was not logged.')
+    } finally {
+      setLogging(false)
+    }
+  }
 
   const load = useCallback(async () => {
     if (!id) return
@@ -305,6 +392,67 @@ export default function DealDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  /*
+   * A quiet re-read after a change lands: the stage history and the days in
+   * stage are the server's to recompute, and the skeleton must not replace a
+   * page the user is looking at (global rule 5 — update in place, no flicker).
+   */
+  const refresh = useCallback(async () => {
+    if (!id) return
+    try {
+      const res = await fetch(`/api/deals/${id}`, { cache: 'no-store' })
+      if (res.ok) setDeal((await res.json()) as Deal)
+    } catch {
+      /* The values already merged from the write stand until the next load. */
+    }
+  }, [id])
+
+  /** Merge what a write returned, then re-read the parts it does not carry. */
+  const applyChange = useCallback(
+    (row: Record<string, unknown>) => {
+      setDeal(current =>
+        current
+          ? {
+              ...current,
+              stage: (row.stage as Deal['stage']) ?? current.stage,
+              outcome: (row.outcome as string | null) ?? null,
+              closed_at: (row.closed_at as string | null) ?? null,
+              days_in_stage: (row.days_in_stage as number | null) ?? current.days_in_stage,
+            }
+          : current
+      )
+      void refresh()
+    },
+    [refresh]
+  )
+
+  useEffect(() => {
+    let live = true
+    fetch('/api/deals/stages')
+      .then(async r => {
+        if (!live || !r.ok) return
+        const body = await r.json()
+        setStages(Array.isArray(body) ? (body as StageOption[]) : [])
+        setStagesLoaded(true)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!editOpen || companies.length > 0) return
+    const read = async (url: string): Promise<DialogRow[]> => {
+      const r = await fetch(url)
+      if (!r.ok) return []
+      const body = await r.json()
+      return Array.isArray(body) ? (body as DialogRow[]) : []
+    }
+    read('/api/companies').then(setCompanies).catch(() => setCompanies([]))
+    read('/api/orders/team').then(setTeam).catch(() => setTeam([]))
+  }, [editOpen, companies.length])
 
   /*
    * The FULL stage master, not `/api/deals/stages`.
@@ -396,13 +544,90 @@ export default function DealDetailPage() {
             row — on a phone the meta items wrap instead of shrinking.
           */}
           <header className="flex flex-col gap-3">
-            <h1 className="text-page-title font-medium text-text-primary">
-              {deal.name}
-            </h1>
+            {/*
+              Section 11.2 item 2: the name as the title with its status badges
+              BESIDE it, and on the right one primary action (Edit) and the
+              three-dot menu for everything else — the stage moves and Won/Lost.
+              `flex-wrap`: on a phone the actions drop under the title rather
+              than squeezing it.
+            */}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h1 className="min-w-0 break-words text-page-title font-medium text-text-primary">
+                  {deal.name}
+                </h1>
+                {/*
+                  A Deal Stage is master data a tenant configures, not one of
+                  the fixed vocabularies in `status-badge.tsx`, so the kit
+                  `Badge` carries the name without claiming a meaning the
+                  master does not define.
+
+                  Once an opportunity is closed, its stage badge and the
+                  outcome badge below say the same thing twice (a stage
+                  named "Won" next to a "✓ Won" badge) — the outcome badge
+                  is the clearer of the two (it carries the icon and the
+                  reason it closed), so it alone is shown once closed; the
+                  stage badge still carries the OPEN stage name, which the
+                  outcome badge never does.
+                */}
+                {deal.stage && !deal.outcome && <Badge>{deal.stage.name}</Badge>}
+                {deal.outcome && (
+                  <Badge variant={deal.outcome === 'won' ? 'success' : 'danger'}>
+                    {deal.outcome === 'won' ? <CheckIcon /> : <TriangleAlertIcon />}
+                    {deal.outcome === 'won' ? 'Won' : 'Lost'}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {deal.sharing_available && deal.access === 'work' && deal.company && (
+                  <PermissionTooltip
+                    allowed={canLogMeetingRole !== false}
+                    reason="Only someone who can create meetings can log one."
+                  >
+                    <Button
+                      variant="secondary"
+                      className="max-sm:min-h-11"
+                      disabled={canLogMeetingRole !== true || logging}
+                      onClick={() => void logMeeting()}
+                    >
+                      <CalendarPlusIcon />
+                      Log a meeting
+                    </Button>
+                  </PermissionTooltip>
+                )}
+                <PermissionTooltip allowed={canEdit !== false} reason={editReason}>
+                  <Button
+                    className="max-sm:min-h-11"
+                    disabled={canEdit !== true}
+                    onClick={() => setEditOpen(true)}
+                  >
+                    <PencilIcon />
+                    Edit
+                  </Button>
+                </PermissionTooltip>
+                <DealStatusMenu
+                  deal={deal}
+                  stages={stages}
+                  stagesLoaded={stagesLoaded}
+                  canEdit={canEdit}
+                  reason={editReason}
+                  canSetUpStages={canSetUpStages}
+                  onMove={target => void moveDealStage(deal, target, applyChange)}
+                  onCloseRequest={setClosing}
+                />
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-body text-text-secondary">
               <span className="inline-flex items-center gap-1.5">
                 <BuildingIcon className="size-icon shrink-0" aria-hidden="true" />
-                {deal.company ? (
+                {deal.company &&
+                deal.company_access === null &&
+                (deal.access === 'work' || deal.access === 'view') ? (
+                  /* Shared with the caller on its own, not through its
+                     account: the account page would 404 for them, so its
+                     name is plain text (section 6.6 rule 4). */
+                  deal.company.name
+                ) : deal.company ? (
                   <Link
                     className="text-primary hover:text-primary-hover"
                     href={`/parties/companies/${deal.company.id}`}
@@ -422,22 +647,47 @@ export default function DealDetailPage() {
               )}
               <span aria-hidden="true" className="text-text-muted">·</span>
               <span>Owner: {orEmpty(deal.owner?.name)}</span>
-              {/*
-                A Deal Stage is master data a tenant configures, not one of the
-                fixed vocabularies in `status-badge.tsx` — and that file is held
-                by another agent, so a DEAL_STAGE entry is not this screen's to
-                add. The kit `Badge` carries the name without claiming a
-                meaning the master does not define.
-              */}
-              {deal.stage && <Badge>{deal.stage.name}</Badge>}
-              {deal.outcome && (
-                <Badge variant={deal.outcome === 'won' ? 'success' : 'danger'}>
-                  {deal.outcome === 'won' ? <CheckIcon /> : <TriangleAlertIcon />}
-                  {deal.outcome === 'won' ? 'Won' : 'Lost'}
-                </Badge>
+              {/* Only for someone who reaches this through sharing — the
+                  owner and their managers never see it. */}
+              {(deal.access === 'work' || deal.access === 'view') && (
+                <Badge>{deal.access === 'work' ? 'Shared with you: can work' : 'Shared with you: view only'}</Badge>
               )}
             </div>
+            {stagesLoaded && stages.length === 0 && (
+              /* Never a silent empty menu: say why nothing can be moved, and
+                 where stages come from. */
+              <p className="text-body text-text-secondary">
+                No opportunity stages are set up, so this opportunity cannot be moved between stages.{' '}
+                {canSetUpStages ? (
+                  <Link className="text-primary-text underline" href="/masters/lead-stages">
+                    Set up stages
+                  </Link>
+                ) : (
+                  'Ask someone who manages Opportunity Stages to add them.'
+                )}
+              </p>
+            )}
           </header>
+
+          <DealCloseDialog
+            deal={closing ? deal : null}
+            outcome={closing ?? 'won'}
+            stages={stages}
+            onOpenChange={next => {
+              if (!next) setClosing(null)
+            }}
+            onClosed={applyChange}
+          />
+
+          <DealDialog
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            companies={companies}
+            stages={[]}
+            team={team}
+            deal={deal}
+            onSaved={() => void refresh()}
+          />
 
           {/* Global rule 2: one column on a phone, two from 1024 up. */}
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
@@ -452,6 +702,7 @@ export default function DealDetailPage() {
               */}
               <FollowUpsSection
                 dealId={deal.id}
+                readOnlyReason={viewOnly ? VIEW_ONLY_REASON : null}
                 initialFollowUps={deal.follow_ups ?? EMPTY_FOLLOW_UPS}
                 onChange={followUps =>
                   setDeal(current => (current ? { ...current, follow_ups: followUps } : current))
@@ -516,6 +767,14 @@ export default function DealDetailPage() {
                   </dl>
                 </CardContent>
               </Card>
+
+              {deal.sharing_available && (
+                <SharedWithCard
+                  endpoint={`/api/deals/${deal.id}/members`}
+                  canShare={deal.can_share === true}
+                  noun="opportunity"
+                />
+              )}
 
               {deal.remarks && (
                 <Card>

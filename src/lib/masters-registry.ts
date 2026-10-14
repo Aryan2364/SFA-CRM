@@ -170,7 +170,7 @@ export const MASTERS = [
      */
   },
   {
-    key: 'lead_stages', label: 'Lead Stages',
+    key: 'lead_stages', label: 'Opportunity Stages',
     href: '/masters/lead-stages', api: '/api/masters/lead-stages',
     model: 'deal_stages', group: 'lead_config', icon: 'git-branch',
     /**
@@ -295,6 +295,28 @@ export const MASTERS = [
 ] as const satisfies readonly MasterDef[]
 
 /**
+ * "Couldn't-meet reasons" (todo_unmet_reasons) — deliberately kept OUT of
+ * MASTERS/ALL_SECTIONS, for the same reason `leaderboard`/`points_config`
+ * are kept out (see POINTS_SECTIONS's comment in permissions.ts): its
+ * `role_permissions.section` value is not in the database's CHECK
+ * constraint, so `POST /api/settings/roles` would abort role creation
+ * outright if this key were seeded like an ordinary master. It still needs
+ * a PermSection literal so routes can call checkPermission on it, so it is
+ * carried separately and only ever read (never written) by role-permission
+ * seeding — see `UNSTORABLE_MASTER_SECTIONS` in permissions.ts. The result
+ * today: every non-Administrator is denied (no row ever exists to grant
+ * it), same as a freshly seeded-denied section, until the CHECK constraint
+ * is widened and this is folded into MASTERS properly.
+ */
+export const UNSTORABLE_MASTERS = [
+  {
+    key: 'todo_unmet_reasons', label: "Couldn't-meet Reasons",
+    href: '/masters/todo-unmet-reasons', api: '/api/masters/todo-unmet-reasons',
+    model: null, group: 'lead_config', icon: 'circle-x',
+  },
+] as const
+
+/**
  * MASTERS is deliberately narrow — every field is a literal type, which is what
  * makes MasterSection a union rather than `string`. The cost is that an entry
  * without `seeded` has no `seeded` property at all, so `m.seeded` does not
@@ -395,6 +417,10 @@ export const OPERATION_SECTIONS = [
  */
 export const POINTS_SECTIONS = ['leaderboard', 'points_config'] as const
 
+/** Keys with a PermSection literal but never written to role_permissions —
+ *  see UNSTORABLE_MASTERS above. */
+export const UNSTORABLE_MASTER_SECTIONS = UNSTORABLE_MASTERS.map(m => m.key)
+
 /** The 26 sections that can be written to role_permissions. */
 export const ALL_SECTIONS = [
   ...MASTER_SECTION_KEYS,
@@ -405,4 +431,5 @@ export const ALL_SECTIONS = [
 export const ALL_PERMISSION_KEYS = [
   ...ALL_SECTIONS,
   ...POINTS_SECTIONS,
+  ...UNSTORABLE_MASTER_SECTIONS,
 ]

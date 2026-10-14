@@ -75,6 +75,15 @@ export type Visit = {
    * anything else depend on this boolean.
    */
   location_flagged?: boolean
+  /**
+   * Accounts & Contacts, Stage 2 (§8) — a cheap summary for the list card:
+   * the main attendee's name and how many besides them, so `VisitCard` can
+   * show "Ramesh + 2 others" without fetching the full attendee list.
+   * `null`/absent when there are no attendee rows (every meeting before this
+   * feature, or the table not yet pushed) — the card then falls back to
+   * today's plain `entity_name` display, unchanged.
+   */
+  attendees_summary?: { main_name: string | null; others: number } | null
 }
 
 /**
@@ -87,7 +96,14 @@ export type Visit = {
  * marker in the list. Both are optional because the route did not always
  * return them.
  */
-export type Entity = { id: string; name: string; type?: string | null; stage?: string | null }
+export type Entity = {
+  id: string
+  name: string
+  type?: string | null
+  stage?: string | null
+  /** docs/accounts-contacts-spec.md — defaults to 'Company' while unset. */
+  account_kind?: 'Company' | 'Individual'
+}
 
 export type Expense = {
   id: string
@@ -126,6 +142,56 @@ export type PlannedItem = {
   expected_order_value: number | null
   user_id: string
   user_name: string
+}
+
+/**
+ * To-do b) — an open Opportunity follow-up due on the day in view, from
+ * `GET /api/daily-activity/todos`. Follow-ups have no assignee of their
+ * own; they are on the viewer's list because they own the Opportunity.
+ */
+export type FollowUpItem = {
+  id: string
+  deal_id: string
+  deal_name: string
+  company_id: string | null
+  company_name: string | null
+  /** The company's own `type`, so a meeting started from here is filed
+   *  under the same visit type a plan-started one would be. */
+  company_visit_type: string | null
+  mode: string
+  notes: string | null
+  due_date: string
+  visit_id: string | null
+}
+
+/**
+ * To-do c) — an account whose own `next_follow_up_date` falls on the day
+ * in view, from the same `/todos` route. Purely informational on
+ * `companies`: starting the meeting never writes `next_follow_up_date`.
+ */
+export type NextMeetingItem = {
+  id: string
+  name: string
+  type: string | null
+  next_follow_up_date: string
+}
+
+/**
+ * A to-do that was due on an earlier day and was never started or moved —
+ * from the `missed` array `GET /api/daily-activity/todos` now also answers.
+ * See `src/lib/missed-todos.ts` for the resolution rule each kind follows.
+ */
+export type MissedTodo = {
+  kind: 'plan' | 'followup' | 'next-meeting'
+  id: string
+  /** Set only for `kind: 'followup'` — needed to reach its Move route,
+   *  `PATCH /api/deals/[deal_id]/follow-ups/[id]`. */
+  deal_id: string | null
+  party_id: string | null
+  party_name: string
+  visit_type: string | null
+  original_date: string
+  label: string
 }
 
 export type OrderItem = { product_id: string | null; product_name: string; qty: number; rate: number }

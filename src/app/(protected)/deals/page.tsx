@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ColumnsIcon, ListIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react'
 
@@ -16,7 +17,6 @@ import { Badge } from '@/components/ui/badge'
 import {
   Board,
   useBoardAvailable,
-  BOARD_MAX_COLUMNS,
   type BoardCard,
   type BoardColumn,
 } from '@/components/ui/board'
@@ -27,6 +27,16 @@ import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
 import { EMPTY, fmtAmount, fmtDate, parseApiDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
+
+import { Truncate } from '@/components/ui/truncate'
+import {
+  DealCloseDialog,
+  DealStatusMenu,
+  EDIT_REASON,
+  moveDealStage,
+  type DealOutcome,
+  type StageOption,
+} from '@/components/deals/deal-status'
 
 import { DealDialog } from './deal-dialog'
 
@@ -57,9 +67,24 @@ type DealRow = {
   stage: { id: string; name: string } | null
   owner: { id: string; name: string } | null
   next_follow_up: { id: string; due_date: string | null; mode: string | null } | null
+  /* The rest of the row the route already sends: the row menu needs the
+     outcome, and Edit fills its form from the same row. */
+  outcome: string | null
+  source: string | null
+  remarks: string | null
+  /* Set only on a row the caller sees because it was SHARED with them
+     (src/lib/sharing.ts): 'work' or 'view'. Null on every other row and
+     always null until the sharing tables exist. Absent from an older
+     response. The Company column and the card title are already plain text,
+     so an opportunity-only share needs no change there. */
+  shared_access?: 'work' | 'view' | null
 }
 
 type NamedRow = { id: string; name: string }
+
+/* Section 26.2, a record rule from the server: a view-only share can be read
+   but not moved, closed or edited (the routes 404 those writes). */
+const SHARED_VIEW_REASON = 'This opportunity is shared with you to view only.'
 
 /**
  * §4.7 — how long a Deal may stand in one stage before the ageing alert.
@@ -143,15 +168,43 @@ function closeMonthOptions(): Record<string, string> {
  * Deal and Company are `truncate` without it, which the template caps at
  * `max-w-field-min` (160px) and truncates with the full text in a tooltip.
  */
-function dealColumns(onView: (id: string) => void, ageingLimit: number): ListColumn<DealRow>[] {
+function dealColumns(
+  renderActions: (deal: DealRow) => React.ReactNode,
+  ageingLimit: number
+): ListColumn<DealRow>[] {
   return [
     {
+      /*
+       * Section 11.1.2: the record's name is a real link — Tab reaches it,
+       * Enter opens it, "open in new tab" works. It replaced the last
+       * column's View button, which that section rules out. Non-`truncate`
+       * because a link is not a string; `Truncate` does the same job inside
+       * it, with the tooltip only where the name is really cut.
+       */
       id: 'name',
       header: 'Opportunity',
-      truncate: true,
       cellClassName: 'font-medium text-text-primary',
       skeletonWidth: 'w-40',
-      cell: deal => deal.name,
+      cell: deal => {
+        const link = (
+          <Link
+            href={`/deals/${deal.id}`}
+            className="block max-w-field-min min-w-0 rounded-lg text-text-primary underline-offset-2 outline-none hover:underline focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
+          >
+            <Truncate>{deal.name}</Truncate>
+          </Link>
+        )
+        /* "Shared" marks the exception — a row here because someone shared
+           it, not because it is the caller's or their team's. */
+        return deal.shared_access ? (
+          <span className="flex min-w-0 items-center gap-2">
+            {link}
+            <Badge>Shared</Badge>
+          </span>
+        ) : (
+          link
+        )
+      },
     },
     {
       id: 'company',
@@ -258,13 +311,9 @@ function dealColumns(onView: (id: string) => void, ageingLimit: number): ListCol
       header: '',
       className: 'whitespace-nowrap',
       skeletonWidth: 'h-control-sm w-16',
-      cell: deal => (
-        <div className="flex items-center justify-end">
-          <Button variant="secondary" size="sm" onClick={() => onView(deal.id)}>
-            View
-          </Button>
-        </div>
-      ),
+      /* Section 11.1.2: the three-dot menu, because the list now has row
+         actions besides opening — Edit, the stage moves and Won/Lost. */
+      cell: deal => <div className="flex items-center justify-end">{renderActions(deal)}</div>,
     },
   ]
 }
@@ -351,8 +400,12 @@ function dealBoardCard(deal: DealRow, ageingLimit: number): BoardCard {
         <ProbabilityBar value={deal.probability} />
       </span>,
     ],
+    // A view-only share cannot be moved: board.tsx then disables the drag and
+    // the menu and gives this reason through PermissionTooltip.
+    ...(deal.shared_access === 'view' ? { moveDisabledReason: SHARED_VIEW_REASON } : {}),
     badge: (
       <span className="flex flex-wrap items-center gap-1.5">
+        {deal.shared_access && <Badge>Shared</Badge>}
         {deal.days_in_stage !== null && (
           <Badge variant={aged ? 'warning' : 'neutral'}>
             {aged && <TriangleAlertIcon />}
@@ -522,6 +575,35 @@ function ViewSwitcher({
 }
 
 /**
+ * The firm has no opportunity stages, so there is no board and nothing to move
+ * an opportunity to. Said once, beside where the view switcher would be, with
+ * the way forward: the master for someone allowed to set it up, the person to
+ * ask for everyone else (§13: no dead ends; §26: the action is shown disabled
+ * with its reason, not hidden, while permissions are still loading).
+ */
+function NoStagesNotice({ canSetUp, known }: { canSetUp: boolean; known: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+      <p className="text-meta text-text-secondary">
+        No opportunity stages are set up, so there is no board and stages cannot be changed.
+        {known && !canSetUp ? ' Ask an administrator to add them under Masters › Opportunity Stages.' : ''}
+      </p>
+      {(!known || canSetUp) && (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!known}
+          nativeButton={false}
+          render={<Link href="/masters/lead-stages" />}
+        >
+          Set up stages
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/**
  * `useSearchParams` suspends, and a page that reads it without a boundary
  * around the reader takes the whole route down to the nearest one. The screen
  * itself is one component below this so the boundary is local.
@@ -554,6 +636,11 @@ function DealsScreen() {
   const searchParams = useSearchParams()
   const [totals, setTotals] = useState<PipelineTotals | null>(null)
   const [stages, setStages] = useState<NamedRow[]>([])
+  /* True only once `/api/deals/stages` has ANSWERED. An empty list before
+     then is "not known yet", not "this firm has no stages" — the no-stages
+     notice below must not flash on every page load, nor appear when the
+     request failed. */
+  const [stagesLoaded, setStagesLoaded] = useState(false)
   const [companies, setCompanies] = useState<NamedRow[]>([])
   const [team, setTeam] = useState<NamedRow[]>([])
   /* The template's only refetch lever. Bumped after a move lands. */
@@ -562,6 +649,9 @@ function DealsScreen() {
   const [onlyNoFollowUp, setOnlyNoFollowUp] = useState(false)
   /* F-DEALS-CREATE — the create dialog this screen had no way to open. */
   const [createOpen, setCreateOpen] = useState(false)
+  /* The row menu's two dialogs: the Won/Lost close and Edit. */
+  const [closing, setClosing] = useState<{ deal: DealRow; outcome: DealOutcome } | null>(null)
+  const [editing, setEditing] = useState<DealRow | null>(null)
 
   /*
    * §26: whether this user may create a Deal, read from the REAL permission
@@ -580,6 +670,14 @@ function DealsScreen() {
      has looked up. The button is present and disabled until the answer
      arrives; only then does it either enable or explain itself. */
   const permissionsKnown = me !== null
+  /* The row menu's gate: all three routes behind it check `deals.edit`.
+     `null` is section 26.1's "not known yet" — disabled, no reason. */
+  const canEditDeals: boolean | null = me ? Boolean(me.permissions?.deals?.edit) : null
+  /* Who may set stages up: the master's own create permission
+     (`POST /api/masters/lead-stages` checks `lead_stages.create`), with the
+     same Administrator short-circuit as above. */
+  const canSetUpStages =
+    me?.role === 'Administrator' || (me?.permissions?.lead_stages?.create ?? false)
 
   /*
    * §35.3: the board is offered at 768px and above. Below that the switcher
@@ -589,17 +687,11 @@ function DealsScreen() {
   const boardAvailable = useBoardAvailable()
 
   /*
-   * §35.4 caps a board at seven columns and `board.tsx` THROWS past that
-   * rather than rendering an eighth. `deal_stages` is user-editable master
-   * data, so an administrator adding a couple of stages is enough to cross it
-   * — which would take the whole screen down, not just the board.
-   *
-   * So the board is not offered at all past seven, and the switcher says why
-   * in one line instead of vanishing without explanation. §26 hides a control
-   * the user cannot use; it does not ask them to guess where it went.
+   * §35.4: one column for every stage the master declares, with no maximum —
+   * a board wider than its area scrolls sideways (§35.8). It used to be
+   * capped at seven, and a firm with more stages lost the board entirely.
    */
-  const tooManyStages = stages.length > BOARD_MAX_COLUMNS
-  const boardOffered = boardAvailable && stages.length > 0 && !tooManyStages
+  const boardOffered = boardAvailable && stages.length > 0
 
   const view: 'list' | 'board' =
     searchParams.get('view') === 'board' && boardOffered ? 'board' : 'list'
@@ -669,8 +761,13 @@ function DealsScreen() {
       return Array.isArray(body) ? (body as NamedRow[]) : []
     }
 
-    read('/api/deals/stages')
-      .then(rows => live && setStages(rows))
+    fetch('/api/deals/stages')
+      .then(async r => {
+        if (!live || !r.ok) return
+        const body = await r.json()
+        setStages(Array.isArray(body) ? (body as NamedRow[]) : [])
+        setStagesLoaded(true)
+      })
       .catch(() => live && setStages([]))
     read('/api/companies')
       .then(rows => live && setCompanies(rows))
@@ -877,16 +974,39 @@ function DealsScreen() {
         toolbarExtra={
           boardOffered ? (
             <ViewSwitcher view={view} onChange={setView} />
-          ) : tooManyStages ? (
-            <p className="text-meta text-text-muted">
-              Board view needs {BOARD_MAX_COLUMNS} stages or fewer; this tenant
-              has {stages.length}.
-            </p>
+          ) : stagesLoaded && stages.length === 0 ? (
+            /*
+             * A firm with NO opportunity stages used to get nothing here: the
+             * switcher simply vanished, the Stage column read "No stage" on
+             * every row, and there was nowhere to move an opportunity to — it
+             * looked like the board had been removed. Firms created before
+             * 18 Sep 2026 were never seeded with stages, so this is a real
+             * state, not an edge case. The way forward is the master itself.
+             */
+            <NoStagesNotice canSetUp={canSetUpStages} known={permissionsKnown} />
           ) : undefined
         }
         title="Opportunities"
         noun={{ one: 'opportunity', many: 'opportunities' }}
-        columns={dealColumns(id => router.push(`/deals/${id}`), DEFAULT_STAGE_AGEING_DAYS)}
+        columns={dealColumns(
+          deal => (
+            <DealStatusMenu
+              deal={deal}
+              stages={stages as StageOption[]}
+              stagesLoaded={stagesLoaded}
+              canEdit={deal.shared_access === 'view' ? false : canEditDeals}
+              reason={deal.shared_access === 'view' ? SHARED_VIEW_REASON : EDIT_REASON}
+              canSetUpStages={canSetUpStages}
+              /* The row is re-read through the template's refetch lever, which
+                 keeps the rows on screen and their keys, so the moved row
+                 updates in place instead of flickering out and back. */
+              onMove={target => void moveDealStage(deal, target, () => setRefreshKey(k => k + 1))}
+              onCloseRequest={outcome => setClosing({ deal, outcome })}
+              onEdit={() => setEditing(deal)}
+            />
+          ),
+          DEFAULT_STAGE_AGEING_DAYS
+        )}
         rowKey={deal => deal.id}
         filters={filters}
         load={load}
@@ -905,7 +1025,7 @@ function DealsScreen() {
          * about what is on screen, and it keeps every other zone-3 state for
          * itself: skeleton, failed, nothing-found and nothing-yet are read
          * before this, so an all-empty board is §35.9's empty SCREEN rather
-         * than seven columns each saying they are empty.
+         * than a row of columns each saying they are empty.
          */
         renderData={
           view === 'board'
@@ -953,6 +1073,31 @@ function DealsScreen() {
           toast(`Opportunity "${deal.name}" created`)
           setRefreshKey(k => k + 1)
         }}
+      />
+
+      <DealDialog
+        open={editing !== null}
+        onOpenChange={next => {
+          if (!next) setEditing(null)
+        }}
+        companies={companies}
+        stages={[]}
+        team={team}
+        deal={editing}
+        onSaved={() => {
+          toast('Opportunity saved')
+          setRefreshKey(k => k + 1)
+        }}
+      />
+
+      <DealCloseDialog
+        deal={closing?.deal ?? null}
+        outcome={closing?.outcome ?? 'won'}
+        stages={stages as StageOption[]}
+        onOpenChange={next => {
+          if (!next) setClosing(null)
+        }}
+        onClosed={() => setRefreshKey(k => k + 1)}
       />
     </div>
   )

@@ -74,7 +74,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    if (!await findCompany(user, params.id, tid))
+    if (!await findCompany(user, params.id, tid, 'read'))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const rows = await prisma.company_addresses.findMany({
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if ('error' in built) return NextResponse.json({ error: built.error }, { status: 400 })
 
   try {
-    if (!await findCompany(user, params.id, tid))
+    if (!await findCompany(user, params.id, tid, 'write'))
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // The location ids came from the body — see src/lib/tenant-fk.ts.

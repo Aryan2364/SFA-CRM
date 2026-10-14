@@ -4,9 +4,12 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
+import { getAccessibleCompanyIds, widenScope } from '@/lib/sharing'
+import { sharedOrderWhere } from '../_access'
 import { isOrderStatus, type OrderStatus } from '@/lib/order-math'
 import { getGstRequiredForOrders } from '@/lib/gst-setting'
 import { effectiveBlockedReason, effectiveMissing, effectivelyComplete } from '@/lib/gst-policy'
+import { readAccountKind } from '@/lib/account-kind'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,10 +24,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const allowedIds = await scopedUserIds(user, 'orders')
 
   try {
+    // Widened by sharing exactly as the list is: an order of an account shared
+    // with the caller (any level) opens read-only (src/lib/sharing.ts).
+    const shared = allowedIds === null ? [] : await getAccessibleCompanyIds(user, tid)
     // .single() answered 404 on PGRST116 (no rows) and 500 on anything else.
     // findFirst's null is the no-row case; a genuine failure still throws.
     const order = await prisma.orders.findFirst({
-      where: { id: params.id, tenant_id: tid, ...scopeWhere(allowedIds) },
+      where: { id: params.id, tenant_id: tid, ...widenScope(scopeWhere(allowedIds), sharedOrderWhere(tid, shared)) },
       include: {
         order_items: true,
         users: { select: { name: true } },
@@ -97,13 +103,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const allowedIds = await scopedUserIds(user, 'orders')
 
   try {
+    // Sharing: an order of an account shared with the caller at 'work' may be
+    // placed / returned to Draft, if the role has `orders.edit` (checked
+    // above). A 'view' share reads it but cannot write it (src/lib/sharing.ts).
+    const shared = allowedIds === null ? [] : await getAccessibleCompanyIds(user, tid, 'work')
     // The order has to be READ before it is written, which it did not have
     // to be before: §3.5's gate is a fact about the order's party, not
     // about the request, so there is nothing in the body to check it
     // against. Scoped exactly as the updateMany was, so an order the caller
     // cannot see still behaves as it always did.
     const order = await prisma.orders.findFirst({
-      where: { id: params.id, tenant_id: tid, ...scopeWhere(allowedIds) },
+      where: { id: params.id, tenant_id: tid, ...widenScope(scopeWhere(allowedIds), sharedOrderWhere(tid, shared)) },
       select: { id: true, entity_id: true },
     })
     // No .single() in the original, so an invisible order was a silent
@@ -124,8 +134,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         : null
 
       // Missing GST does not count when the tenant does not require it
-      // (src/lib/gst-policy.ts) — the same rule as POST /api/orders.
-      const gstRequired = await getGstRequiredForOrders(tid)
+      // (src/lib/gst-policy.ts) — the same rule as POST /api/orders. An
+      // Individual account is never gated on GST (docs/accounts-contacts-spec.md §1).
+      const gstRequired = order.entity_id
+        ? (await getGstRequiredForOrders(tid)) && (await readAccountKind(tid, order.entity_id)) === 'Company'
+        : await getGstRequiredForOrders(tid)
       const blocked = !party
         ? 'Party is not a saved record'
         : effectivelyComplete(party.is_complete, party.completeness_missing, gstRequired)

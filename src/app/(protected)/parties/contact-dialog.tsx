@@ -199,8 +199,10 @@ export function ContactDialog({
   function validate(): boolean {
     const next: Record<string, string> = {}
     if (!form.name.trim()) next.name = 'Enter the contact person’s name.'
-    if (!form.mobile.trim()) next.mobile = 'Enter a mobile number.'
-    // Company is deliberately NOT checked — it is optional. See the header note.
+    // Company and mobile are deliberately NOT required — both are optional.
+    // See the header note; mobile follows docs/accounts-contacts-spec.md §2,
+    // which the server already enforces (`POST /api/contacts` only requires
+    // `name`; a contact with no mobile is simply marked incomplete).
 
     // Checked on the JOINED value, because that is the string the column ends
     // up holding and the string the route re-checks.
@@ -235,10 +237,10 @@ export function ContactDialog({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name.trim(),
-        // `mobile` is NOT NULL and validate() has already refused a blank, so
-        // joinPhone cannot return null here; the fallback only keeps the type
-        // honest.
-        mobile: joinPhone(mobileCode, form.mobile) ?? form.mobile.trim(),
+        // `mobile` is NOT NULL in the database but optional in this form — a
+        // blank number joins to null, and the fallback stores '' rather than
+        // sending null (the route does the same with `trimmed(mobile) ?? ''`).
+        mobile: joinPhone(mobileCode, form.mobile) ?? '',
         alternate_mobile: joinPhone(altCode, form.alternate_mobile),
         whatsapp: joinPhone(waCode, waNumber),
         landline: form.landline.trim() || null,
@@ -280,9 +282,9 @@ export function ContactDialog({
           <DialogTitle>Add contact person</DialogTitle>
           <DialogDescription>
             {companyId
-              ? <>This person is linked to {companyName}. Name and mobile number are
+              ? <>This person is linked to {companyName}. Only the name is
                 required; everything else can be filled in later.</>
-              : 'Only the name and mobile number are required — a company, and everything else, can be added later.'}
+              : 'Only the name is required — a company, a mobile number, and everything else, can be added later.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -340,7 +342,7 @@ export function ContactDialog({
           </div>
 
           <div className="col-span-12 sm:col-span-6">
-            <Label htmlFor="cd-mobile" required>Mobile number</Label>
+            <Label htmlFor="cd-mobile">Mobile number</Label>
             <PhoneField
               id="cd-mobile"
               className="mt-1.5"

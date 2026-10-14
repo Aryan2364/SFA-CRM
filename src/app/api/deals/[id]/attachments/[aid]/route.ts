@@ -29,7 +29,7 @@ async function findScoped(
   // here, so that a segment which cannot be an id answers 400 while a segment
   // that simply resolves to nothing answers 404. Collapsing both into `null`
   // here would make the two indistinguishable again.
-  const deal = await findScopedDeal(user, tid, dealId)
+  const deal = await findScopedDeal(user, tid, dealId, 'read')
   if (!deal) return null
   // Scoped to the Deal AND the tenant, not looked up by `aid` alone: checking
   // the Deal and then fetching by id would let any attachment in the database
@@ -109,7 +109,7 @@ export async function DELETE(
   if (!UUID_RE.test(params.aid)) return invalidId('attachment')
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'write')
     if (!deal) return notFound()
 
     // deleteMany(), not delete(): a no-match stays silent instead of throwing

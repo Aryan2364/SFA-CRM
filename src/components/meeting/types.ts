@@ -23,6 +23,12 @@ export type MeetingCompany = {
   /** §3.5. An incomplete party's orders cannot leave Draft. */
   is_complete: boolean
   completeness_missing: string | null
+  /**
+   * False only for someone an opportunity of this account was shared with
+   * directly, who may not open the account itself (src/lib/sharing.ts). Absent
+   * from an older response; only `false` drops the link.
+   */
+  can_open?: boolean
 }
 
 export type MeetingDeal = {
@@ -79,6 +85,14 @@ export type VisitOrder = {
  */
 export type MeetingContext = {
   visit: MeetingVisit
+  /**
+   * False only when the meeting was reached through sharing rather than the
+   * caller's own `meetings` scope (`src/lib/sharing.ts`, Aryan 2026-10-13):
+   * the page shows every write control disabled with a reason instead of
+   * hiding them, since the holder's name and the record itself are still
+   * visible. Every write route re-checks its own scope regardless.
+   */
+  can_write: boolean
   company: MeetingCompany | null
   discussed_deal_ids: string[]
   deals_visible: boolean
@@ -116,7 +130,11 @@ export type Remark = {
   context_id: string
   body: string
   created_at: string
+  updated_at?: string
   author_user_id: string
+  edited?: boolean
+  can_edit?: boolean
+  can_delete?: boolean
   users: NamedRef | null
 }
 

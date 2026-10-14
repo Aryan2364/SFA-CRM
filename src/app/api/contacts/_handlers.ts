@@ -8,6 +8,7 @@ import { checkEmail, checkLandline, checkPhone, firstError, trimmed } from '@/li
 import { attachLandlines, LANDLINE_NOT_SAVED, writeLandline } from '@/lib/party-landline'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { foreignContactRef } from './_access'
+import { getCompanyMemberships, widenScope, type MemberAccess } from '@/lib/sharing'
 import { ownerOutsideScope } from '../companies/_access'
 
 
@@ -39,22 +40,57 @@ export async function GET(req: NextRequest) {
   // `?mine=1` narrows to the caller's own contacts whatever the role's scope:
   // the Daily Activity meeting form sends it, matching `?mine=1` on
   // `/api/business-partners` (Daily Activity is for entering your own work).
+  //
+  // Sharing (src/lib/sharing.ts) widens both forms, OR-ed into the owner
+  // filter: `?mine=1` also offers the contacts of accounts shared with the
+  // caller at 'work' (the meeting form is for doing work, so a 'view' share
+  // does not belong in it); the plain list also shows contacts of accounts
+  // shared at any level. Not when `?userId=` narrows to one owner, and not
+  // under Company scope (already everything). Nothing shared → unchanged.
   const mine = req.nextUrl.searchParams.get('mine') === '1'
   if (mine && !user.userId) return NextResponse.json([])
+  const requestedOwner = req.nextUrl.searchParams.get('userId')
   const ids = mine
     ? [user.userId!]
     : intersectScope(
         await scopedUserIds(user, 'contacts'),
-        req.nextUrl.searchParams.get('userId')
+        requestedOwner
       )
+  const memberships = ids === null || (!mine && requestedOwner)
+    ? new Map<string, MemberAccess>()
+    : await getCompanyMemberships(user, tid)
+  const sharedCompanies = [...memberships.entries()]
+    .filter(([, a]) => !mine || a === 'work')
+    .map(([companyId]) => companyId)
 
   try {
     const rows = await prisma.contacts.findMany({
       where: {
         tenant_id: tid,
-        ...scopeWhere(ids, 'owner_user_id'),
+        ...widenScope(
+          scopeWhere(ids, 'owner_user_id'),
+          sharedCompanies.length
+            ? [{ company_contacts: { some: { tenant_id: tid, company_id: { in: sharedCompanies } } } }]
+            : []
+        ),
         ...(active === 'all' ? {} : { is_active: active !== 'false' }),
-        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+        // `?q=` matches by name OR mobile (digits only, so "98765 43210" and
+        // "9876543210" both hit) — the Individual-account Person picker
+        // searches "by name or mobile", and a name-only filter made half of
+        // that a lie.
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' as const } },
+                ...(q.replace(/\D/g, '')
+                  ? [
+                      { mobile: { contains: q.replace(/\D/g, '') } },
+                      { alternate_mobile: { contains: q.replace(/\D/g, '') } },
+                    ]
+                  : []),
+              ],
+            }
+          : {}),
         // `some` on the join, with its own tenant_id: the filter has to be a
         // predicate on company_contacts, and that table is tenant-scoped too.
         ...(companyId
@@ -68,7 +104,30 @@ export async function GET(req: NextRequest) {
     // serialize() first, shape after — `birthday` and `anniversary` are @db.Date
     // and only come back as "YYYY-MM-DD" while the keys are still the ones
     // Prisma generated (src/lib/db.ts, "Detection is keyed on MODEL + FIELD").
-    const data = (serialize(rows, 'contacts') as Record<string, unknown>[]).map(shapeContact)
+    const data = (serialize(rows, 'contacts') as Record<string, unknown>[])
+      .map(shapeContact)
+      // `shared_access` only on a row the caller sees BECAUSE an account it is
+      // linked to was shared with them (its owner is outside their scope): the
+      // best level among those accounts. `null` on every other row.
+      .map(row => {
+        const r = row as { owner_user_id?: string | null; companies?: { id?: unknown }[] }
+        const viaScope = ids === null || (!!r.owner_user_id && ids.includes(r.owner_user_id))
+        let shared: MemberAccess | null = null
+        let companies = r.companies ?? []
+        if (!viaScope) {
+          for (const c of companies) {
+            const level = memberships.get(String(c.id))
+            if (level === 'work') { shared = 'work'; break }
+            if (level === 'view') shared = 'view'
+          }
+          // Privacy with sharing (docs/accounts-contacts-spec.md §9): this row is
+          // only visible BECAUSE one of its accounts was shared with the caller —
+          // its OTHER accounts (not shared with the caller) must not leak, name
+          // included.
+          companies = companies.filter(c => memberships.has(String(c.id)))
+        }
+        return { ...row, companies, shared_access: shared } as Record<string, unknown>
+      })
 
     // `null` until the column exists (src/lib/party-landline.ts).
     return NextResponse.json(await attachLandlines(data as (Record<string, unknown> & { id: string })[], tid, 'contacts'))
@@ -86,12 +145,12 @@ export async function POST(req: NextRequest) {
     company_ids, primary_company_id, is_active, landline,
   } = await req.json()
 
-  // §3.4: Contact Person Name and Mobile Number are the two compulsory fields.
-  // `contacts.mobile` is NOT NULL in the database as well, so a blank one is a
-  // 400 here rather than a 500 from the insert.
+  // §3.4 (Stage 1 revision, docs/accounts-contacts-spec.md §2): Name only is
+  // compulsory now. Mobile is optional — `contacts.mobile` is NOT NULL in the
+  // database, so a blank one is stored as '' until a migration makes the
+  // column nullable; a contact with no mobile is marked incomplete instead
+  // of being refused.
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
-  if (!mobile?.trim())
-    return NextResponse.json({ error: 'Mobile Number is required' }, { status: 400 })
 
   const bad = firstError(
     checkPhone(mobile, 'Mobile Number'),
@@ -150,7 +209,7 @@ export async function POST(req: NextRequest) {
       data: {
         tenant_id: tid,
         name: name.trim(),
-        mobile: mobile.trim(),
+        mobile: trimmed(mobile) ?? '',
         alternate_mobile: trimmed(alternate_mobile),
         whatsapp: trimmed(whatsapp),
         email: trimmed(email),

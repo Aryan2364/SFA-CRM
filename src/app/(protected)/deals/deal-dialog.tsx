@@ -46,11 +46,35 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Textarea } from '@/components/ui/textarea'
+import { parseApiDate } from '@/lib/format'
 
 export type NamedRow = { id: string; name: string }
 
 /** What `POST /api/deals` answers with, narrowed to what the caller uses. */
 export type CreatedDeal = { id: string; name: string }
+
+/**
+ * The opportunity being EDITED — the detail page's own copy of it. Add and
+ * Edit are the same component (section 11.3 rule 1), so editing is this
+ * dialog with the fields filled in, not a second form that could drift.
+ *
+ * ⚠️ The stage is not edited here. `PUT /api/deals/[id]` refuses to touch it
+ * on purpose (a move must write a stage log, `PATCH .../stage`), so the field
+ * is not shown: a stage picker that silently did nothing on save is a control
+ * that fails after being used.
+ */
+export type EditableDeal = {
+  id: string
+  name: string
+  expected_value: number
+  probability: number
+  expected_close_date: string | null
+  source: string | null
+  remarks: string | null
+  company: { id: string } | null
+  contact: { id: string } | null
+  owner: { id: string } | null
+}
 
 /**
  * Section 14 rule 4: every request carries a deadline at the point it is
@@ -122,6 +146,8 @@ export function DealDialog({
   stages,
   team,
   onCreated,
+  deal = null,
+  onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -132,8 +158,13 @@ export function DealDialog({
    *  no team, in which case the picker is not offered and the route's own
    *  default (the creator) applies. */
   team: NamedRow[]
-  onCreated: (deal: CreatedDeal) => void
+  onCreated?: (deal: CreatedDeal) => void
+  /** Set to edit this opportunity instead of creating one. */
+  deal?: EditableDeal | null
+  /** Edit mode: the route's shaped row once the PUT lands. */
+  onSaved?: (row: Record<string, unknown>) => void
 }) {
+  const editing = deal !== null
   const [form, setForm] = useState(BLANK)
   const [closeDate, setCloseDate] = useState<Date | undefined>(undefined)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -145,11 +176,28 @@ export function DealDialog({
      close would empty the fields while they are still on screen. */
   useEffect(() => {
     if (open) {
-      setForm(BLANK)
-      setCloseDate(undefined)
+      setForm(
+        deal
+          ? {
+              name: deal.name,
+              company_id: deal.company?.id ?? '',
+              contact_id: deal.contact?.id ?? '',
+              deal_stage_id: '',
+              owner_user_id: deal.owner?.id ?? '',
+              expected_value: deal.expected_value ? String(deal.expected_value) : '',
+              probability: String(deal.probability ?? ''),
+              source: deal.source ?? '',
+              remarks: deal.remarks ?? '',
+            }
+          : BLANK
+      )
+      setCloseDate(deal ? (parseApiDate(deal.expected_close_date) ?? undefined) : undefined)
       setErrors({})
       setSaving(false)
     }
+    // `deal` is read once per opening; a re-render while open must not
+    // overwrite what the user is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   /*
@@ -196,6 +244,7 @@ export function DealDialog({
   function validate(): boolean {
     const next: Record<string, string> = {}
     if (!form.name.trim()) next.name = 'Enter a name for this opportunity.'
+    if (!form.company_id) next.company_id = 'Choose the account this opportunity is for.'
 
     if (form.expected_value.trim()) {
       const value = Number(form.expected_value)
@@ -215,7 +264,26 @@ export function DealDialog({
 
     let res: Response
     try {
-      res = await fetchWithDeadline('/api/deals', {
+      res = editing
+        ? await fetchWithDeadline(`/api/deals/${deal!.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: form.name.trim(),
+              company_id: form.company_id || null,
+              contact_id: form.contact_id || null,
+              // A key absent from a PUT is left alone and `null` CLEARS it, so
+              // the owner is sent only when its picker is on screen and holds a
+              // value — never a null that would strip the owner off the row.
+              ...(team.length > 1 && form.owner_user_id ? { owner_user_id: form.owner_user_id } : {}),
+              expected_value: form.expected_value.trim() || null,
+              probability: form.probability.trim() || null,
+              expected_close_date: closeDate ? dateOnly(closeDate) : null,
+              source: form.source.trim() || null,
+              remarks: form.remarks.trim() || null,
+            }),
+          })
+        : await fetchWithDeadline('/api/deals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -250,13 +318,16 @@ export function DealDialog({
         form:
           data.error ??
           (res.status === 403
-            ? 'Only someone who can create opportunities can save this. Ask an administrator for access.'
+            ? editing
+              ? 'Only someone who can edit opportunities can save this. Ask an administrator for access.'
+              : 'Only someone who can create opportunities can save this. Ask an administrator for access.'
             : 'Could not save this opportunity.'),
       })
       return
     }
 
-    onCreated({ id: data.id ?? '', name: data.name ?? form.name.trim() })
+    if (editing) onSaved?.(data as Record<string, unknown>)
+    else onCreated?.({ id: data.id ?? '', name: data.name ?? form.name.trim() })
     onOpenChange(false)
   }
 
@@ -270,10 +341,11 @@ export function DealDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>Create opportunity</DialogTitle>
+          <DialogTitle>{editing ? 'Edit opportunity' : 'Create opportunity'}</DialogTitle>
           <DialogDescription>
-            Only the opportunity name is required. An opportunity can be linked to a company, a
-            contact, or neither — everything else can be filled in later.
+            {editing
+              ? 'The opportunity name and account are required. The stage is changed from the opportunity’s menu, which keeps its stage history.'
+              : 'The opportunity name and account are required. A contact is optional, and only offered once an account is chosen.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -299,20 +371,27 @@ export function DealDialog({
           </div>
 
           <div className="col-span-12 sm:col-span-6">
-            <Label htmlFor="dd-company">Company</Label>
+            <Label htmlFor="dd-company" required>Company</Label>
             <SearchableSelect
               id="dd-company"
               className="mt-1.5"
-              options={withClearOption(companies, 'No company')}
+              options={companies.length ? Object.fromEntries(companies.map(r => [r.id, r.name])) : {}}
               value={form.company_id}
               onValueChange={value => {
                 // Changing the company re-reads the contacts, so a contact
                 // that belonged to the old company is dropped rather than
                 // left selected against a company it has no link to.
                 setForm(f => ({ ...f, company_id: value, contact_id: '' }))
+                setErrors(e => {
+                  if (!('company_id' in e)) return e
+                  const { company_id: _cleared, ...rest } = e
+                  return rest
+                })
               }}
-              placeholder="No company"
+              aria-invalid={Boolean(errors.company_id)}
+              placeholder="Choose the account"
             />
+            <InlineFieldError>{errors.company_id}</InlineFieldError>
           </div>
 
           <div className="col-span-12 sm:col-span-6">
@@ -350,6 +429,7 @@ export function DealDialog({
             </div>
           ) : null}
 
+          {!editing && (
           <div className="col-span-12 sm:col-span-4">
             <Label htmlFor="dd-stage">Stage</Label>
             <SearchableSelect
@@ -360,7 +440,15 @@ export function DealDialog({
               onValueChange={set('deal_stage_id')}
               placeholder="No stage yet"
             />
+            {stages.length === 0 && (
+              /* An empty picker with no reason is a dead end: say why the only
+                 choice is "No stage yet" and where stages come from. */
+              <p className="mt-1 text-meta text-text-secondary">
+                No opportunity stages are set up yet. They are added under Masters › Opportunity Stages.
+              </p>
+            )}
           </div>
+          )}
 
           <div className="col-span-12 sm:col-span-4">
             <Label htmlFor="dd-probability">Probability</Label>
@@ -438,7 +526,7 @@ export function DealDialog({
         <DialogFooter>
           <DialogClose render={<Button variant="secondary">Cancel</Button>} />
           <Button onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Create opportunity'}
+            {saving ? 'Saving…' : editing ? 'Save changes' : 'Create opportunity'}
           </Button>
         </DialogFooter>
       </DialogContent>

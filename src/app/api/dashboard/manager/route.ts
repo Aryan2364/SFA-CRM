@@ -7,6 +7,7 @@ import { checkPermission, PermSection } from '@/lib/permissions'
 import { scopedUserIds } from '@/lib/scope'
 import { addDays, businessDate } from '@/lib/business-date'
 import { mondayOf } from '@/lib/weekly-review'
+import { countMissedByUser, countOutcomesByUser, repeatedCouldntMeetFlags } from '@/lib/missed-todos'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,8 +26,10 @@ export async function GET(req: NextRequest) {
   if (!subIds.length) return NextResponse.json({ isManager: false })
 
   try {
+  // Active users only, the same population the Team Summary counts — an
+  // inactive report would otherwise inflate "Team Members" and add an empty row.
   const subordinates = await prisma.users.findMany({
-    where: { id: { in: subIds }, tenant_id: tid },
+    where: { id: { in: subIds }, tenant_id: tid, status: 'Active' },
     select: { id: true, name: true },
   })
 
@@ -128,6 +131,16 @@ export async function GET(req: NextRequest) {
   // Build per-member daily activity
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
+  // Missed to-dos for the week, gated the same way as the visits/plan/order
+  // reads above: `visitIds` is already the subset of `activeSubIds` the
+  // caller may see meetings for (checkPermission + scope on `meetings`), and
+  // Missed is itself a "meetings" concept (a to-do that never became one).
+  const missedByUser = await countMissedByUser(tid, visitIds, weekStart, weekEnd)
+  // Outcome breakdown (Met / Met late / Couldn't meet / Missed) and the
+  // repeated-"couldn't meet" flag, same gating as missedByUser above.
+  const outcomesByUser = await countOutcomesByUser(tid, visitIds, weekStart, weekEnd)
+  const repeatedFlags = await repeatedCouldntMeetFlags(tid, visitIds)
+
   const teamPerformance = subordinates.map(sub => {
     const plan = planByUserId[sub.id] ?? null
 
@@ -161,6 +174,15 @@ export async function GET(req: NextRequest) {
       planId: plan?.id ?? null,
       dailyActivity,
       weekTotals,
+      // null, not 0, when the caller cannot see this person's meetings at
+      // all — "unavailable" must not read as "nothing missed".
+      missedCount: visitIds.includes(sub.id) ? (missedByUser.get(sub.id) ?? 0) : null,
+      outcomeCounts: visitIds.includes(sub.id)
+        ? (outcomesByUser.get(sub.id) ?? { met: 0, metLate: 0, couldntMeet: 0, missed: 0 })
+        : null,
+      // Parties (name may be null if deleted) this person has couldn't-met
+      // 3+ times in the last 30 days — a small warning badge, not a count.
+      repeatedCouldntMeet: visitIds.includes(sub.id) ? (repeatedFlags.get(sub.id) ?? []) : null,
     }
   })
 

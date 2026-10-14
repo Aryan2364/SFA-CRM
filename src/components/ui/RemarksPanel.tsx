@@ -2,6 +2,17 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useToast } from '@/contexts/ToastContext'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 
 type Remark = {
   id: string
@@ -11,7 +22,11 @@ type Remark = {
   author_user_id: string
   body: string
   created_at: string
+  updated_at?: string
   is_read: boolean
+  edited?: boolean
+  can_edit?: boolean
+  can_delete?: boolean
   users: { id: string; name: string } | null
 }
 
@@ -124,6 +139,30 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
     }
   }
 
+  async function handleEditSave(id: string, newBody: string) {
+    const r = await fetch(`/api/remarks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: newBody }),
+    })
+    if (!r.ok) {
+      toast((await r.json()).error ?? 'Failed to save', 'error')
+      return false
+    }
+    const updated = await r.json()
+    setRemarks(prev => prev.map(r2 => (r2.id === id ? { ...r2, ...updated } : r2)))
+    return true
+  }
+
+  async function handleDelete(id: string) {
+    const r = await fetch(`/api/remarks/${id}`, { method: 'DELETE' })
+    if (!r.ok) {
+      toast((await r.json()).error ?? 'Failed to delete', 'error')
+      return
+    }
+    setRemarks(prev => prev.filter(r2 => r2.id !== id))
+  }
+
   // Build thread structure: top-level remarks + their replies
   const topLevel = remarks.filter(r => !r.parent_remark_id)
   const repliesMap: Record<string, Remark[]> = {}
@@ -186,12 +225,25 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
           ) : (
             topLevel.map(remark => (
               <div key={remark.id}>
-                <RemarkBubble remark={remark} onReply={() => { setReplyTo(remark); textareaRef.current?.focus() }} />
+                <RemarkBubble
+                  remark={remark}
+                  contextType={contextType}
+                  onReply={() => { setReplyTo(remark); textareaRef.current?.focus() }}
+                  onEditSave={handleEditSave}
+                  onDelete={handleDelete}
+                />
                 {/* Replies */}
                 {(repliesMap[remark.id] ?? []).length > 0 && (
                   <div className="ml-8 mt-2 space-y-2 border-l-2 border-border-light pl-3">
                     {(repliesMap[remark.id] ?? []).map(reply => (
-                      <RemarkBubble key={reply.id} remark={reply} isReply />
+                      <RemarkBubble
+                        key={reply.id}
+                        remark={reply}
+                        contextType={contextType}
+                        isReply
+                        onEditSave={handleEditSave}
+                        onDelete={handleDelete}
+                      />
                     ))}
                   </div>
                 )}
@@ -239,9 +291,37 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
   )
 }
 
-function RemarkBubble({ remark, onReply, isReply }: { remark: Remark; onReply?: () => void; isReply?: boolean }) {
+function RemarkBubble({
+  remark,
+  contextType,
+  onReply,
+  isReply,
+  onEditSave,
+  onDelete,
+}: {
+  remark: Remark
+  contextType: string
+  onReply?: () => void
+  isReply?: boolean
+  onEditSave?: (id: string, body: string) => Promise<boolean>
+  onDelete?: (id: string) => Promise<void>
+}) {
   const name = remark.users?.name ?? 'Unknown'
   const userId = remark.author_user_id
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(remark.body)
+  const [saving, setSaving] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const showControls = contextType === 'meeting' && remark.can_edit
+
+  async function save() {
+    if (!draft.trim() || !onEditSave) return
+    setSaving(true)
+    const ok = await onEditSave(remark.id, draft.trim())
+    setSaving(false)
+    if (ok) setEditing(false)
+  }
 
   return (
     <div className={`flex items-start gap-2.5 ${isReply ? '' : ''}`}>
@@ -252,20 +332,100 @@ function RemarkBubble({ remark, onReply, isReply }: { remark: Remark; onReply?: 
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-1">
           <span className="text-xs font-medium text-text-primary">{name}</span>
-          <span className="text-[10px] text-text-muted">{formatRelativeTime(remark.created_at)}</span>
+          <span className="text-[10px] text-text-muted">
+            {formatRelativeTime(remark.created_at)}
+            {remark.edited && ' · edited'}
+          </span>
           {!remark.is_read && (
             <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
           )}
         </div>
-        <div className="bg-surface-sunken rounded-xl rounded-tl-none px-3 py-2">
-          <p className="text-sm text-text-secondary whitespace-pre-wrap">{remark.body}</p>
-        </div>
-        {onReply && (
-          <button onClick={onReply} className="mt-1 text-[10px] text-text-muted hover:text-primary transition">
-            Reply
-          </button>
+        {editing ? (
+          <div className="space-y-1.5">
+            <textarea
+              autoFocus
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              rows={2}
+              className="w-full border border-border-light rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-ring focus:border-transparent"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={save}
+                disabled={saving || !draft.trim()}
+                className="text-[11px] font-medium text-primary hover:text-primary-hover disabled:opacity-40 transition"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => { setEditing(false); setDraft(remark.body) }}
+                className="text-[11px] text-text-muted hover:text-text-secondary transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-surface-sunken rounded-xl rounded-tl-none px-3 py-2 transition-all duration-200">
+            <p className="text-sm text-text-secondary whitespace-pre-wrap">{remark.body}</p>
+          </div>
+        )}
+        {!editing && (
+          <div className="mt-1 flex items-center gap-3">
+            {onReply && (
+              <button onClick={onReply} className="text-[10px] text-text-muted hover:text-primary transition">
+                Reply
+              </button>
+            )}
+            {showControls && (
+              <>
+                <button
+                  onClick={() => setEditing(true)}
+                  className="text-[10px] text-text-muted hover:text-primary transition"
+                >
+                  Edit
+                </button>
+                <PermissionTooltip
+                  allowed={!!remark.can_delete}
+                  reason="Entries can only be deleted on the day they were written."
+                >
+                  <button
+                    onClick={() => remark.can_delete && setConfirmOpen(true)}
+                    disabled={!remark.can_delete}
+                    className="text-[10px] text-text-muted hover:text-danger disabled:opacity-40 disabled:pointer-events-none transition"
+                  >
+                    Delete
+                  </button>
+                </PermissionTooltip>
+              </>
+            )}
+          </div>
         )}
       </div>
+
+      {showControls && (
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This remark will be permanently removed. This can&apos;t be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={async () => {
+                  setConfirmOpen(false)
+                  if (onDelete) await onDelete(remark.id)
+                }}
+              >
+                Delete entry
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   )
 }

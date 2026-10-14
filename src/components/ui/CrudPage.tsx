@@ -95,6 +95,14 @@ interface CrudPageProps {
    * rather than leaving it clickable and doing nothing.
    */
   deleteDisabledReason?: (row: Record<string, unknown>) => string | null
+  /**
+   * Returns why this row's Edit action (and its Active toggle, which follows
+   * `edit`) cannot be used, or null when it can — same shape as
+   * `deleteDisabledReason`, for a row that is individually locked (e.g. a
+   * system row) even though the page-level permission allows editing. A
+   * page-level lock still wins; this only adds a per-row reason on top.
+   */
+  editDisabledReason?: (row: Record<string, unknown>) => string | null
   /** Page-level permission state per action. See `CrudLocks`. */
   locks?: CrudLocks
   rowActions?: (row: Record<string, unknown>) => ReactNode
@@ -113,7 +121,7 @@ interface CrudPageProps {
 
 export default function CrudPage({
   title, headerExtra, backHref, columns, rows, allRowsCount, isLoading, search, onSearchChange,
-  page, totalPages, onPage, onAdd, onEdit, onDelete, deleteMode, deleteDisabledReason, rowActions, onToggleActive,
+  page, totalPages, onPage, onAdd, onEdit, onDelete, deleteMode, deleteDisabledReason, editDisabledReason, rowActions, onToggleActive,
   onReorder: onReorderProp, showActive = true, addLabel = '+ Add', filterBar, loadError, onRetry, locks,
 }: CrudPageProps) {
   // Dragging has no control to disable and explain, so it is simply off until
@@ -305,64 +313,80 @@ export default function CrudPage({
                     body must too, or every row is one cell short and Actions
                     slides under the "Active" heading. Where the screen passes
                     no toggle the state is still shown — read-only, as a badge. */}
-                {showActive && (
-                  <td className="px-4 py-3">
-                    {onToggleActive && locks?.edit === undefined ? (
-                      <Toggle checked={Boolean(row.is_active)} onChange={v => onToggleActive(row, v)} />
-                    ) : onToggleActive ? (
-                      <PermissionTooltip allowed={typeof locks?.edit !== 'string'} reason={locks?.edit ?? ''}>
-                        {/* Toggle takes no className; this span stops a disabled
-                            one swallowing the hover the tooltip needs. */}
-                        <span className="inline-flex pointer-events-none">
-                          <Toggle checked={Boolean(row.is_active)} onChange={() => {}} disabled />
-                        </span>
-                      </PermissionTooltip>
-                    ) : Boolean(row.is_active) ? (
-                      <Badge variant="success"><CheckIcon />Active</Badge>
-                    ) : (
-                      <Badge variant="neutral"><MinusIcon />Inactive</Badge>
-                    )}
-                  </td>
-                )}
-                <td className="px-4 py-3 text-right">
-                  <div className="flex items-center justify-end gap-3">
-                    {onEdit && (
-                      <PermissionTooltip allowed={typeof locks?.edit !== 'string'} reason={locks?.edit ?? ''}>
-                        <button
-                          onClick={() => onEdit(row)}
-                          disabled={locks?.edit !== undefined}
-                          className="text-primary hover:text-primary-hover text-xs font-medium disabled:text-text-muted disabled:pointer-events-none"
-                        >
-                          Edit
-                        </button>
-                      </PermissionTooltip>
-                    )}
-                    {rowActions?.(row)}
-                    {onDelete && (() => {
-                      // The page-level lock wins; a row's own reason applies only
-                      // when the user may delete at all.
-                      const lock = locks?.delete
-                      // On a soft-delete master, Delete only switches the row off —
-                      // so on a row that is already off it would do nothing.
-                      const blocked = lock !== undefined ? lock
-                        : (deleteDisabledReason?.(row)
-                          ?? (deleteMode === 'soft' && !row.is_active
-                            ? (onToggleActive ? 'Already switched off. Use the Active switch to bring it back.' : 'Already switched off.')
-                            : null))
-                      return (
-                        <PermissionTooltip allowed={!blocked} reason={blocked ?? ''}>
-                          <button
-                            onClick={() => setPendingDelete(row)}
-                            disabled={lock !== undefined || !!blocked}
-                            className="text-danger hover:text-danger-hover text-xs font-medium disabled:text-text-muted disabled:pointer-events-none"
-                          >
-                            Delete
-                          </button>
-                        </PermissionTooltip>
-                      )
-                    })()}
-                  </div>
-                </td>
+                {/*
+                  The page-level lock wins; a row's own reason (e.g. a system
+                  row) applies only when the user may edit at all.
+                  `undefined` → interactive, `null` → not known yet (disabled,
+                  no reason), a string → denied with that reason. Computed
+                  once per row and shared by the Active toggle and Edit, since
+                  both follow `edit`.
+                */}
+                {(() => {
+                  const rowEditBlocked: string | null | undefined =
+                    locks?.edit !== undefined ? locks.edit : (editDisabledReason?.(row) ?? undefined)
+                  return (
+                    <>
+                      {showActive && (
+                        <td className="px-4 py-3">
+                          {onToggleActive && rowEditBlocked === undefined ? (
+                            <Toggle checked={Boolean(row.is_active)} onChange={v => onToggleActive(row, v)} />
+                          ) : onToggleActive ? (
+                            <PermissionTooltip allowed={typeof rowEditBlocked !== 'string'} reason={rowEditBlocked ?? ''}>
+                              {/* Toggle takes no className; this span stops a disabled
+                                  one swallowing the hover the tooltip needs. */}
+                              <span className="inline-flex pointer-events-none">
+                                <Toggle checked={Boolean(row.is_active)} onChange={() => {}} disabled />
+                              </span>
+                            </PermissionTooltip>
+                          ) : Boolean(row.is_active) ? (
+                            <Badge variant="success"><CheckIcon />Active</Badge>
+                          ) : (
+                            <Badge variant="neutral"><MinusIcon />Inactive</Badge>
+                          )}
+                        </td>
+                      )}
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          {onEdit && (
+                            <PermissionTooltip allowed={typeof rowEditBlocked !== 'string'} reason={rowEditBlocked ?? ''}>
+                              <button
+                                onClick={() => onEdit(row)}
+                                disabled={rowEditBlocked !== undefined}
+                                className="text-primary hover:text-primary-hover text-xs font-medium disabled:text-text-muted disabled:pointer-events-none"
+                              >
+                                Edit
+                              </button>
+                            </PermissionTooltip>
+                          )}
+                          {rowActions?.(row)}
+                          {onDelete && (() => {
+                            // The page-level lock wins; a row's own reason applies only
+                            // when the user may delete at all.
+                            const lock = locks?.delete
+                            // On a soft-delete master, Delete only switches the row off —
+                            // so on a row that is already off it would do nothing.
+                            const blocked = lock !== undefined ? lock
+                              : (deleteDisabledReason?.(row)
+                                ?? (deleteMode === 'soft' && !row.is_active
+                                  ? (onToggleActive ? 'Already switched off. Use the Active switch to bring it back.' : 'Already switched off.')
+                                  : null))
+                            return (
+                              <PermissionTooltip allowed={!blocked} reason={blocked ?? ''}>
+                                <button
+                                  onClick={() => setPendingDelete(row)}
+                                  disabled={lock !== undefined || !!blocked}
+                                  className="text-danger hover:text-danger-hover text-xs font-medium disabled:text-text-muted disabled:pointer-events-none"
+                                >
+                                  Delete
+                                </button>
+                              </PermissionTooltip>
+                            )
+                          })()}
+                        </div>
+                      </td>
+                    </>
+                  )
+                })()}
               </tr>
             ))}
           </tbody>

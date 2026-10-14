@@ -45,6 +45,10 @@ type MemberPerf = {
   userId: string; userName: string; level: string
   planStatus: string | null; planId: string | null
   dailyActivity: DailyActivity[]; weekTotals: { meetingsCompleted: number; meetingsTotal: number; orderValue: number; expenseAmount: number }
+  /** null when the caller cannot see this person's meetings at all. */
+  missedCount: number | null
+  outcomeCounts: { met: number; metLate: number; couldntMeet: number; missed: number } | null
+  repeatedCouldntMeet: { party_id: string; party_name: string | null }[] | null
 }
 type PendingPlan = { id: string; userId: string; userName: string; weekStartDate: string; status: string; reopen_requested: boolean; reopen_request_message: string | null }
 type ManagerData = {
@@ -339,7 +343,7 @@ export default function DashboardPage() {
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard label="Team Members" value={teamSize} sub="Direct reports" />
+        <KPICard label="Team Members" value={teamSize} sub="Everyone under you" />
         {plansDenied ? (
           <KPICard label="Plan Compliance" value="Not available" color="text-text-muted" />
         ) : (
@@ -523,6 +527,10 @@ export default function DashboardPage() {
                     Meetings <SortIcon col="meetings" />
                   </button>
                 </th>
+                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Met</th>
+                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Met late</th>
+                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Couldn&apos;t meet</th>
+                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Missed</th>
                 <th className="px-4 py-3 text-right">
                   <button onClick={() => toggleSort('orders')} className="text-xs font-medium text-text-muted uppercase tracking-wide hover:text-text-secondary flex items-center ml-auto">
                     Orders <SortIcon col="orders" />
@@ -576,6 +584,38 @@ export default function DashboardPage() {
                     {meetingsDenied ? <NotAvailable className="text-sm" /> : (
                       <span className="text-sm font-medium text-text-secondary">
                         {m.weekTotals.meetingsCompleted}/{m.weekTotals.meetingsTotal}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {m.outcomeCounts === null ? <NotAvailable className="text-sm" /> : (
+                      <span className="text-sm font-medium text-text-secondary">{m.outcomeCounts.met}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {m.outcomeCounts === null ? <NotAvailable className="text-sm" /> : (
+                      <span className="text-sm font-medium text-text-secondary">{m.outcomeCounts.metLate}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {m.outcomeCounts === null ? <NotAvailable className="text-sm" /> : (
+                      <span className="inline-flex items-center justify-end gap-1.5 text-sm font-medium text-text-secondary">
+                        {m.outcomeCounts.couldntMeet}
+                        {m.repeatedCouldntMeet && m.repeatedCouldntMeet.length > 0 && (
+                          <span
+                            className="inline-flex size-4 items-center justify-center rounded-full bg-warning-surface text-[10px] font-semibold text-warning"
+                            title={`Couldn't meet 3+ times with: ${m.repeatedCouldntMeet.map(p => p.party_name ?? 'Unknown').join(', ')}`}
+                          >
+                            !
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {m.missedCount === null ? <NotAvailable className="text-sm" /> : (
+                      <span className={`text-sm font-medium ${m.missedCount > 0 ? 'text-warning' : 'text-text-secondary'}`}>
+                        {m.missedCount}
                       </span>
                     )}
                   </td>

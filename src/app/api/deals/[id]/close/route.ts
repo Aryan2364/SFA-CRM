@@ -50,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'write')
     if (!deal) return notFound()
 
     // The reason must be a real row IN THIS TENANT — an id from another
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const type = await readStageType(tid, stage.id)
         if (type !== 'Closed') {
           return NextResponse.json(
-            { error: 'An opportunity being closed must move to a stage marked Closed in the Lead Stages master' },
+            { error: 'An opportunity being closed must move to a stage marked Closed in the Opportunity Stages master' },
             { status: 400 }
           )
         }

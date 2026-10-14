@@ -245,6 +245,7 @@ function FollowUpRow({
   isNext,
   canEdit,
   canDelete,
+  readOnlyReason,
   busy,
   onToggleDone,
   onEdit,
@@ -254,6 +255,8 @@ function FollowUpRow({
   isNext: boolean
   canEdit: boolean
   canDelete: boolean
+  /** A record rule that overrides the permission sentences (see the section). */
+  readOnlyReason: string | null
   busy: boolean
   onToggleDone: () => void
   onEdit: () => void
@@ -322,7 +325,7 @@ function FollowUpRow({
         <div className="ml-auto flex items-center gap-1">
           <PermissionTooltip
             allowed={canEdit}
-            reason="Only someone who can edit opportunities can complete a follow-up."
+            reason={readOnlyReason ?? 'Only someone who can edit opportunities can complete a follow-up.'}
           >
             <Button
               variant={done ? 'ghost' : 'secondary'}
@@ -337,7 +340,7 @@ function FollowUpRow({
 
           <PermissionTooltip
             allowed={canEdit}
-            reason="Only someone who can edit opportunities can change a follow-up."
+            reason={readOnlyReason ?? 'Only someone who can edit opportunities can change a follow-up.'}
           >
             <Button
               variant="in-field"
@@ -352,7 +355,7 @@ function FollowUpRow({
 
           <PermissionTooltip
             allowed={canDelete}
-            reason="Only someone who can delete opportunities can remove a follow-up."
+            reason={readOnlyReason ?? 'Only someone who can delete opportunities can remove a follow-up.'}
           >
             <Button
               variant="in-field"
@@ -382,12 +385,20 @@ export function FollowUpsSection({
   dealId,
   initialFollowUps,
   onChange,
+  readOnlyReason = null,
 }: {
   dealId: string
   /** What the Deal GET already returned — no second fetch on mount. */
   initialFollowUps: FollowUp[]
   /** Lets the page keep anything derived from follow-ups in step. Optional. */
   onChange?: (followUps: FollowUp[]) => void
+  /**
+   * A record rule from the server that makes this Deal read-only for the
+   * viewer whatever their role allows — today, an opportunity shared with
+   * them to VIEW only (src/lib/sharing.ts; the routes 404 their writes). Every
+   * control stays on screen, disabled, with this sentence as its reason.
+   */
+  readOnlyReason?: string | null
 }) {
   const { toast } = useToast()
   const me = useMe()
@@ -399,8 +410,8 @@ export function FollowUpsSection({
    * will accept. While `me` is still loading nothing is enabled — briefly
    * offering a button that is about to be disabled is worse than the reverse.
    */
-  const canEdit = me?.permissions?.deals?.edit === true
-  const canDelete = me?.permissions?.deals?.delete === true
+  const canEdit = me?.permissions?.deals?.edit === true && !readOnlyReason
+  const canDelete = me?.permissions?.deals?.delete === true && !readOnlyReason
 
   const [rows, setRows] = useState<FollowUp[]>(initialFollowUps)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -657,7 +668,7 @@ export function FollowUpsSection({
           </CardTitle>
           <PermissionTooltip
             allowed={canEdit}
-            reason="Only someone who can edit opportunities can add a follow-up."
+            reason={readOnlyReason ?? 'Only someone who can edit opportunities can add a follow-up.'}
           >
             <Button size="sm" disabled={!canEdit} onClick={openAdd}>
               <PlusIcon />
@@ -682,6 +693,7 @@ export function FollowUpsSection({
                   isNext={followUp.id === nextOpenId}
                   canEdit={canEdit}
                   canDelete={canDelete}
+                  readOnlyReason={readOnlyReason}
                   busy={busyId === followUp.id}
                   onToggleDone={() => void toggleDone(followUp)}
                   onEdit={() => openEdit(followUp)}

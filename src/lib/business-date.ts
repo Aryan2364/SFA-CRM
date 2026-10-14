@@ -105,3 +105,52 @@ export function businessDayStart(dateOnly: string): Date {
 export function businessDayRange(dateOnly: string): { gte: Date; lt: Date } {
   return { gte: businessDayStart(dateOnly), lt: businessDayStart(addDays(dateOnly, 1)) }
 }
+
+/**
+ * Whether `dateOnly` is a working day for the "Missed" feature's purposes.
+ *
+ * ASSUMPTION, not read from any setting: this codebase has no tenant-level
+ * working-week configuration (checked — no "business day"/"working day"
+ * exclusion exists anywhere else), so Missed treats Mon–Sat as working days
+ * and Sunday as off, the common field-sales convention. If a tenant actually
+ * works a different week this needs a real setting, not a guess here.
+ */
+export function isBusinessDay(dateOnly: string): boolean {
+  return new Date(`${dateOnly}T00:00:00.000Z`).getUTCDay() !== 0
+}
+
+/** `dateOnly` stepped back by one working day (see `isBusinessDay`). */
+function previousBusinessDay(dateOnly: string): string {
+  let d = addDays(dateOnly, -1)
+  while (!isBusinessDay(d)) d = addDays(d, -1)
+  return d
+}
+
+/**
+ * The `n` working days strictly before `dateOnly`, nearest first (so index 0
+ * is "1 business day ago"). Used to bound the Missed window to "the last 7
+ * business days" without counting Sundays as a day something could be missed.
+ */
+export function recentBusinessDays(dateOnly: string, n: number): string[] {
+  const out: string[] = []
+  let d = dateOnly
+  for (let i = 0; i < n; i++) {
+    d = previousBusinessDay(d)
+    out.push(d)
+  }
+  return out
+}
+
+/** How many working days before `today` does `dateOnly` fall — 1-based, so a
+ *  date due yesterday (the last working day) is `1`. Used to cut Missed off
+ *  at 7 business days old. */
+export function businessDaysAgo(dateOnly: string, today: string): number {
+  let count = 0
+  let d = today
+  while (d > dateOnly) {
+    d = previousBusinessDay(d)
+    count++
+    if (count > 3650) break // safety valve against a bad input looping forever
+  }
+  return count
+}

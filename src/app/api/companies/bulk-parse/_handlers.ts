@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { IMPORT_MAX_ROWS, ROW_NUMBER_KEY, duplicateHeaders, duplicateHeadersMessage } from '@/lib/bulk-import'
-import { COMPANY_NOTES_SHEET, COMPANY_SHEET } from '../bulk-import/_columns'
+import { COMPANY_NOTES_SHEET, COMPANY_SHEET, COMPANY_SHEET_ALIASES } from '../bulk-import/_columns'
 
 /** Checked on the client too, before the upload. */
 const MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -61,15 +61,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'This file could not be read. Save it as an Excel workbook (.xlsx), then upload it again.' }, { status: 400 })
   }
 
-  // Read the "Companies" sheet. A template downloaded before P1-T10 names that
-  // sheet "Leads", so it is still accepted; the last-worksheet fallback (the
-  // template puts the data sheet last, after the hidden Ref_ sheets) covers a
-  // renamed or hand-built file. The template's guidance sheet, which now comes
-  // after the data sheet, is never the fallback: its example would import.
+  // Read the "Accounts" sheet. A template downloaded before this rename names
+  // it "Companies", and one from before that "Leads" (§10) — both still
+  // accepted, matched case-insensitively since a hand-edited file may not
+  // keep the template's exact case. The last-worksheet fallback (the template
+  // puts the data sheet last, after the hidden Ref_ sheets) covers a renamed
+  // or hand-built file. The template's guidance sheet, which now comes after
+  // the data sheet, is never the fallback: its example would import.
   const candidates = workbook.worksheets.filter(w => w.name !== COMPANY_NOTES_SHEET)
+  const byName = (name: string) =>
+    workbook.worksheets.find(w => w.name.toLowerCase() === name.toLowerCase())
   const ws =
-    workbook.getWorksheet(COMPANY_SHEET) ??
-    workbook.getWorksheet('Leads') ??
+    byName(COMPANY_SHEET) ??
+    COMPANY_SHEET_ALIASES.reduce<typeof candidates[number] | undefined>((found, alias) => found ?? byName(alias), undefined) ??
     candidates[candidates.length - 1]
 
   if (!ws) return NextResponse.json({ error: 'No worksheet found in file' }, { status: 400 })

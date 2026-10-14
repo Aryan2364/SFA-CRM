@@ -10,6 +10,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { fmtDateTime } from '@/lib/format'
 import { NOTE_CONTEXT, type NoteTarget, type Remark } from './types'
 
@@ -146,6 +157,33 @@ export function NotesSection({
   const linked = target && target.kind !== 'meeting'
   const earlier = target?.kind === 'meeting' ? earlierNote?.trim() || null : null
 
+  async function saveEdit(id: string, newBody: string) {
+    const r = await fetch(`/api/remarks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: newBody }),
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      toast(err.error ?? 'Could not save that note', 'error')
+      return false
+    }
+    const updated: Remark = await r.json()
+    setRemarks(prev => (prev ?? []).map(r2 => (r2.id === id ? { ...r2, ...updated } : r2)))
+    return true
+  }
+
+  async function deleteRemark(id: string) {
+    const r = await fetch(`/api/remarks/${id}`, { method: 'DELETE' })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      toast(err.error ?? 'Could not delete that note', 'error')
+      return
+    }
+    setRemarks(prev => (prev ?? []).filter(r2 => r2.id !== id))
+    toast('Entry deleted')
+  }
+
   return (
     <Card>
       {/* Stacked at every width, never side by side: on desktop this card
@@ -207,12 +245,13 @@ export function NotesSection({
                 </li>
               ) : null}
               {remarks.map(remark => (
-                <li key={remark.id} className="text-body text-text-primary">
-                  <p className="text-label text-text-secondary">
-                    {remark.users?.name ?? 'Unknown'} · {fmtDateTime(remark.created_at)}
-                  </p>
-                  <p className="whitespace-pre-wrap">{remark.body}</p>
-                </li>
+                <NoteItem
+                  key={remark.id}
+                  remark={remark}
+                  isMeeting={target?.kind === 'meeting'}
+                  onSave={saveEdit}
+                  onDelete={deleteRemark}
+                />
               ))}
             </ul>
           )}
@@ -249,5 +288,118 @@ export function NotesSection({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * One entry in the thread. Edit/delete only render for the meeting's own
+ * minutes (`isMeeting`), for the author's own entries (`remark.can_edit`) —
+ * Deal and Order notes are untouched.
+ */
+function NoteItem({
+  remark,
+  isMeeting,
+  onSave,
+  onDelete,
+}: {
+  remark: Remark
+  isMeeting: boolean
+  onSave: (id: string, body: string) => Promise<boolean>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(remark.body)
+  const [saving, setSaving] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const showControls = isMeeting && remark.can_edit
+
+  async function save() {
+    if (!draft.trim()) return
+    setSaving(true)
+    const ok = await onSave(remark.id, draft.trim())
+    setSaving(false)
+    if (ok) setEditing(false)
+  }
+
+  return (
+    <li className="text-body text-text-primary">
+      <p className="text-label text-text-secondary">
+        {remark.users?.name ?? 'Unknown'} · {fmtDateTime(remark.created_at)}
+        {remark.edited ? ' · edited' : ''}
+      </p>
+      {editing ? (
+        <div className="mt-1 flex flex-col gap-2">
+          <Textarea
+            autoFocus
+            className="min-h-16 text-base sm:text-body"
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={save} disabled={saving || !draft.trim()}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => { setEditing(false); setDraft(remark.body) }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="whitespace-pre-wrap">{remark.body}</p>
+          {showControls ? (
+            <div className="mt-1 flex items-center gap-3">
+              <button
+                onClick={() => setEditing(true)}
+                className="text-label text-text-muted transition hover:text-primary"
+              >
+                Edit
+              </button>
+              <PermissionTooltip
+                allowed={!!remark.can_delete}
+                reason="Entries can only be deleted on the day they were written."
+              >
+                <button
+                  onClick={() => remark.can_delete && setConfirmOpen(true)}
+                  disabled={!remark.can_delete}
+                  className="text-label text-text-muted transition hover:text-danger disabled:pointer-events-none disabled:opacity-40"
+                >
+                  Delete
+                </button>
+              </PermissionTooltip>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {showControls ? (
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This remark will be permanently removed. This can&apos;t be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={async () => {
+                  setConfirmOpen(false)
+                  await onDelete(remark.id)
+                }}
+              >
+                Delete entry
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
+    </li>
   )
 }

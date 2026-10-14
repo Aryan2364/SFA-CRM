@@ -42,6 +42,7 @@ export function PlannedCard({
   starting,
   onStart,
   onAddMeeting,
+  onCouldntMeet,
 }: {
   item: PlannedItem
   /** True when the list spans more than one person (Team/Company scope). */
@@ -58,6 +59,8 @@ export function PlannedCard({
   starting: boolean
   onStart: (item: PlannedItem) => void | Promise<void>
   onAddMeeting: (item: PlannedItem) => void
+  /** Optional — only passed where "Couldn't meet" applies (today's list). */
+  onCouldntMeet?: (item: PlannedItem) => void
 }) {
   const canStart = offered === null ? null : canStartProp
   const route = [item.from_place, item.to_place].filter(Boolean).join(' → ')
@@ -144,6 +147,11 @@ export function PlannedCard({
                 Log a meeting on this line
               </Button>
             </PermissionTooltip>
+          )}
+          {onCouldntMeet && (
+            <Button variant="ghost" size="sm" disabled={canStart !== true} onClick={() => onCouldntMeet(item)}>
+              Couldn&apos;t meet
+            </Button>
           )}
         </div>
       )}

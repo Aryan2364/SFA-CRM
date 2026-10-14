@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds } from '@/lib/scope'
 import { recomputeCompanyCompleteness } from '@/lib/completeness'
+import { writeAccountKind } from '@/lib/account-kind'
 import { checkEmail, checkGstin, checkMobile, checkPincode, normaliseGstin, trimmed } from '@/lib/validation'
 import {
   NO_USABLE_ROWS, cell, checkFile, countVerdicts, importMode, rowNumber,
@@ -13,6 +14,7 @@ import {
 import { COMPANY_COLUMNS } from './_columns'
 
 const TEMPERATURES = ['Cold', 'Warm', 'Hot']
+const KINDS = ['Company', 'Individual']
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
 
 type Ready = {
@@ -20,6 +22,9 @@ type Ready = {
   data: {
     name: string
     type: string
+    // §10: parsed and validated, but not yet written anywhere — see the
+    // header note by `KINDS` above and the import-result message below.
+    kind: string | null
     stage: string
     contact_person_name: string | null
     mobile_1: string | null
@@ -260,6 +265,14 @@ export async function POST(req: NextRequest) {
     const type = typeText ? typeByLower.get(typeText.toLowerCase()) : ''
     if (type === undefined) error('Type', `Company type "${typeText}" is not in the Company Types master`)
 
+    // §10: Company / Individual, blank = Company. Importing an Individual's
+    // own contact is a later stage (see the result message below) — this row
+    // still imports as an account, just with no Kind stored until the
+    // account_kind column exists (see `kind` in `Ready['data']` above).
+    const kindText = v('Kind')
+    const kind = kindText ? KINDS.find(k => k.toLowerCase() === kindText.toLowerCase()) : 'Company'
+    if (kind === undefined) error('Kind', `Kind "${kindText}" must be Company or Individual`)
+
     check('Mobile 1', checkMobile(v('Mobile 1'), 'Mobile 1'))
     check('Mobile 2', checkMobile(v('Mobile 2'), 'Mobile 2'))
     check('Pin Code', checkPincode(v('Pin Code')))
@@ -268,7 +281,7 @@ export async function POST(req: NextRequest) {
 
     const stageText = v('Stage')
     const stage = stageText ? stageByLower.get(stageText.toLowerCase()) : 'Prospect'
-    if (stage === undefined) error('Stage', `Stage "${stageText}" is not in the Lead Stages master`)
+    if (stage === undefined) error('Stage', `Stage "${stageText}" is not in the Opportunity Stages master`)
 
     const tempText = v('Temperature')
     const temperature = tempText ? TEMPERATURES.find(t => t.toLowerCase() === tempText.toLowerCase()) : null
@@ -324,6 +337,7 @@ export async function POST(req: NextRequest) {
         // NOT NULL with no default — blank is the empty string. See
         // POST /api/companies for why.
         type: type ?? '',
+        kind: kind ?? 'Company',
         stage: stage ?? 'Prospect',
         contact_person_name: trimmed(v('Contact Person')),
         mobile_1: trimmed(v('Mobile 1')),
@@ -342,13 +356,19 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 2. WRITE (commit only) ────────────────────────────────────────────────
+  // `account_kind` is not a database column yet (src/lib/account-kind.ts,
+  // guarded raw SQL, lands separately) — `kind` is stripped from every row
+  // before the insert, and this count is reported once below instead.
+  let individualsImported = 0
   if (mode === 'commit') {
     for (const { verdict, data } of ready) {
+      const { kind, ...columns } = data
+      if (kind === 'Individual') individualsImported++
       try {
         const created = await prisma.companies.create({
           data: {
             tenant_id: tid,
-            ...data,
+            ...columns,
             // The file has no owner column, so every row is the importer's, as
             // a company created by hand is. Unowned rows sit outside every
             // Self/Team scope, where the importer could not reach them again.
@@ -358,6 +378,10 @@ export async function POST(req: NextRequest) {
           select: { id: true },
         })
         verdict.status = 'created'
+        // account_kind column may not exist yet — writeAccountKind() answers
+        // `false` rather than throwing, and the import still succeeds either
+        // way (src/lib/account-kind.ts header).
+        if (kind === 'Individual') await writeAccountKind(tid, created.id, 'Individual').catch(() => false)
         // Derived, never imported (P1-T10.7). An imported company has no
         // company_addresses row yet, so this always writes the incomplete
         // state — the spreadsheet has no address columns that map to one.
@@ -373,7 +397,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const out: ImportResponse = {
+  const out: ImportResponse & { message?: string } = {
     mode,
     total: verdicts.length,
     counts: countVerdicts(verdicts),
@@ -381,6 +405,12 @@ export async function POST(req: NextRequest) {
     unrecognisedColumns: file.match.unrecognised,
   }
   if (mode === 'validate') return NextResponse.json(out)
+  // §10: an Individual row imports as an account with no Self contact — that
+  // is a later stage. Said once here rather than per row, since every row
+  // with Kind=Individual gets exactly the same note.
+  if (individualsImported > 0) {
+    out.message = `${individualsImported} individual account${individualsImported === 1 ? '' : 's'} imported without a Self contact — add the person from the account page.`
+  }
   // `inserted` / `errors` are what the upload dialog read before the shared
   // shape existed; kept until every caller reads `counts` and `rows`.
   return NextResponse.json({

@@ -3,20 +3,31 @@ import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { isAppliesTo, writeAppliesTo } from '@/lib/account-kind'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
   if (!await checkPermission(user, 'lead_types', 'edit')) return forbidden()
-  const { name, sort_order, is_active } = await req.json()
+  const { name, sort_order, is_active, applies_to } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  const tid = getTenantId()
   try {
     // update(), not updateMany(): the original ended in .select().single(), so a
     // no-match was ALREADY an error answered with 500 (PLAN.md 8.4).
     const data = await prisma.company_types.update({
-      where: { id: params.id, tenant_id: getTenantId() },
+      where: { id: params.id, tenant_id: tid },
       data: { name: name.trim(), sort_order: sort_order ?? 0, is_active: is_active ?? true },
     })
-    return NextResponse.json(serialize(data, 'company_types'))
+    let appliesToOut: string | undefined
+    if (applies_to !== undefined) {
+      const appliesTo = isAppliesTo(applies_to) ? applies_to : 'Company'
+      await writeAppliesTo(tid, data.id, appliesTo)
+      appliesToOut = appliesTo
+    }
+    return NextResponse.json({
+      ...(serialize(data, 'company_types') as Record<string, unknown>),
+      ...(appliesToOut ? { applies_to: appliesToOut } : {}),
+    })
   } catch (err) {
     const { error, status } = dbErrorResult(err)
     return NextResponse.json({ error }, { status })

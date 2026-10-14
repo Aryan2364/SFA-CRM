@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db'
 import { SessionUser } from '@/lib/auth'
-import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { firstForeignTenantRef } from '@/lib/tenant-fk'
+import { AccessLevel, AccessNeed, getContactAccessLevel, meets } from '@/lib/sharing'
 
 /**
  * "May this user touch THIS Contact?" — the Contacts twin of
@@ -9,17 +9,21 @@ import { firstForeignTenantRef } from '@/lib/tenant-fk'
  * that reaches a contact by id applies the same predicate, so a contact the
  * caller cannot see in the list is a plain 404 rather than a row they can
  * open, edit or delete by id.
+ *
+ * Sharing widens it: a contact linked (`company_contacts`) to an account shared
+ * with the caller is reachable at that account's level — see
+ * `getContactAccessLevel` in src/lib/sharing.ts. `need` is 'read' / 'write' /
+ * 'owner' exactly as in `companies/_access.ts`; with nothing shared each is the
+ * old owner-scope test. Opportunity-only sharing reaches no contact.
  */
 export async function findScopedContact(
   user: SessionUser,
   tenantId: string,
-  contactId: string
-): Promise<{ id: string } | null> {
-  const ids = await scopedUserIds(user, 'contacts')
-  return prisma.contacts.findFirst({
-    where: { id: contactId, tenant_id: tenantId, ...scopeWhere(ids, 'owner_user_id') },
-    select: { id: true },
-  })
+  contactId: string,
+  need: AccessNeed
+): Promise<{ id: string; access: AccessLevel } | null> {
+  const access = await getContactAccessLevel(user, tenantId, contactId)
+  return meets(access, need) ? { id: contactId, access: access! } : null
 }
 
 /**

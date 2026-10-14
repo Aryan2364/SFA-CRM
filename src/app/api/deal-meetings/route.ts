@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
+import { findScopedDeal } from '@/app/api/deals/_access'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,14 +87,11 @@ async function resolveSides(
   })
   if (!visit) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const deal = await prisma.deals.findFirst({
-    where: {
-      id: dealId,
-      tenant_id: tenantId,
-      ...scopeWhere(await scopedUserIds(user, 'deals'), 'owner_user_id'),
-    },
-    select: { id: true },
-  })
+  // The Deal side: owner-scope as before, or — sharing, src/lib/sharing.ts —
+  // a 'work' member of the deal or its account. A 'view' member may read the
+  // deal but not record work against it, so they get the same 404 as anyone
+  // outside it. Tenant-scoped inside findScopedDeal.
+  const deal = await findScopedDeal(user, tenantId, dealId, 'write')
   if (!deal) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   return { visitId: visit.id, dealId: deal.id, tenantId }

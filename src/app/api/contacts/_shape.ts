@@ -53,11 +53,20 @@ export function shapeContact(row: Record<string, unknown>): Record<string, unkno
   const { company_contacts, users, ...rest } = row as Record<string, unknown> & {
     company_contacts?: ContactLink[]
     users?: Record<string, unknown> | null
+    mobile?: string | null
   }
 
   const links = company_contacts ?? []
+  // docs/accounts-contacts-spec.md §2: "a contact with no mobile is marked
+  // incomplete." `contacts.is_complete` / `completeness_missing` are not
+  // written for contacts (see _handlers.ts) — this is read-time only, mobile
+  // being the single field the spec names, so the screens can badge it the
+  // same way a Company's missing-field badge works.
+  const mobileMissing = !String(rest.mobile ?? '').trim()
   return {
     ...rest,
+    is_complete: !mobileMissing,
+    completeness_missing: mobileMissing ? 'Mobile Number' : null,
     owner: users ?? null,
     // Primary first, then alphabetical. Sorted here rather than in the query
     // because an `orderBy` inside a shared `as const` include is a readonly

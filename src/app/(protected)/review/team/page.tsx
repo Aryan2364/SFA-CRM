@@ -160,7 +160,15 @@ export default function TeamSummaryPage() {
         {!loading && data && (
           <div className="flex w-full flex-col gap-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              <StatTile label="People" value={fmtNumber(data.totals.people)} />
+              <StatTile
+                label="People"
+                value={fmtNumber(data.totals.people)}
+                sub={
+                  data.tier === 'company'
+                    ? 'Everyone in the company'
+                    : data.members.some(m => m.userId === data.viewer.id) ? 'You and everyone under you' : 'Everyone under you'
+                }
+              />
               <StatTile label="Parties to meet" value={fmtNumber(data.totals.toMeet)} sub={`${fmtNumber(data.totals.notMet)} not met`} />
               <StatTile label="Meetings held" value={fmtNumber(data.totals.meetings)} sub={`${fmtNumber(data.totals.extraMeetings)} outside the plan`} />
               <StatTile label="Planned goal" value={fmtNumber(data.totals.plannedGoal)} sub={`${fmtNumber(data.totals.ticked)} ticked · ${fmtNumber(data.totals.open)} open`} />

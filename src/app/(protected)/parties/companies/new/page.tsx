@@ -60,10 +60,10 @@
  * retiring the flat ones is a separate task with its own readers to update.
  */
 
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CheckIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react'
+import { CheckIcon, PlusIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 
 import {
   Breadcrumb,
@@ -73,9 +73,18 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
+import { Badge } from '@/components/ui/badge'
 import { Banner, BannerDescription, BannerTitle } from '@/components/ui/banner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { InlineFieldError } from '@/components/ui/inline-field-error'
 import { Input } from '@/components/ui/input'
@@ -104,6 +113,36 @@ type CreatedCompany = {
   is_complete: boolean
   completeness_missing: string | null
 }
+
+/** Account Kind — spec §1. Company is the default everywhere. */
+type AccountKind = 'Company' | 'Individual'
+
+/** `GET /api/masters/lead-types` row, narrowed to what the Type filter needs. */
+type TypeOption = { id: string; name: string; applies_to?: 'Company' | 'Individual' | 'Both' }
+
+/** `GET /api/contacts?q=` row, narrowed to what the person picker needs. */
+type ContactSearchResult = { id: string; name: string; mobile?: string | null }
+
+/**
+ * `GET /api/companies/[id]/links` — the same shape the Company page's
+ * `PeopleCard` reads. Step 2 lists from here rather than from the contacts
+ * this form itself created, because an Individual account's Self link is
+ * written by the create route (`self_contact_id` / `self_new_person`), not by
+ * this dialog — so a brand-new Individual already has a person on it before
+ * "Add contact" is ever opened, and that person has to show up too.
+ */
+type CompanyLink = {
+  link_id: string
+  contact_id: string
+  contact_name: string | null
+  contact_mobile: string | null
+  is_primary: boolean
+  is_active: boolean
+  is_self: boolean
+}
+
+/** `GET /api/parties/duplicates` row. */
+type DuplicateMatch = { kind: 'account' | 'contact'; id: string; name: string; reason: 'mobile' | 'name' }
 
 const BLANK = {
   name: '',
@@ -135,8 +174,132 @@ export default function NewCompanyPage() {
      empty section with only an "Add" button reads as if none is expected. */
   const [addresses, setAddresses] = useState<AddressDraft[]>(() => [blankAddress(true)])
   const [company, setCompany] = useState<CreatedCompany | null>(null)
-  const [contacts, setContacts] = useState<CreatedContact[]>([])
   const [contactOpen, setContactOpen] = useState(false)
+
+  // Step 2's People list — fetched from the same `links` route the Company
+  // page reads, not held in local state, so a Self link written by the
+  // create call (Individual kind) shows up even though this form never
+  // created that contact itself.
+  const [links, setLinks] = useState<CompanyLink[]>([])
+  const [linksLoading, setLinksLoading] = useState(false)
+
+  // ── Account Kind (spec §1) ─────────────────────────────────────────────
+  // Company is the default. Switching kind never clears already-typed field
+  // values — `form`, `addresses` etc. are untouched by this setter.
+  const [kind, setKind] = useState<AccountKind>('Company')
+
+  // The Type master's `applies_to` is not on `usePartyMasters()`'s
+  // `companyTypes` (that hook only carries `{id, name}`), so it is fetched
+  // here, once, rather than widening a hook ten other screens share for one
+  // field on this form.
+  const [typeOptions, setTypeOptions] = useState<TypeOption[]>([])
+  useEffect(() => {
+    let live = true
+    fetch('/api/masters/lead-types?active=true')
+      .then(r => (r.ok ? r.json() : []))
+      .then((d: unknown) => { if (live && Array.isArray(d)) setTypeOptions(d as TypeOption[]) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+  const visibleTypeOptions = typeOptions.filter(t => !t.applies_to || t.applies_to === 'Both' || t.applies_to === kind)
+  // The currently-picked type may no longer apply once the kind changes
+  // (e.g. a Company-only type with Individual now selected) — cleared rather
+  // than silently submitted as a type that does not apply to this kind.
+  useEffect(() => {
+    if (form.type && typeOptions.length && !visibleTypeOptions.some(t => t.name === form.type)) {
+      setForm(f => ({ ...f, type: '' }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, typeOptions])
+
+  // ── Individual: the Person step (spec §3) ────────────────────────────────
+  // Either an existing contact is picked, or a new person's name/mobile/email
+  // is entered — never both. `personMode` is which half of that choice is
+  // showing; it has no effect on the Company kind.
+  const [personMode, setPersonMode] = useState<'existing' | 'new'>('new')
+  const [personSearch, setPersonSearch] = useState('')
+  const [personResults, setPersonResults] = useState<ContactSearchResult[]>([])
+  const [personSearching, setPersonSearching] = useState(false)
+  const [selfContact, setSelfContact] = useState<ContactSearchResult | null>(null)
+  const [newPerson, setNewPerson] = useState({ name: '', mobile: '', email: '' })
+  // Whether the Account Name field still tracks the person's name
+  // automatically. True until the user types into Account Name directly, at
+  // which point their edit wins and the two fields stop following each other.
+  const nameAutoFollow = useRef(true)
+
+  useEffect(() => {
+    if (kind !== 'Individual' || personMode !== 'existing') return
+    if (!personSearch.trim()) { setPersonResults([]); return }
+    let live = true
+    setPersonSearching(true)
+    const t = setTimeout(() => {
+      fetch(`/api/contacts?q=${encodeURIComponent(personSearch.trim())}`)
+        .then(r => (r.ok ? r.json() : []))
+        .then((d: unknown) => { if (live) setPersonResults(Array.isArray(d) ? (d as ContactSearchResult[]) : []) })
+        .catch(() => { if (live) setPersonResults([]) })
+        .finally(() => { if (live) setPersonSearching(false) })
+    }, 400)
+    return () => { live = false; clearTimeout(t) }
+  }, [kind, personMode, personSearch])
+
+  function pickSelfContact(c: ContactSearchResult) {
+    setSelfContact(c)
+    setPersonSearch('')
+    setPersonResults([])
+    if (nameAutoFollow.current) setForm(f => ({ ...f, name: c.name }))
+  }
+
+  function setNewPersonName(name: string) {
+    setNewPerson(p => ({ ...p, name }))
+    if (nameAutoFollow.current) setForm(f => ({ ...f, name }))
+  }
+
+  function setAccountName(name: string) {
+    nameAutoFollow.current = false
+    set('name')(name)
+  }
+
+  // ── Live duplicate warning (spec §6) — advisory only, never blocks saving.
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([])
+  const duplicateMobile = kind === 'Individual' ? (selfContact ? '' : newPerson.mobile) || form.mobile_1 : form.mobile_1
+  const duplicateName = kind === 'Individual' ? (selfContact?.name || newPerson.name || form.name) : form.name
+  useEffect(() => {
+    const mobile = duplicateMobile.trim()
+    const name = duplicateName.trim()
+    if (!mobile && !name) { setDuplicates([]); return }
+    let live = true
+    const t = setTimeout(() => {
+      const params = new URLSearchParams()
+      if (mobile) params.set('mobile', mobile)
+      if (name) params.set('name', name)
+      fetch(`/api/parties/duplicates?${params.toString()}`)
+        .then(r => (r.ok ? r.json() : []))
+        .then((d: unknown) => { if (live) setDuplicates(Array.isArray(d) ? (d as DuplicateMatch[]) : []) })
+        .catch(() => { if (live) setDuplicates([]) })
+    }, 450)
+    return () => { live = false; clearTimeout(t) }
+  }, [duplicateMobile, duplicateName])
+
+  // 409 from the create — the chosen contact is already Self elsewhere
+  // (spec §3's conflict). Shown as a styled dialog, never a native alert.
+  const [selfConflict, setSelfConflict] = useState<{ existingAccountId: string } | null>(null)
+
+  const loadLinks = useCallback(async () => {
+    if (!company) return
+    setLinksLoading(true)
+    try {
+      const res = await fetch(`/api/companies/${company.id}/links`, { cache: 'no-store' })
+      if (res.ok) setLinks((await res.json()) as CompanyLink[])
+    } catch {
+      // The empty state below covers a failed load; nothing to add here.
+    } finally {
+      setLinksLoading(false)
+    }
+  }, [company])
+
+  useEffect(() => {
+    if (company) void loadLinks()
+  }, [company, loadLinks])
 
   // Owner defaults to the signed-in user and stays editable (§3.3). Applied as
   // a fallback at render rather than in an effect, so it cannot race the
@@ -187,7 +350,26 @@ export default function NewCompanyPage() {
    */
   function validate(): boolean {
     const next: Record<string, string> = {}
-    if (!form.name.trim()) next.name = 'Enter the company name.'
+    // Name is the only required field for either kind (spec §1) — except for
+    // Individual, where it may be left blank as long as a person is chosen or
+    // typed; the server defaults the account name from the person's name.
+    if (kind === 'Company' && !form.name.trim()) {
+      next.name = 'Enter the account name.'
+    }
+    if (kind === 'Individual') {
+      if (personMode === 'existing' && !selfContact) {
+        next.person = 'Pick an existing contact, or switch to "New person".'
+      }
+      if (personMode === 'new' && !newPerson.name.trim() && !form.name.trim()) {
+        next.person = "Enter the person's name."
+      }
+      if (personMode === 'new') {
+        const pm = checkMobile(newPerson.mobile, 'Mobile Number')
+        if (pm) next.person_mobile = pm
+        const pe = checkEmail(newPerson.email)
+        if (pe) next.person_email = pe
+      }
+    }
 
     const m1 = checkMobile(form.mobile_1, 'Mobile Number 1')
     if (m1) next.mobile_1 = m1
@@ -231,7 +413,21 @@ export default function NewCompanyPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: form.name.trim(),
+        name: form.name.trim() || null,
+        account_kind: kind,
+        // Exactly one of these, and only for Individual — never both.
+        ...(kind === 'Individual' && personMode === 'existing' && selfContact
+          ? { self_contact_id: selfContact.id }
+          : {}),
+        ...(kind === 'Individual' && personMode === 'new'
+          ? {
+              self_new_person: {
+                name: newPerson.name.trim(),
+                mobile: newPerson.mobile.trim() || undefined,
+                email: newPerson.email.trim() || undefined,
+              },
+            }
+          : {}),
         // Blank stays blank — the route stores '' for "no type".
         type: form.type || null,
         industry_id: form.industry_id || null,
@@ -275,7 +471,13 @@ export default function NewCompanyPage() {
 
     if (!res.ok) {
       setSaving(false)
-      setErrors({ form: (data as { error?: string }).error ?? 'Could not save this company.' })
+      // 409: the chosen contact is already Self elsewhere (spec §3). A styled
+      // dialog with a link to the existing account, never a native alert.
+      if (res.status === 409 && (data as { existing_account_id?: string }).existing_account_id) {
+        setSelfConflict({ existingAccountId: (data as { existing_account_id: string }).existing_account_id })
+        return
+      }
+      setErrors({ form: (data as { error?: string }).error ?? 'Could not save this account.' })
       return
     }
 
@@ -367,13 +569,13 @@ export default function NewCompanyPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{stepTwo ? company.name : 'New company'}</BreadcrumbPage>
+            <BreadcrumbPage>{stepTwo ? company.name : 'New account'}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <h1 className="text-h1 text-text-primary">
-        {stepTwo ? company.name : 'New company'}
+        {stepTwo ? company.name : 'New account'}
       </h1>
 
       {/*
@@ -383,20 +585,49 @@ export default function NewCompanyPage() {
         the company after it exists is the company page's job, not this form's.
       */}
       <ol className="mt-4 mb-6 flex items-center gap-3 text-label">
-        <StepChip n={1} label="Company details" state={stepTwo ? 'done' : 'current'} />
+        <StepChip n={1} label="Account details" state={stepTwo ? 'done' : 'current'} />
         <span className="h-px w-8 bg-border" aria-hidden />
         <StepChip n={2} label="Contact people" state={stepTwo ? 'current' : 'upcoming'} />
       </ol>
 
+      {/*
+        The duplicate warning (spec §6): advisory only, visible on both steps
+        while it has something to show, never a reason this form cannot save.
+      */}
+      {!stepTwo && duplicates.length > 0 ? (
+        <Banner variant="warning" className="mb-4">
+          <BannerTitle>Possible duplicate</BannerTitle>
+          <BannerDescription>
+            <ul className="mt-1 space-y-1">
+              {duplicates.map(d => (
+                <li key={`${d.kind}-${d.id}`} className="flex items-center justify-between gap-3">
+                  <span>
+                    {d.name} — same {d.reason === 'mobile' ? 'mobile number' : 'name'} as an existing{' '}
+                    {d.kind === 'account' ? 'account' : 'contact'}
+                  </span>
+                  <Link
+                    href={d.kind === 'account' ? `/parties/companies/${d.id}` : `/parties/contacts/${d.id}`}
+                    className="shrink-0 font-medium text-primary underline underline-offset-2"
+                  >
+                    Open existing
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </BannerDescription>
+        </Banner>
+      ) : null}
+
       {stepTwo ? (
         <StepTwo
           company={company}
-          contacts={contacts}
+          links={links}
+          linksLoading={linksLoading}
           masters={masters}
           contactOpen={contactOpen}
           setContactOpen={setContactOpen}
-          onCreated={c => {
-            setContacts(list => [...list, c])
+          onCreated={() => {
+            void loadLinks()
             toast('Contact added.')
           }}
           onFinish={() => router.push(`/parties/companies/${company.id}?from=%2Fparties%3Ftab%3Dcompanies`)}
@@ -405,30 +636,193 @@ export default function NewCompanyPage() {
         <>
           <Card>
             <CardHeader>
-              <CardTitle>Company details</CardTitle>
+              <CardTitle>Account kind</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/*
+                Company | Individual — spec §1, Company default. A two-button
+                segmented control (the kit ships no dedicated component for
+                one); switching never clears anything already typed below.
+              */}
+              <div
+                role="radiogroup"
+                aria-label="Account kind"
+                className="inline-flex rounded-lg border border-border bg-surface-secondary p-1"
+              >
+                {(['Company', 'Individual'] as const).map(k => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={kind === k}
+                    onClick={() => setKind(k)}
+                    className={cn(
+                      'min-h-11 rounded-md px-4 text-body font-medium transition-colors duration-200',
+                      kind === k
+                        ? 'bg-primary text-text-inverse'
+                        : 'text-text-secondary hover:text-text-primary'
+                    )}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {kind === 'Individual' ? (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>Person</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div
+                  role="radiogroup"
+                  aria-label="Person"
+                  className="mb-4 inline-flex rounded-lg border border-border bg-surface-secondary p-1"
+                >
+                  {([
+                    { v: 'existing', label: 'Pick existing contact' },
+                    { v: 'new', label: 'New person' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.v}
+                      type="button"
+                      role="radio"
+                      aria-checked={personMode === opt.v}
+                      onClick={() => { setPersonMode(opt.v); setErrors(e => { const { person: _p, ...rest } = e; return rest }) }}
+                      className={cn(
+                        'min-h-11 rounded-md px-4 text-body font-medium transition-colors duration-200',
+                        personMode === opt.v
+                          ? 'bg-primary text-text-inverse'
+                          : 'text-text-secondary hover:text-text-primary'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {personMode === 'existing' ? (
+                  <div>
+                    <Label htmlFor="person-search">Search contacts</Label>
+                    <div className="relative mt-1.5">
+                      <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                      <Input
+                        id="person-search"
+                        className="pl-9"
+                        value={selfContact ? selfContact.name : personSearch}
+                        onChange={e => { setSelfContact(null); setPersonSearch(e.target.value) }}
+                        placeholder="Search by name or mobile…"
+                        aria-invalid={Boolean(errors.person)}
+                      />
+                    </div>
+                    <InlineFieldError>{errors.person}</InlineFieldError>
+
+                    {!selfContact && personSearch.trim() && (
+                      <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border">
+                        {personSearching ? (
+                          <p className="px-3 py-2 text-label text-text-muted">Searching…</p>
+                        ) : personResults.length === 0 ? (
+                          <p className="px-3 py-2 text-label text-text-muted">No contacts found.</p>
+                        ) : (
+                          <ul className="divide-y divide-border-light">
+                            {personResults.map(c => (
+                              <li key={c.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => pickSelfContact(c)}
+                                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-surface-secondary"
+                                >
+                                  <span className="text-text-primary">{c.name}</span>
+                                  {c.mobile ? <span className="text-text-muted">{c.mobile}</span> : null}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+
+                    {selfContact ? (
+                      <p className="mt-1.5 text-label text-text-muted">
+                        Selected: {selfContact.name}
+                        {selfContact.mobile ? ` · ${selfContact.mobile}` : ''}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12 sm:col-span-6">
+                      <Label htmlFor="person-name" required>Person&apos;s name</Label>
+                      <Input
+                        id="person-name"
+                        className="mt-1.5"
+                        value={newPerson.name}
+                        onChange={e => setNewPersonName(e.target.value)}
+                        aria-invalid={Boolean(errors.person)}
+                        placeholder="Full name"
+                      />
+                      <InlineFieldError>{errors.person}</InlineFieldError>
+                    </div>
+                    <div className="col-span-12 sm:col-span-6">
+                      <Label htmlFor="person-mobile">Mobile number</Label>
+                      <Input
+                        id="person-mobile"
+                        className="mt-1.5"
+                        inputMode="numeric"
+                        value={newPerson.mobile}
+                        onChange={e => setNewPerson(p => ({ ...p, mobile: e.target.value }))}
+                        aria-invalid={Boolean(errors.person_mobile)}
+                        placeholder="10 digits"
+                      />
+                      <InlineFieldError>{errors.person_mobile}</InlineFieldError>
+                    </div>
+                    <div className="col-span-12 sm:col-span-6">
+                      <Label htmlFor="person-email">Email</Label>
+                      <Input
+                        id="person-email"
+                        className="mt-1.5"
+                        type="email"
+                        value={newPerson.email}
+                        onChange={e => setNewPerson(p => ({ ...p, email: e.target.value }))}
+                        aria-invalid={Boolean(errors.person_email)}
+                      />
+                      <InlineFieldError>{errors.person_email}</InlineFieldError>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle>{kind === 'Individual' ? 'Account details' : 'Company details'}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-12 gap-4">
                 <div className="col-span-12 sm:col-span-6">
-                  <Label htmlFor="co-name" required>Company name</Label>
+                  <Label htmlFor="co-name" required>Account name</Label>
                   <Input
                     id="co-name"
                     className="mt-1.5"
                     value={form.name}
-                    onChange={e => set('name')(e.target.value)}
+                    onChange={e => setAccountName(e.target.value)}
                     aria-invalid={Boolean(errors.name)}
-                    placeholder="Registered or trading name"
+                    placeholder={kind === 'Individual' ? "Defaults to the person's name" : 'Registered or trading name'}
                   />
                   <InlineFieldError>{errors.name}</InlineFieldError>
                 </div>
 
-                {/* Not compulsory, blank by default — §3.3 inverts the old rule. */}
+                {/* Not compulsory, blank by default — §3.3 inverts the old rule.
+                    Filtered to the types that apply to the current kind. */}
                 <div className="col-span-12 sm:col-span-6">
-                  <Label htmlFor="co-type">Company type</Label>
+                  <Label htmlFor="co-type">{kind === 'Individual' ? 'Type' : 'Company type'}</Label>
                   <SearchableSelect
                     id="co-type"
                     className="mt-1.5"
-                    options={Object.fromEntries(masters.companyTypes.map(t => [t.name, t.name]))}
+                    options={Object.fromEntries(visibleTypeOptions.map(t => [t.name, t.name]))}
                     value={form.type}
                     onValueChange={set('type')}
                     placeholder="Not set"
@@ -597,7 +991,7 @@ export default function NewCompanyPage() {
                   Active
                 </Label>
                 <p className="mt-1 text-label text-text-muted">
-                  An inactive company keeps its history but is out of new entry.
+                  An inactive account keeps its history but is out of new entry.
                 </p>
               </div>
               <Switch
@@ -622,6 +1016,34 @@ export default function NewCompanyPage() {
           </div>
         </>
       )}
+
+      {/*
+        The create's 409: the chosen existing contact is already Self on
+        another account (spec §3). A styled dialog, never a native alert, with
+        a link to the account that already holds them.
+      */}
+      <Dialog open={selfConflict !== null} onOpenChange={open => { if (!open) setSelfConflict(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Already the Self contact elsewhere</DialogTitle>
+            <DialogDescription>
+              This person is already the Self contact of another account. Open
+              that account instead, or go back and pick a different person.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setSelfConflict(null)}>Close</Button>
+            {selfConflict ? (
+              <Button
+                nativeButton={false}
+                render={<Link href={`/parties/companies/${selfConflict.existingAccountId}`} />}
+              >
+                Open existing account
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -662,7 +1084,8 @@ function StepChip({
  */
 function StepTwo({
   company,
-  contacts,
+  links,
+  linksLoading,
   masters,
   contactOpen,
   setContactOpen,
@@ -670,13 +1093,17 @@ function StepTwo({
   onFinish,
 }: {
   company: CreatedCompany
-  contacts: CreatedContact[]
+  links: CompanyLink[]
+  linksLoading: boolean
   masters: ReturnType<typeof usePartyMasters>
   contactOpen: boolean
   setContactOpen: (open: boolean) => void
-  onCreated: (contact: CreatedContact) => void
+  onCreated: () => void
   onFinish: () => void
 }) {
+  // Self first, same ordering the Company page's PeopleCard uses — an
+  // Individual account's own person is not just another row in the list.
+  const ordered = [...links].sort((a, b) => (b.is_self ? 1 : 0) - (a.is_self ? 1 : 0))
   return (
     <>
       {/*
@@ -704,7 +1131,9 @@ function StepTwo({
           </Button>
         </CardHeader>
         <CardContent>
-          {contacts.length === 0 ? (
+          {linksLoading ? (
+            <p className="text-body text-text-secondary">Loading…</p>
+          ) : ordered.length === 0 ? (
             <EmptyState
               variant="nothing-yet"
               heading="No contact people yet"
@@ -716,10 +1145,13 @@ function StepTwo({
             </EmptyState>
           ) : (
             <ul className="divide-y divide-border-light">
-              {contacts.map(c => (
-                <li key={c.id} className="flex items-center justify-between gap-4 py-3">
-                  <span className="text-text-primary">{c.name}</span>
-                  <span className="text-text-secondary">{c.mobile}</span>
+              {ordered.map(link => (
+                <li key={link.link_id} className="flex items-center justify-between gap-4 py-3">
+                  <span className="flex flex-wrap items-center gap-2 text-text-primary">
+                    {link.contact_name ?? 'Unnamed'}
+                    {link.is_self && <Badge>Self</Badge>}
+                  </span>
+                  <span className="text-text-secondary">{link.contact_mobile ?? ''}</span>
                 </li>
               ))}
             </ul>
@@ -743,8 +1175,10 @@ function StepTwo({
         contactTypes={masters.contactTypes}
         users={masters.users}
         /* The company is brand new, so an empty list IS "no contacts yet" and
-           the first person added is the company's primary contact. */
-        markPrimary={contacts.length === 0}
+           the first person added is the company's primary contact. An
+           Individual's Self link does not count — it is not a "contact
+           person" the primary marker is choosing between. */
+        markPrimary={links.filter(l => !l.is_self).length === 0}
         onCreated={onCreated}
       />
     </>

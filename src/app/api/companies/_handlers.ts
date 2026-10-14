@@ -3,13 +3,18 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { recomputeCompanyCompleteness } from '@/lib/completeness'
+import { recomputeCompanyCompleteness, withMobileCompleteness } from '@/lib/completeness'
 import { getGstRequiredForOrders } from '@/lib/gst-setting'
 import { withGstPolicy } from '@/lib/gst-policy'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { attachLandlines, LANDLINE_NOT_SAVED, writeLandline } from '@/lib/party-landline'
 import { COMPANY_INCLUDE, shapeCompany } from './_shape'
 import { foreignCompanyRef, ownerOutsideScope } from './_access'
+import { getCompanyMemberships, widenScope, type MemberAccess } from '@/lib/sharing'
+import {
+  addLink, attachAccountKinds, findSelfAccountForContact, getSelfRole,
+  isAccountKind, typeAppliesToKind, writeAccountKind, type AccountKind,
+} from '@/lib/account-kind'
 import {
   checkEmail,
   checkGstin,
@@ -37,22 +42,28 @@ export async function GET(req: NextRequest) {
   if (!await checkPermission(user, 'companies', 'view')) return forbidden()
   const q = req.nextUrl.searchParams.get('q') ?? ''
   const type = req.nextUrl.searchParams.get('type') ?? ''
+  const kindFilter = req.nextUrl.searchParams.get('kind') ?? ''
   const tid = getTenantId()
   // §6.6 Self/Team/Company. This list was tenant-wide for anyone with view
   // rights. ⚠️ A Party scopes on `owner_user_id`, not `user_id`, so the column
   // is passed explicitly — and an unowned company (owner_user_id NULL) is
   // therefore invisible below Company scope, which is the filter working: no
   // one owns it, so it is nobody's row.
-  const ids = intersectScope(
-    await scopedUserIds(user, 'companies'),
-    req.nextUrl.searchParams.get('userId')
-  )
+  const requestedOwner = req.nextUrl.searchParams.get('userId')
+  const ids = intersectScope(await scopedUserIds(user, 'companies'), requestedOwner)
 
   try {
+    // Sharing (src/lib/sharing.ts): accounts shared with the caller are OR-ed
+    // into the scope — never in place of it. Not under Company scope (already
+    // everything) and not when `?userId=` narrows to one owner (a filter by
+    // owner means that owner's rows). Nothing shared → the query is unchanged.
+    const memberships = ids === null || requestedOwner
+      ? new Map<string, MemberAccess>()
+      : await getCompanyMemberships(user, tid)
     const rows = await prisma.companies.findMany({
       where: {
         tenant_id: tid,
-        ...scopeWhere(ids, 'owner_user_id'),
+        ...widenScope(scopeWhere(ids, 'owner_user_id'), memberships.size ? [{ id: { in: [...memberships.keys()] } }] : []),
         ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
         ...(type ? { type } : {}),
       },
@@ -65,9 +76,27 @@ export async function GET(req: NextRequest) {
     // missing only its GST number reads as complete (src/lib/gst-policy.ts).
     // The Parties list's badge, filter and data-health alerts all read these.
     const gstRequired = await getGstRequiredForOrders(tid)
-    const data = (serialize(rows, 'companies') as Record<string, unknown>[])
-      .map(shapeCompany)
-      .map(row => withGstPolicy(row as Record<string, unknown> & { is_complete?: boolean; completeness_missing?: string | null }, gstRequired))
+    const withKinds = await attachAccountKinds(
+      (serialize(rows, 'companies') as Record<string, unknown>[]).map(shapeCompany) as (Record<string, unknown> & { id: string })[],
+      tid
+    )
+    const data = withKinds
+      .filter(row => !kindFilter || row.account_kind === kindFilter)
+      // Individuals never carry a GST requirement (spec §1): the firm's
+      // switch, when on, still only governs Companies.
+      .map(row => withMobileCompleteness(withGstPolicy(
+        row as Record<string, unknown> & { is_complete?: boolean; completeness_missing?: string | null; mobile_1?: string | null },
+        gstRequired && row.account_kind !== 'Individual'
+      )))
+      // `shared_access` is set only on a row the caller sees BECAUSE it was
+      // shared with them (its owner is outside their scope) — the list's
+      // "Shared" badge. `null` on every other row.
+      .map(row => {
+        const owner = (row as { owner_user_id?: string | null }).owner_user_id ?? null
+        const viaScope = ids === null || (!!owner && ids.includes(owner))
+        const shared = viaScope ? null : memberships.get(String((row as { id: unknown }).id)) ?? null
+        return { ...row, shared_access: shared } as Record<string, unknown>
+      })
 
     // The edit dialog prefills from this list, so it carries the landline too
     // — one guarded query for every row, `null` until the column exists
@@ -90,12 +119,18 @@ export async function POST(req: NextRequest) {
     state_id, district_id, taluka_id, village_id,
     temperature, next_follow_up_date,
     email, website, industry_id, owner_user_id, landline,
+    account_kind, self_contact_id, self_new_person,
   } = await req.json()
 
-  // Quick Create compulsory: Name and a mobile number (REBUILD-PLAN.md:181).
-  // Company Type is explicitly NOT compulsory (REBUILD-PLAN.md:126) — the 400
-  // the old route returned for a missing `type` is gone.
-  if (!name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  // Required to create: name only (spec §1) — Company Type was already not
+  // compulsory (REBUILD-PLAN.md:126); an Individual needs no mobile either.
+  // An Individual's name may be left blank — it defaults to the person's name
+  // once that is known, below.
+  const kind: AccountKind = isAccountKind(account_kind) ? account_kind : 'Company'
+  if (kind === 'Company' && !name?.trim()) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  if (kind === 'Individual' && !name?.trim() && !self_contact_id && !trimmed(self_new_person?.name)) {
+    return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  }
 
   // POST validated neither GSTIN nor pincode before; PUT validated GSTIN only.
   // Both verbs now run the identical set (P1-T10.6).
@@ -119,12 +154,73 @@ export async function POST(req: NextRequest) {
     })
     if (miss) return NextResponse.json({ error: miss }, { status: 400 })
 
+    // The type master's Applies to (spec §1): a type picked for an Individual
+    // must apply to Individual (or Both), and vice-versa. `companies.type`
+    // stores the type's NAME (it is plain text, not a FK), so the matching
+    // `company_types` row is looked up by name. `true` while the applies_to
+    // column is unset, so this never blocks before the migration runs.
+    const typeName = trimmed(type)
+    if (typeName) {
+      const typeRow = await prisma.company_types.findFirst({ where: { tenant_id: tid, name: typeName }, select: { id: true } })
+      if (typeRow && !(await typeAppliesToKind(tid, typeRow.id, kind))) {
+        return NextResponse.json({ error: `This type does not apply to ${kind} accounts.` }, { status: 400 })
+      }
+    }
+
     // A blank owner defaults to the creator (below). An explicit one must be
     // inside the caller's own `companies` scope, or the new company would be
     // invisible to the person who just created it — see `./_access.ts`.
     const owner = trimmed(owner_user_id) ?? user.userId ?? null
     const outside = await ownerOutsideScope(user, 'companies', owner)
     if (outside) return NextResponse.json({ error: outside }, { status: 403 })
+
+    // Individual: resolve the Self contact (spec §3) BEFORE the company is
+    // created, so a name defaults from the person and so a problem here (an
+    // existing contact already Self elsewhere, a bad new-person mobile) is a
+    // 400/409 rather than an account created with no Self link.
+    let resolvedSelfContactId: string | null = null
+    let resolvedName = trimmed(name)
+    if (kind === 'Individual') {
+      if (self_contact_id) {
+        const contact = await prisma.contacts.findFirst({
+          where: { id: self_contact_id, tenant_id: tid },
+          select: { id: true, name: true },
+        })
+        if (!contact) return NextResponse.json({ error: 'Contact not found' }, { status: 400 })
+        const existingSelfAccount = await findSelfAccountForContact(tid, contact.id)
+        if (existingSelfAccount) {
+          return NextResponse.json(
+            { error: 'This person is already the Self contact of another account.', existing_account_id: existingSelfAccount },
+            { status: 409 }
+          )
+        }
+        resolvedSelfContactId = contact.id
+        resolvedName = resolvedName ?? contact.name
+      } else {
+        const personName = trimmed(self_new_person?.name)
+        if (!personName) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+        const personMobile = trimmed(self_new_person?.mobile)
+        const personEmail = trimmed(self_new_person?.email)
+        const personBad = firstError(
+          checkMobile(personMobile, 'Mobile Number'),
+          checkEmail(personEmail),
+        )
+        if (personBad) return NextResponse.json({ error: personBad }, { status: 400 })
+        const person = await prisma.contacts.create({
+          data: {
+            tenant_id: tid,
+            name: personName,
+            mobile: personMobile ?? '',
+            email: personEmail,
+            owner_user_id: owner,
+          },
+          select: { id: true, name: true },
+        })
+        resolvedSelfContactId = person.id
+        resolvedName = resolvedName ?? person.name
+      }
+    }
+    if (!resolvedName) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
 
     const created = await prisma.companies.create({
       data: {
@@ -134,7 +230,7 @@ export async function POST(req: NextRequest) {
         // everywhere and matches no `?type=` filter, which is the intent.
         type: trimmed(type) ?? '',
         stage: 'Prospect',
-        name: name.trim(),
+        name: resolvedName,
         contact_person_name: trimmed(contact_person_name),
         pincode: trimmed(pincode),
         gst_number: normaliseGstin(gst_number),
@@ -166,6 +262,26 @@ export async function POST(req: NextRequest) {
     // column default as if it had been computed.
     const completeness = await recomputeCompanyCompleteness(created.id, created.tenant_id)
 
+    // account_kind, through the guarded helper: `false` while the column is
+    // unset means the row was still created as a Company (the default), same
+    // degradation as the landline below.
+    const kindSaved = kind === 'Company' || await writeAccountKind(tid, created.id, kind)
+
+    // The Self link, once the account exists to link it to. `self` is null
+    // while contact_roles has not been pushed — the account is still created,
+    // just with no link yet (same degrade-gracefully rule as every other
+    // guarded helper here).
+    let selfLinkWarning: string | null = null
+    if (kind === 'Individual' && resolvedSelfContactId) {
+      const self = await getSelfRole(tid)
+      if (self) {
+        const linked = await addLink(tid, created.id, resolvedSelfContactId, self.id, true)
+        if (!linked.ok) selfLinkWarning = linked.error
+      } else {
+        selfLinkWarning = 'This needs a database update first — the Self contact was not linked yet.'
+      }
+    }
+
     // The landline is written beside the insert, through the guarded helper:
     // until the column exists the company is still created and the response
     // says the landline was not stored (src/lib/party-landline.ts).
@@ -175,9 +291,14 @@ export async function POST(req: NextRequest) {
     const gstRequired = await getGstRequiredForOrders(created.tenant_id)
     return NextResponse.json(
       {
-        ...withGstPolicy({ ...(serialize(created, 'companies') as Record<string, unknown>), ...completeness }, gstRequired),
+        ...withMobileCompleteness(withGstPolicy(
+          { ...(serialize(created, 'companies') as Record<string, unknown>), ...completeness },
+          gstRequired && kind !== 'Individual'
+        )),
+        account_kind: kindSaved ? kind : 'Company',
         landline: landlineSaved ? phone : null,
         ...(landlineSaved ? {} : { warning: LANDLINE_NOT_SAVED }),
+        ...(selfLinkWarning ? { warning: selfLinkWarning } : {}),
       },
       { status: 201 }
     )

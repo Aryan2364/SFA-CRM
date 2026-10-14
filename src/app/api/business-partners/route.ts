@@ -3,6 +3,8 @@ import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { getAccessibleCompanyIds } from '@/lib/sharing'
+import { attachAccountKinds } from '@/lib/account-kind'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +48,13 @@ export const dynamic = 'force-dynamic'
  * party and does not go through this list. Without the param the route
  * behaves exactly as before.
  *
+ * Widened on purpose (sharing, Aryan 2026-10-13): "own parties" now means
+ * owned OR shared with the caller at 'work' (`account_members`, see
+ * src/lib/sharing.ts). A 'work' member is someone the owner asked to do field
+ * work on the account, so it belongs in the meeting picker; a 'view' share does
+ * not. Until the table exists the shared list is empty and this is the
+ * owner-only filter above, unchanged.
+ *
  * Phase 3 owns the Daily Activity screen and may fold this into the meeting
  * flow; until then it stays, response shape unchanged.
  */
@@ -59,12 +68,18 @@ export async function GET(req: NextRequest) {
   // A session with no user row owns nothing. Without this, `owner_user_id:
   // undefined` would drop the predicate and return every party.
   if (mine && !user.userId) return NextResponse.json([])
+  const tid = getTenantId()
   try {
+    const shared = mine ? await getAccessibleCompanyIds(user, tid, 'work') : []
     const data = await prisma.companies.findMany({
       where: {
-        tenant_id: getTenantId(),
+        tenant_id: tid,
         is_active: true,
-        ...(mine ? { owner_user_id: user.userId } : {}),
+        ...(mine
+          ? shared.length
+            ? { OR: [{ owner_user_id: user.userId }, { id: { in: shared } }] }
+            : { owner_user_id: user.userId }
+          : {}),
         ...(type ? { type } : {}),
         ...(status === 'all'
           ? {}
@@ -73,8 +88,12 @@ export async function GET(req: NextRequest) {
       select: { id: true, name: true, type: true, stage: true },
       orderBy: { name: 'asc' },
     })
-    // Ids and names only — nothing to serialise.
-    return NextResponse.json(data)
+    // Ids and names only — nothing to serialise. `account_kind` defaults to
+    // Company while docs/accounts-contacts-spec.md's column is unset (see
+    // src/lib/account-kind.ts); callers like the meeting picker use it to
+    // label an Individual account distinctly ("Name · Individual").
+    const withKind = await attachAccountKinds(data, tid)
+    return NextResponse.json(withKind)
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

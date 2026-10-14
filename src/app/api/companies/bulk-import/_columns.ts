@@ -18,6 +18,11 @@ import type { ImportColumn } from '@/lib/bulk-import'
 export const COMPANY_COLUMNS: ImportColumn[] = [
   { label: 'Name',                aliases: ['Company Name', 'Party Name'], required: true },
   { label: 'Type',                aliases: ['Company Type'], required: false },
+  // §10 (spec): Company / Individual, blank = Company. `account_kind` does not
+  // exist in the database yet (src/lib/account-kind.ts, guarded raw SQL, is
+  // being added separately) — this column is parsed and validated below but,
+  // until that helper lands, is not written anywhere.
+  { label: 'Kind',                aliases: ['Account Kind'], required: false },
   { label: 'Contact Person',      aliases: ['Contact Person Name', 'Contact Name'], required: false },
   { label: 'Mobile 1',            aliases: ['Mobile', 'Mobile Number', 'Mobile Number 1'], required: false },
   { label: 'Mobile 2',            aliases: ['Mobile Number 2'], required: false },
@@ -35,7 +40,14 @@ export const COMPANY_COLUMNS: ImportColumn[] = [
 ]
 
 /** The sheet the template writes and the parser looks for first. */
-export const COMPANY_SHEET = 'Companies'
+export const COMPANY_SHEET = 'Accounts'
+
+/**
+ * Older template/sheet names, still accepted on import (case-insensitive) so
+ * an already-filled file keeps working: "Leads" predates the Companies
+ * rename, "Companies" predates this one. §10 (spec, 2026-10-13).
+ */
+export const COMPANY_SHEET_ALIASES = ['Companies', 'Leads']
 
 /** The template's guidance sheet, with its example row. Never imported. */
 export const COMPANY_NOTES_SHEET = 'How to fill'

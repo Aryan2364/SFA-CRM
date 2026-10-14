@@ -51,7 +51,7 @@ export async function PATCH(
   const tid = getTenantId()
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'write')
     if (!deal) return notFound()
 
     // The follow-up must belong to THIS Deal and THIS tenant. Checking the
@@ -106,7 +106,7 @@ export async function DELETE(
   const tid = getTenantId()
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'write')
     if (!deal) return notFound()
 
     // deleteMany(), not delete(): a no-match stays silent instead of throwing

@@ -113,7 +113,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // Scope first. A Sales Executive on `own` who cannot see another rep's Deal
     // must not be able to read its quotations by guessing the Deal id, and
     // `findScopedDeal` is the one place that test is written.
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'read')
     if (!deal) return notFound()
 
     const rows = await prisma.deal_attachments.findMany({
@@ -179,7 +179,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'write')
     if (!deal) return notFound()
 
     // The object's own name, generated HERE. Nothing the caller sent is part of

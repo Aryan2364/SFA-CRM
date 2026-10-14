@@ -43,9 +43,12 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   BuildingIcon,
   CakeIcon,
+  EllipsisIcon,
   HeartIcon,
   PhoneIcon,
   StarIcon,
+  Trash2Icon,
+  UserPlusIcon,
 } from 'lucide-react'
 
 import {
@@ -59,11 +62,32 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { EmptyState } from '@/components/ui/empty-state'
+import { InlineFieldError } from '@/components/ui/inline-field-error'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { LEAD_STAGE, StatusBadge, USER_STATUS } from '@/components/status-badge'
+import { useMe } from '@/hooks/useMe'
+import { useToast } from '@/contexts/ToastContext'
 import { EMPTY, fmtDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
+
+import { IndividualConflictDialog, type IndividualConflict } from '../../individual-conflict-dialog'
 
 // ─────────────────────────────────────────────────────────────
 // The wire shape
@@ -90,6 +114,12 @@ type LinkedCompany = {
   /** Of the link, not of the person. */
   is_primary: boolean
   link_id: string
+  /**
+   * False only for someone who reaches this contact through a SHARED account
+   * and may not open this other account (src/lib/sharing.ts). Absent from an
+   * older response; only `false` drops the link.
+   */
+  can_open?: boolean
 }
 
 type Contact = {
@@ -110,6 +140,23 @@ type Contact = {
   contact_types: NamedRef | null
   owner: NamedRef | null
   companies: LinkedCompany[]
+  /**
+   * docs/accounts-contacts-spec.md §2: a contact with no mobile is marked
+   * incomplete. Computed read-time by `shapeContact()`
+   * (src/app/api/contacts/_shape.ts) — `completeness_missing` is a single
+   * string naming the one field the spec tracks ("Mobile Number"), not an
+   * array; this page reads it as the route actually returns it.
+   */
+  is_complete: boolean
+  completeness_missing: string | null
+  /**
+   * How the caller reaches this contact, decided by the server: through their
+   * own scope, or because an account it belongs to was shared with them at
+   * 'work' or 'view' (src/lib/sharing.ts). This page has no write controls of
+   * its own (the contact is changed from the Accounts list), so a 'view' share
+   * needs nothing disabled here; it is SAID, so the reader knows.
+   */
+  access?: 'owner-scope' | 'work' | 'view'
 }
 
 /** A failed load, told apart so the empty state can say the right thing. */
@@ -238,6 +285,129 @@ function ContactDetail() {
 
   const companies = contact?.companies ?? []
 
+  /*
+   * §26: real permissions, never a hardcoded role — read the same way
+   * `deals/page.tsx` and `deal-status.tsx` do. `me === null` is "not known
+   * yet" (section 26.1), not "not allowed", so every gate below treats it as
+   * allowed-for-now and `PermissionTooltip` only attaches a reason once the
+   * answer has actually landed.
+   *
+   * "Make Individual account" POSTs to `/api/contacts/[id]/make-individual`,
+   * which checks `companies.create` (it creates an Individual account) plus
+   * read access to the contact — so the gate here is `companies.create`, not
+   * `contacts.edit`. Delete is gated on `contacts.delete`, what
+   * `DELETE /api/contacts/[id]` itself checks.
+   */
+  const me = useMe()
+  const canMakeIndividual =
+    me?.role === 'Administrator' || (me?.permissions?.companies?.create ?? false)
+  const canDeleteContact =
+    me?.role === 'Administrator' || (me?.permissions?.contacts?.delete ?? false)
+
+  const { toast } = useToast()
+
+  // "Make Individual account" — success navigates straight to the new
+  // account; a 409 (already Self somewhere) opens a styled dialog linking to
+  // the existing one instead of a raw error.
+  const [makingIndividual, setMakingIndividual] = useState(false)
+  const [individualConflict, setIndividualConflict] = useState<IndividualConflict | null>(null)
+
+  async function makeIndividual() {
+    if (!id || makingIndividual) return
+    setMakingIndividual(true)
+    try {
+      const res = await fetch(`/api/contacts/${id}/make-individual`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 201) {
+        const created = data as { id: string }
+        router.push(`/parties/companies/${created.id}`)
+        return
+      }
+      if (res.status === 409) {
+        const body = data as { error?: string; existing_account_id?: string }
+        setIndividualConflict({
+          message: body.error ?? 'This person is already the Self contact of another account.',
+          existingAccountId: body.existing_account_id,
+        })
+        return
+      }
+      toast((data as { error?: string }).error ?? 'Could not create an Individual account.', 'error')
+    } catch {
+      toast('The connection dropped. Nothing was created.', 'error')
+    } finally {
+      setMakingIndividual(false)
+    }
+  }
+
+  /**
+   * Delete, per `DELETE /api/contacts/[id]` (see the route's own comments):
+   *   - 409 naming an Individual account this contact is Self for → blocked,
+   *     no confirm option — deletion is refused, not just warned about.
+   *   - 409 "this contact has history" → the same blocked shape; the message
+   *     IS the reason, nothing to list.
+   *   - 409 `confirm_required` with `linked_accounts` → a dry run; show them
+   *     and let the user confirm with `?confirm=1`.
+   *   - No linked accounts and no block → the first call already deletes it.
+   */
+  type DeleteState =
+    | { stage: 'blocked'; message: string; selfAccountId?: string }
+    | { stage: 'confirm'; linkedAccounts: { id: string; name: string }[] }
+    | null
+  const [deleteState, setDeleteState] = useState<DeleteState>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  async function startDelete() {
+    if (!id || deleting) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/contacts/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast('Contact deleted.', 'success')
+        router.push(listHref)
+        return
+      }
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string
+        linked_accounts?: { id: string; name: string }[]
+        self_account_id?: string
+      }
+      if (res.status === 409 && data.error === 'confirm_required') {
+        setDeleteState({ stage: 'confirm', linkedAccounts: data.linked_accounts ?? [] })
+        return
+      }
+      setDeleteState({
+        stage: 'blocked',
+        message: data.error ?? 'This contact cannot be deleted.',
+        selfAccountId: data.self_account_id,
+      })
+    } catch {
+      toast('The connection dropped. Nothing was deleted.', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function confirmDelete() {
+    if (!id || deleting) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/contacts/${id}?confirm=1`, { method: 'DELETE' })
+      if (res.ok) {
+        toast('Contact deleted.', 'success')
+        setDeleteState(null)
+        router.push(listHref)
+        return
+      }
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      toast(data.error ?? 'Could not delete this contact.', 'error')
+      setDeleteState(null)
+    } catch {
+      toast('The connection dropped. Nothing was deleted.', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 pb-2">
       {/* Section 11.2: the breadcrumb is the first element on a detail page. */}
@@ -340,25 +510,57 @@ function ContactDetail() {
                   vocabulary={USER_STATUS}
                   status={contact.is_active ? 'Active' : 'Inactive'}
                 />
+                {(contact.access === 'work' || contact.access === 'view') && (
+                  <Badge>
+                    {contact.access === 'work'
+                      ? 'Shared with you: can work'
+                      : 'Shared with you: view only'}
+                  </Badge>
+                )}
+                {/*
+                  docs/accounts-contacts-spec.md §2: a contact missing its
+                  mobile is Incomplete, read-time from `completeness_missing`
+                  rather than re-derived here (global rule: say it once, and
+                  the server owns what "complete" means).
+                */}
+                {!contact.is_complete && (
+                  <Badge variant="warning">
+                    Incomplete{contact.completeness_missing ? `: ${contact.completeness_missing}` : ''}
+                  </Badge>
+                )}
               </div>
             </div>
 
             {/*
-              Global rule 4: the action sits next to what it controls, and this
-              page has exactly one — the number in the header is the number you
-              ring. Full width on a phone, shrink-wrapped beside the name above
-              `sm`.
+              Global rule 4: actions sit next to what they control, grouped on
+              one row. The number in the header is the number you ring; the
+              ⋮ menu holds everything else (section 11.2) — Make Individual
+              account and Delete — gated on the real permission each route
+              checks, never a hardcoded role. Full width on a phone.
             */}
-            {contact.mobile && (
-              <Button
-                size="lg"
-                className="w-full sm:w-auto sm:shrink-0"
-                render={<a href={`tel:${contact.mobile}`} />}
-              >
-                <PhoneIcon />
-                Call {contact.mobile}
-              </Button>
-            )}
+            <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0">
+              {contact.mobile && (
+                <Button
+                  size="lg"
+                  className="w-full sm:w-auto"
+                  render={<a href={`tel:${contact.mobile}`} />}
+                >
+                  <PhoneIcon />
+                  Call {contact.mobile}
+                </Button>
+              )}
+              <ContactActionsMenu
+                contactName={contact.name}
+                canMakeIndividual={me === null || canMakeIndividual}
+                makeIndividualKnown={me !== null}
+                canDelete={me === null || canDeleteContact}
+                deleteKnown={me !== null}
+                makingIndividual={makingIndividual}
+                deleting={deleting}
+                onMakeIndividual={() => void makeIndividual()}
+                onDelete={() => void startDelete()}
+              />
+            </div>
           </header>
 
           {/*
@@ -467,7 +669,146 @@ function ContactDetail() {
           </div>
         </>
       )}
+
+      {/* Section 7's rule for a dialog overlay: native confirm()/alert() are
+          never used — both outcomes of these two actions are styled dialogs. */}
+      <IndividualConflictDialog
+        conflict={individualConflict}
+        onOpenChange={open => { if (!open) setIndividualConflict(null) }}
+      />
+
+      {/* Deletion is BLOCKED, not just warned about, so this carries no
+          confirm option — only a way out. When the block is "already Self
+          elsewhere", a link to that account is the way out that matters. */}
+      <Dialog
+        open={deleteState?.stage === 'blocked'}
+        onOpenChange={open => { if (!open) setDeleteState(null) }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>This contact cannot be deleted</DialogTitle>
+            <DialogDescription>
+              {deleteState?.stage === 'blocked' ? deleteState.message : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary">Close</Button>} />
+            {deleteState?.stage === 'blocked' && deleteState.selfAccountId ? (
+              <Button render={<Link href={`/parties/companies/${deleteState.selfAccountId}`} />}>
+                Go to that account
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* The dry-run 409: list what this delete will unlink, then let the
+          user actually confirm it. */}
+      <Dialog
+        open={deleteState?.stage === 'confirm'}
+        onOpenChange={open => { if (!open) setDeleteState(null) }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Delete {contact?.name}?</DialogTitle>
+            <DialogDescription>
+              This also removes {contact?.name} from the account{
+                deleteState?.stage === 'confirm' && deleteState.linkedAccounts.length === 1 ? '' : 's'
+              } below. The contact is deactivated, not erased.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteState?.stage === 'confirm' && deleteState.linkedAccounts.length > 0 && (
+            <ul className="flex flex-col gap-1 rounded-lg border border-border-light bg-surface-control px-3 py-2">
+              {deleteState.linkedAccounts.map(a => (
+                <li key={a.id} className="text-body text-text-primary">
+                  {a.name}
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary">Cancel</Button>} />
+            <Button variant="danger" onClick={() => void confirmDelete()} disabled={deleting}>
+              {deleting ? 'Deleting…' : 'Confirm delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+/**
+ * The ⋮ menu (section 11.2): Make Individual account and Delete, each gated
+ * on the exact permission its route checks (see `ContactDetail` above) and
+ * disabled-with-a-reason rather than hidden, per the kit.
+ */
+function ContactActionsMenu({
+  contactName,
+  canMakeIndividual,
+  makeIndividualKnown,
+  canDelete,
+  deleteKnown,
+  makingIndividual,
+  deleting,
+  onMakeIndividual,
+  onDelete,
+}: {
+  contactName: string
+  canMakeIndividual: boolean
+  /** Whether the permission check has actually landed yet (section 26.1). */
+  makeIndividualKnown: boolean
+  canDelete: boolean
+  deleteKnown: boolean
+  makingIndividual: boolean
+  deleting: boolean
+  onMakeIndividual: () => void
+  onDelete: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="secondary"
+            size="icon"
+            className="size-11 shrink-0"
+            aria-label={`Actions for ${contactName}`}
+          />
+        }
+      >
+        <EllipsisIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <PermissionTooltip
+          allowed={!makeIndividualKnown || canMakeIndividual}
+          reason="Only someone who can create accounts can do this."
+        >
+          <DropdownMenuItem
+            className="max-sm:h-11"
+            disabled={makeIndividualKnown && !canMakeIndividual || makingIndividual}
+            onClick={onMakeIndividual}
+          >
+            <UserPlusIcon />
+            {makingIndividual ? 'Creating…' : 'Make Individual account'}
+          </DropdownMenuItem>
+        </PermissionTooltip>
+        <PermissionTooltip
+          allowed={!deleteKnown || canDelete}
+          reason="Only someone who can delete contacts can do this."
+        >
+          <DropdownMenuItem
+            className="max-sm:h-11"
+            variant="danger"
+            disabled={deleteKnown && !canDelete || deleting}
+            onClick={onDelete}
+          >
+            <Trash2Icon />
+            {deleting ? 'Checking…' : 'Delete'}
+          </DropdownMenuItem>
+        </PermissionTooltip>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -498,17 +839,16 @@ function CompaniesCard({ companies }: { companies: LinkedCompany[] }) {
         </EmptyState>
       ) : (
         <ul className="divide-y divide-border-light">
-          {companies.map(company => (
-            <li key={company.link_id} className="px-4 py-3">
-              <Link
-                href={`/parties/companies/${company.id}`}
-                className={cn(
-                  'flex min-h-11 min-w-0 flex-col justify-center gap-1 rounded-lg py-1',
-                  'outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
-                )}
-              >
+          {companies.map(company => {
+            const body = (
+              <>
                 <span className="flex flex-wrap items-center gap-2">
-                  <span className="truncate text-body font-medium text-primary">
+                  <span
+                    className={cn(
+                      'truncate text-body font-medium',
+                      company.can_open === false ? 'text-text-primary' : 'text-primary'
+                    )}
+                  >
                     {company.name}
                   </span>
                   {company.is_primary && <PrimaryMarker />}
@@ -519,9 +859,28 @@ function CompaniesCard({ companies }: { companies: LinkedCompany[] }) {
                 <span className="truncate text-label text-text-secondary">
                   {orEmpty(company.type)}
                 </span>
-              </Link>
-            </li>
-          ))}
+              </>
+            )
+            return (
+              <li key={company.link_id} className="px-4 py-3">
+                {/* An account the caller may not open is plain text, not a
+                    link to a page that would 404 (section 6.6 rule 4). */}
+                {company.can_open === false ? (
+                  <div className="flex min-h-11 min-w-0 flex-col justify-center gap-1 py-1">{body}</div>
+                ) : (
+                  <Link
+                    href={`/parties/companies/${company.id}`}
+                    className={cn(
+                      'flex min-h-11 min-w-0 flex-col justify-center gap-1 rounded-lg py-1',
+                      'outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
+                    )}
+                  >
+                    {body}
+                  </Link>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </Card>

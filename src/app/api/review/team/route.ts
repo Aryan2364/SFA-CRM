@@ -7,7 +7,9 @@ import { checkPermission, forbidden, getDataScope } from '@/lib/permissions'
 import { intersectScope, scopedUserIds } from '@/lib/scope'
 import { getVisibleUserIds } from '@/lib/visibility'
 import { buildWeeklyReview, mondayOf, type WeeklyReview } from '@/lib/weekly-review'
+import { addDays } from '@/lib/business-date'
 import { businessDate } from '@/lib/business-date'
+import { countMissedByUser, countOutcomesByUser, repeatedCouldntMeetFlags, type OutcomeCounts } from '@/lib/missed-todos'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,6 +88,9 @@ export type TeamSummaryMember = {
   draftOrderCount: number
   dealsMovedForward: number
   unmatchedPlanRows: number
+  missedCount: number
+  outcomeCounts: OutcomeCounts
+  repeatedCouldntMeet: { party_id: string; party_name: string | null }[]
 }
 
 export type TeamSummary = {
@@ -211,7 +216,19 @@ export async function GET(req: NextRequest) {
       review: await buildWeeklyReview(tenantId, p.id, monday),
     }))
 
-    const members: TeamSummaryMember[] = reviews.map(({ person, review }) => toMember(person, review))
+    // Missed to-dos for the same week and population, gated by the same
+    // `meetings` check this whole route already requires — Missed is itself
+    // a "meetings" concept (a to-do that never became one).
+    const missedByUser = await countMissedByUser(tenantId, people.map(p => p.id), monday, addDays(monday, 6))
+    const outcomesByUser = await countOutcomesByUser(tenantId, people.map(p => p.id), monday, addDays(monday, 6))
+    const repeatedFlags = await repeatedCouldntMeetFlags(tenantId, people.map(p => p.id))
+
+    const members: TeamSummaryMember[] = reviews.map(({ person, review }) => ({
+      ...toMember(person, review),
+      missedCount: missedByUser.get(person.id) ?? 0,
+      outcomeCounts: outcomesByUser.get(person.id) ?? { met: 0, metLate: 0, couldntMeet: 0, missed: 0 },
+      repeatedCouldntMeet: repeatedFlags.get(person.id) ?? [],
+    }))
 
     const totals = members.reduce(
       (acc, m) => {
@@ -310,7 +327,7 @@ export async function GET(req: NextRequest) {
 function toMember(
   person: { id: string; name: string; manager_user_id: string | null; users: { id: string; name: string } | null },
   review: WeeklyReview
-): TeamSummaryMember {
+): Omit<TeamSummaryMember, 'missedCount' | 'outcomeCounts' | 'repeatedCouldntMeet'> {
   return {
     userId: person.id,
     name: person.name,

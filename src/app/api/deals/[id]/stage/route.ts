@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const tid = getTenantId()
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'write')
     if (!deal) return notFound()
 
     // The target stage must be a real funnel stage IN THIS TENANT. Without the

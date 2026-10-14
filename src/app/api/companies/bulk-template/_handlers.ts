@@ -8,6 +8,7 @@ import { COMPANY_NOTES_SHEET, COMPANY_SHEET } from '../bulk-import/_columns'
 
 
 const TEMPS = ['Cold', 'Warm', 'Hot']
+const KINDS = ['Company', 'Individual']
 
 export async function GET() {
   const user = await requireUser()
@@ -44,17 +45,21 @@ export async function GET() {
   const distCount  = addRefSheet('Ref_Districts', districts.map(r => r.name))
   const taluCount  = addRefSheet('Ref_Talukas',   talukas.map(r => r.name))
   addRefSheet('Ref_Temps', TEMPS)
+  addRefSheet('Ref_Kinds', KINDS)
 
-  // ── Main "Companies" sheet ────────────────────────────────────────────────
-  // `bulk-parse` looks for this name first and falls back to "Leads" so a
-  // template downloaded before P1-T10 still imports. Columns are matched by
-  // header (`COMPANY_COLUMNS`), so the `*` and the date hint below are fine.
+  // ── Main "Accounts" sheet ─────────────────────────────────────────────────
+  // `bulk-parse` looks for this name first and falls back to "Companies",
+  // then "Leads", so a template downloaded before this rename still imports.
+  // Columns are matched by header (`COMPANY_COLUMNS`), so the `*` and the
+  // date hint below are fine.
   const ws = workbook.addWorksheet(COMPANY_SHEET)
 
   ws.columns = [
     { header: 'Name *',            key: 'name',                 width: 26 },
     // No asterisk: Company Type is not compulsory (REBUILD-PLAN.md:126).
     { header: 'Type',              key: 'type',                 width: 20 },
+    // §10 (spec): Company / Individual, blank = Company.
+    { header: 'Kind',              key: 'kind',                  width: 14 },
     { header: 'Contact Person',    key: 'contact_person_name',  width: 22 },
     { header: 'Mobile 1',          key: 'mobile_1',             width: 14 },
     { header: 'Mobile 2',          key: 'mobile_2',             width: 14 },
@@ -92,18 +97,22 @@ export async function GET() {
   if (typeCount > 0)
     dv.add(`B2:B${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Types'!$A$1:$A$${typeCount}`] })
 
+  // Column C — shifted one letter right of every column from here down by
+  // the new Kind column.
+  dv.add(`C2:C${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Kinds'!$A$1:$A$${KINDS.length}`] })
+
   if (stateCount > 0)
-    dv.add(`J2:J${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_States'!$A$1:$A$${stateCount}`] })
+    dv.add(`K2:K${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_States'!$A$1:$A$${stateCount}`] })
 
   if (distCount > 0)
-    dv.add(`K2:K${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Districts'!$A$1:$A$${distCount}`] })
+    dv.add(`L2:L${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Districts'!$A$1:$A$${distCount}`] })
 
   if (taluCount > 0)
-    dv.add(`L2:L${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Talukas'!$A$1:$A$${taluCount}`] })
+    dv.add(`M2:M${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Talukas'!$A$1:$A$${taluCount}`] })
 
   if (stageCount > 0)
-    dv.add(`M2:M${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Stages'!$A$1:$A$${stageCount}`] })
-  dv.add(`N2:N${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Temps'!$A$1:$A$${TEMPS.length}`] })
+    dv.add(`N2:N${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Stages'!$A$1:$A$${stageCount}`] })
+  dv.add(`O2:O${MAX}`, { type: 'list', allowBlank: true, formulae: [`'Ref_Temps'!$A$1:$A$${TEMPS.length}`] })
 
   // Freeze header
   ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 1, activeCell: 'A2' }]
@@ -112,12 +121,13 @@ export async function GET() {
   const notes = workbook.addWorksheet(COMPANY_NOTES_SHEET)
   notes.columns = [{ width: 34 }, { width: 70 }]
   const note = (cells: string[], bold = false) => { notes.addRow(cells).font = { bold } }
-  note(['Fill in the Companies sheet, one company per row. This sheet is never imported.'], true)
+  note(['Fill in the Accounts sheet, one account per row. This sheet is never imported.'], true)
   note([])
   note(['Column', 'What to enter'], true)
   ;[
-    ['Name *', 'Required. A row with no GST Number and no mobile is matched to an existing company by this name.'],
-    ['Type, State, District, Taluka, Stage, Temperature', 'Pick from the dropdown; these come from your masters. A blank Stage starts the company as Prospect.'],
+    ['Name *', 'Required. A row with no GST Number and no mobile is matched to an existing account by this name.'],
+    ['Kind', 'Company or Individual, from the dropdown. Leave blank for Company. Importing an Individual’s own contact is not done by this sheet — add that person from the account page afterwards.'],
+    ['Type, State, District, Taluka, Stage, Temperature', 'Pick from the dropdown; these come from your masters. A blank Stage starts the account as Prospect.'],
     ['Mobile 1, Mobile 2', '10-digit mobile numbers.'],
     ['GST Number', 'The 15-character GSTIN.'],
     ['Next Follow-up Date (YYYY-MM-DD)', 'A date written like 2026-05-01.'],

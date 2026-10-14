@@ -29,12 +29,16 @@ import { fmtDate, fmtTime } from '@/lib/format'
  * that was never promised, and a Deal is perfectly readable without this.
  *
  * ---------------------------------------------------------------------------
- * THE LIST IS WHAT THE SERVER SENT, AND NOTHING IS FILTERED HERE
+ * EVERY MEETING LINKED TO THIS DEAL, AND `can_open` SAYS WHO MAY OPEN IT
  *
- * `/api/deals/[id]/meetings` drops any meeting outside the viewer's `meetings`
- * scope before answering, so a row on screen is always one this viewer can
- * open. Re-deriving that in the browser would be a second copy of the rule,
- * and the copy would be the one that went stale.
+ * Aryan, 2026-10-13: "if an opportunity is shared then meetings against that
+ * opportunity should also be shared." `/api/deals/[id]/meetings` now lists
+ * EVERY meeting linked to this Deal once the viewer may read the Deal at all
+ * — whoever held it, not only the ones inside the viewer's own `meetings`
+ * scope — and names its holder. `can_open` is server-decided
+ * (`src/lib/sharing.ts`, `canReadVisitViaSharing`) and always true for a row
+ * that reaches this response, but the row is only wrapped in a `Link` when it
+ * is true: a link the viewer cannot follow must not look clickable.
  */
 
 type DealMeeting = {
@@ -47,6 +51,7 @@ type DealMeeting = {
   duration_secs: number | null
   is_manual_entry: boolean
   users: { id: string; name: string } | null
+  can_open: boolean
 }
 
 export function DealMeetingsSection({ dealId }: { dealId: string }) {
@@ -82,14 +87,11 @@ export function DealMeetingsSection({ dealId }: { dealId: string }) {
       </CardHeader>
       <CardContent>
         <ul className="flex flex-col gap-2">
-          {meetings.map(m => (
-            <li key={m.id}>
-              {/* The whole row is the link, so the touch target is the row
-                  rather than a word inside it — 44px at every width. */}
-              <Link
-                href={`/daily-activity/meeting/${m.id}`}
-                className="flex min-h-11 flex-col gap-2 rounded-lg border border-border-light p-3 transition-colors hover:bg-surface-control sm:flex-row sm:items-center sm:justify-between"
-              >
+          {meetings.map(m => {
+            const rowClass =
+              'flex min-h-11 flex-col gap-2 rounded-lg border border-border-light p-3 transition-colors sm:flex-row sm:items-center sm:justify-between'
+            const body = (
+              <>
                 <div className="min-w-0">
                   {/* The party leads, the date and the rest sit under it. */}
                   {/*
@@ -104,10 +106,12 @@ export function DealMeetingsSection({ dealId }: { dealId: string }) {
                   */}
                   <p className="flex items-center gap-1.5 text-body font-medium text-text-primary">
                     <Truncate>{m.entity_name}</Truncate>
-                    <SquareArrowOutUpRightIcon
-                      className="size-3.5 shrink-0 text-text-muted"
-                      aria-hidden="true"
-                    />
+                    {m.can_open ? (
+                      <SquareArrowOutUpRightIcon
+                        className="size-3.5 shrink-0 text-text-muted"
+                        aria-hidden="true"
+                      />
+                    ) : null}
                   </p>
                   <p className="text-label text-text-secondary">
                     {fmtDate(m.visit_date)}
@@ -136,9 +140,27 @@ export function DealMeetingsSection({ dealId }: { dealId: string }) {
                     {m.status}
                   </Badge>
                 </div>
-              </Link>
-            </li>
-          ))}
+              </>
+            )
+            return (
+              <li key={m.id}>
+                {/* The whole row is the link, so the touch target is the row
+                    rather than a word inside it — 44px at every width. A row
+                    the viewer may not open (can_open false) is plain text:
+                    see the header. */}
+                {m.can_open ? (
+                  <Link
+                    href={`/daily-activity/meeting/${m.id}`}
+                    className={`${rowClass} hover:bg-surface-control`}
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div className={rowClass}>{body}</div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       </CardContent>
     </Card>

@@ -55,6 +55,7 @@ export function DealsSection({
   openDealCount,
   discussedIds,
   stages,
+  stagesLoaded,
   visible,
   canEditDeals,
   canCreateDeal,
@@ -70,6 +71,9 @@ export function DealsSection({
   openDealCount: number
   discussedIds: string[]
   stages: (NamedRef & { sort_order: number })[]
+  /** True once the stage master has answered; an empty list before that is
+   *  "not known yet", and the no-stages note must not flash. */
+  stagesLoaded: boolean
   visible: boolean
   canEditDeals: boolean
   canCreateDeal: boolean
@@ -255,6 +259,20 @@ export function DealsSection({
                 </li>
               ))}
             </ul>
+            {canEditDeals && stagesLoaded && stages.length === 0 ? (
+              /* Without stages the picker above cannot be drawn and each row
+                 falls back to a "No stage" badge — say why, and where it is
+                 fixed, instead of leaving a control that silently is not
+                 there. */
+              <p className="text-label text-text-secondary">
+                Stages cannot be changed here because no opportunity stages are set up.
+                They are added under{' '}
+                <Link href="/masters/lead-stages" className="text-text-primary underline underline-offset-2">
+                  Masters › Opportunity Stages
+                </Link>
+                .
+              </p>
+            ) : null}
             {hidden > 0 ? (
               <p className="text-label text-text-secondary">
                 Showing {deals.length} of {openDealCount} open opportunities.{' '}

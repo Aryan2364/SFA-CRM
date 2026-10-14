@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import {
+  CalendarClockIcon,
   ClipboardListIcon,
   HistoryIcon,
   MapIcon,
@@ -46,6 +47,7 @@ export function VisitCard({
   onDelete,
   onOrderEntry,
   onMinutes,
+  onSetNextMeeting,
 }: {
   visit: Visit
   /** True when the list spans more than one person (Team/Company scope). */
@@ -69,6 +71,11 @@ export function VisitCard({
   onDelete: (visit: Visit) => void
   onOrderEntry: (visit: Visit) => void
   onMinutes: (visit: Visit) => void
+  /** "Set next meeting" is always available once a meeting is Completed —
+   *  via the meeting page too, but this card is the other place it reads
+   *  from. Optional so a caller that has not wired it yet (none, after this
+   *  change) still compiles. */
+  onSetNextMeeting?: (visit: Visit) => void
 }) {
   // Ownership not known yet is the loading state too: disabled, no reason.
   const canEdit = mine === null ? null : canEditProp
@@ -156,7 +163,23 @@ export function VisitCard({
                 href={`/daily-activity/meeting/${visit.id}`}
                 className="flex min-h-11 min-w-0 items-center rounded-lg text-text-primary underline-offset-2 outline-none hover:underline focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring sm:min-h-0"
               >
-                <Truncate>{visit.entity_name}</Truncate>
+                {/*
+                  Accounts & Contacts, Stage 2 (§8): when attendees were
+                  recorded, lead with the main person's name (falling back to
+                  the first attendee when none was marked main) and say how
+                  many others were there — "Ramesh + 2 others", or just the
+                  name with none. `entity_name` carries the account; a
+                  meeting with no attendee rows (every one logged before this
+                  feature, or the table not yet pushed) shows exactly as it
+                  always did.
+                */}
+                <Truncate>
+                  {visit.attendees_summary
+                    ? visit.attendees_summary.others > 0
+                      ? `${visit.attendees_summary.main_name} + ${visit.attendees_summary.others} other${visit.attendees_summary.others === 1 ? '' : 's'}`
+                      : visit.attendees_summary.main_name ?? visit.entity_name
+                    : visit.entity_name}
+                </Truncate>
               </Link>
             </h3>
           </div>
@@ -223,6 +246,12 @@ export function VisitCard({
           <NotebookPenIcon />
           Minutes
         </Button>
+        {visit.status === 'Completed' && onSetNextMeeting && (
+          <Button size="sm" variant="secondary" onClick={() => onSetNextMeeting(visit)}>
+            <CalendarClockIcon />
+            Next meeting
+          </Button>
+        )}
         {visit.latitude != null && (
           <Button size="sm" variant="secondary" onClick={() => setLocationOpen(o => !o)}>
             <MapPinIcon />

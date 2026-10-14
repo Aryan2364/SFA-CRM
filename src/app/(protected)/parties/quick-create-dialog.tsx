@@ -108,15 +108,13 @@ export function QuickCreateDialog({
     if (saving) return
 
     /*
-     * §3.5 makes BOTH compulsory, which is stricter than the route: `POST
-     * /api/companies` requires only `name` — a mobile number is optional there
-     * because the full form has other ways to reach a company. Quick Create has
-     * none, so a record with neither an address nor a number would be a name
-     * and nothing else.
+     * docs/accounts-contacts-spec.md §1 supersedes the old §3.5 rule: required
+     * to create an account is name only, for both Company and Individual.
+     * Mobile is optional and only drives the Incomplete badge — format is
+     * still validated when a mobile is entered.
      */
     const next: Record<string, string> = {}
     if (!name.trim()) next.name = 'Enter the company name.'
-    if (!mobile.trim()) next.mobile = 'Enter a mobile number.'
     const bad = checkMobile(mobile, 'Mobile Number')
     if (mobile.trim() && bad) next.mobile = bad
     setErrors(next)
@@ -151,7 +149,7 @@ export function QuickCreateDialog({
         <DialogHeader>
           <DialogTitle>Quick create company</DialogTitle>
           <DialogDescription>
-            A name and a number is enough to start. The record is saved as
+            Only the name is required to start. The record is saved as
             Incomplete until the rest is filled in.
           </DialogDescription>
         </DialogHeader>
@@ -171,7 +169,7 @@ export function QuickCreateDialog({
           </div>
 
           <div>
-            <Label htmlFor="qc-mobile" required>Mobile number</Label>
+            <Label htmlFor="qc-mobile">Mobile number</Label>
             <Input
               id="qc-mobile"
               className="mt-1.5"

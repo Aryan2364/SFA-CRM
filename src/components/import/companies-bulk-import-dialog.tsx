@@ -28,7 +28,7 @@ const CHECK_TIMEOUT_MS = 60_000
 /** Companies insert one per row, so a full file takes longer than a check. */
 const IMPORT_TIMEOUT_MS = 300_000
 /** Shown beside each verdict so a row can be recognised without the file. */
-const KEY_COLUMNS = ['Name', 'Mobile 1', 'GST Number', 'State']
+const KEY_COLUMNS = ['Name', 'Kind', 'Mobile 1', 'GST Number', 'State']
 const PERM_REASON = 'Only someone who can create companies can import them'
 
 async function withDeadline(input: string, init: RequestInit, ms: number) {
@@ -155,6 +155,10 @@ export function CompaniesBulkImportDialog({ open, onOpenChange, onImported }: {
         if (n > 0) {
           toast(`${fmtNumber(n)} compan${n === 1 ? 'y' : 'ies'} imported${data.counts.skipped ? `; ${fmtNumber(data.counts.skipped)} skipped` : ''}`,
             data.counts.skipped ? 'warning' : 'success')
+          // §10: an Individual row imports with no Self contact yet.
+          if ((data as ImportResponse & { message?: string }).message) {
+            toast((data as ImportResponse & { message?: string }).message!, 'warning')
+          }
           onImported()
         }
       } else {

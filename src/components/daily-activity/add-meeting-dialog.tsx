@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeftIcon, Building2Icon, HistoryIcon, PlusIcon, UserIcon } from 'lucide-react'
+import { ArrowLeftIcon, Building2Icon, HistoryIcon, PlusIcon, StarIcon, UserIcon, UserPlusIcon, XIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogBody,
@@ -243,21 +244,58 @@ export type MeetingDraft = Partial<Visit> & {
   /** `daily_visits.contact_id` — the person met, when one was named. */
   contact_id?: string | null
   weekly_plan_item_id?: string | null
+  /** Opportunity follow-up (`deal_follow_ups`) this meeting is logged for,
+   *  when the dialog was opened from a follow-up to-do card with no
+   *  company on its deal (see `planned-card.tsx` / `page.tsx`). */
+  deal_follow_up_id?: string | null
   is_manual_entry?: true
   manual_start_time?: string
   manual_end_time?: string
+  /** Accounts & Contacts, Stage 2 (§8): everyone present at the meeting,
+   *  beyond the one account it is filed against. Optional — every flow that
+   *  predates this feature sends none, and the server treats an empty/absent
+   *  array as a no-op. */
+  attendees?: { contact_id: string; is_main: boolean }[]
+}
+
+/** One active link on the resolved account — `GET /api/companies/[id]/links`,
+ *  filtered to `is_active`. */
+type AccountLink = {
+  link_id: string
+  contact_id: string
+  contact_name: string | null
+  role_name: string | null
+  is_active: boolean
+}
+
+/** One attendee row in the picker, whichever of the three ways it got there. */
+type AttendeeCandidate = {
+  contact_id: string
+  name: string
+  /** From the account's own link list, vs. added in this dialog. */
+  source: 'linked' | 'added'
+  /** Only for an 'added' row: offer to link them to the account too. */
+  alsoLink?: boolean
+  roleId?: string
+  isNewContact?: boolean
 }
 
 export function AddMeetingDialog({
   open,
   onOpenChange,
   planItem,
+  followUpId,
   visitDate,
   onAdd,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   planItem?: PlannedItem | null
+  /** Set when the dialog was opened from a follow-up to-do card whose deal
+   *  has no company — there is nothing to auto-start, so Start opens this
+   *  dialog instead, and the submitted meeting still links back to the
+   *  follow-up that started it. */
+  followUpId?: string | null
   /** "YYYY-MM-DD" — the day already selected on the screen. */
   visitDate: string
   onAdd: (v: MeetingDraft) => Promise<void> | void
@@ -321,6 +359,26 @@ export function AddMeetingDialog({
   const [endTime, setEndTime] = useState<TimeValue | undefined>(undefined)
   const [fieldError, setFieldError] = useState<{ start?: string; end?: string }>({})
 
+  /*
+   * Attendees (§8, Stage 2) — who, beyond the account itself, was at the
+   * meeting. Shown once an account is resolved, whether picked directly or
+   * auto-filled/chosen from a person pick.
+   */
+  const [attendeeMap, setAttendeeMap] = useState<Map<string, AttendeeCandidate>>(new Map())
+  const [tickedIds, setTickedIds] = useState<Set<string>>(new Set())
+  const [mainId, setMainId] = useState<string | null>(null)
+  const [linksLoad, setLinksLoad] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [contactRoles, setContactRoles] = useState<{ id: string; name: string }[]>([])
+  const [showAddPerson, setShowAddPerson] = useState(false)
+  const [addQuery, setAddQuery] = useState('')
+  const [addResults, setAddResults] = useState<{ id: string; name: string }[]>([])
+  const [addSearching, setAddSearching] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newMobile, setNewMobile] = useState('')
+  const [newRoleId, setNewRoleId] = useState('')
+  const [makingIndividual, setMakingIndividual] = useState(false)
+  const [individualMadeFor, setIndividualMadeFor] = useState<string | null>(null)
+
   useEffect(() => {
     if (!open) return
     setIsPast(false)
@@ -334,6 +392,25 @@ export function AddMeetingDialog({
     setStartTime(undefined)
     setEndTime(undefined)
     setFieldError({})
+    setAttendeeMap(new Map())
+    setTickedIds(new Set())
+    setMainId(null)
+    setLinksLoad('idle')
+    setShowAddPerson(false)
+    setAddQuery('')
+    setAddResults([])
+    setNewName('')
+    setNewMobile('')
+    setNewRoleId('')
+    setIndividualMadeFor(null)
+
+    fetch('/api/masters/contact-roles')
+      .then(r => (r.ok ? r.json() : { rows: [] }))
+      .then((d: { rows?: { id: string; name: string; is_system?: boolean; is_active?: boolean }[] }) => {
+        const rows = Array.isArray(d.rows) ? d.rows : []
+        setContactRoles(rows.filter(r => !r.is_system && r.is_active !== false))
+      })
+      .catch(() => setContactRoles([]))
 
     setEntLoading(true)
     // One list. No stage filter, no type filter — F6 removed both
@@ -393,6 +470,7 @@ export function AddMeetingDialog({
      follow-up answer never survives a change of target. */
   useEffect(() => { setPersonCompanyId('') }, [target])
 
+
   /* Location masters are only needed by the create panel, so they load
      when it opens rather than on every meeting. */
   useEffect(() => {
@@ -432,10 +510,19 @@ export function AddMeetingDialog({
   const entityOptions: Record<string, string> = useMemo(
     () =>
       Object.fromEntries(
-        entities.map(e => [
-          `${COMPANY_PREFIX}${e.id}`,
-          e.stage && e.stage !== 'Existing' ? `${e.name} · ${e.stage}` : e.name,
-        ])
+        entities.map(e => {
+          // docs/accounts-contacts-spec.md §1: an Individual account always
+          // reads "Name · Individual" in a picker so it is never mistaken for
+          // a Company. The stage marker (Lead vs Existing) still wins when it
+          // applies — Individuals skip the funnel, so the two never collide.
+          const suffix =
+            e.account_kind === 'Individual'
+              ? 'Individual'
+              : e.stage && e.stage !== 'Existing'
+                ? e.stage
+                : null
+          return [`${COMPANY_PREFIX}${e.id}`, suffix ? `${e.name} · ${suffix}` : e.name]
+        })
       ),
     [entities]
   )
@@ -506,6 +593,165 @@ export function AddMeetingDialog({
         ? personCompanies[0]
         : personCompanies.find(c => c.id === personCompanyId) ?? null
 
+  /**
+   * The account the ATTENDEES step is scoped to: the company picked
+   * directly, or the one a person-pick resolved to (auto-filled with one
+   * link, or chosen among several). `null` with no company at all — a
+   * standalone person, or a brand-new lead, has no linked contacts to offer
+   * and the step does not show.
+   */
+  const resolvedCompanyId = selectedCompanyId || chosenPersonCompany?.id || individualMadeFor || ''
+
+  /*
+   * Attendees: load the resolved account's ACTIVE linked contacts, and seed
+   * the picked person (when the "who did you meet" field named one) as
+   * ticked and main by default — they were the reason the step opened.
+   */
+  useEffect(() => {
+    if (!resolvedCompanyId) { setAttendeeMap(new Map()); setTickedIds(new Set()); setMainId(null); setLinksLoad('idle'); return }
+    let live = true
+    setLinksLoad('loading')
+    fetch(`/api/companies/${resolvedCompanyId}/links`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((rows: AccountLink[]) => {
+        if (!live) return
+        const map = new Map<string, AttendeeCandidate>()
+        for (const l of rows) {
+          if (!l.is_active) continue
+          map.set(l.contact_id, { contact_id: l.contact_id, name: l.contact_name ?? '—', source: 'linked' })
+        }
+        setAttendeeMap(map)
+        setLinksLoad('ready')
+        setTickedIds(prev => {
+          const next = new Set(prev)
+          if (selectedPersonId && map.has(selectedPersonId)) next.add(selectedPersonId)
+          return next
+        })
+        setMainId(prev => prev ?? (selectedPersonId && map.has(selectedPersonId) ? selectedPersonId : null))
+      })
+      .catch(() => { if (live) setLinksLoad('error') })
+    return () => { live = false }
+  }, [resolvedCompanyId, selectedPersonId])
+
+  /* "Add someone else" — search any contact the caller can see, debounced
+     300ms (kit §14.4's own figure for a live-filtering field). */
+  useEffect(() => {
+    if (!showAddPerson || addQuery.trim().length < 2) { setAddResults([]); return }
+    let live = true
+    setAddSearching(true)
+    const t = setTimeout(() => {
+      fetch(`/api/contacts?mine=1&q=${encodeURIComponent(addQuery.trim())}`)
+        .then(r => (r.ok ? r.json() : []))
+        .then((d: { id: string; name: string }[]) => { if (live) setAddResults(Array.isArray(d) ? d : []) })
+        .catch(() => { if (live) setAddResults([]) })
+        .finally(() => { if (live) setAddSearching(false) })
+    }, 300)
+    return () => { live = false; clearTimeout(t) }
+  }, [showAddPerson, addQuery])
+
+  function toggleAttendee(contactId: string, ticked: boolean) {
+    setTickedIds(prev => {
+      const next = new Set(prev)
+      if (ticked) next.add(contactId); else next.delete(contactId)
+      return next
+    })
+    setMainId(prev => {
+      if (ticked && !prev) return contactId
+      if (!ticked && prev === contactId) return null
+      return prev
+    })
+  }
+
+  function addExistingAttendee(contactId: string, name: string) {
+    setAttendeeMap(prev => {
+      const next = new Map(prev)
+      if (!next.has(contactId)) next.set(contactId, { contact_id: contactId, name, source: 'added', alsoLink: false, roleId: '' })
+      return next
+    })
+    setTickedIds(prev => new Set(prev).add(contactId))
+    setMainId(prev => prev ?? contactId)
+    setShowAddPerson(false)
+    setAddQuery('')
+    setAddResults([])
+  }
+
+  async function createAndAddAttendee() {
+    if (!newName.trim()) return
+    try {
+      const r = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim(), mobile: newMobile.trim() || undefined }),
+      })
+      if (!r.ok) { const d = await r.json().catch(() => ({})); toast(d.error || 'Could not create the contact', 'error'); return }
+      const created = await r.json()
+      setAttendeeMap(prev => {
+        const next = new Map(prev)
+        next.set(created.id, {
+          contact_id: created.id, name: newName.trim(), source: 'added',
+          alsoLink: true, roleId: newRoleId, isNewContact: true,
+        })
+        return next
+      })
+      setTickedIds(prev => new Set(prev).add(created.id))
+      setMainId(prev => prev ?? created.id)
+      if (resolvedCompanyId) {
+        const linked = await fetch(`/api/companies/${resolvedCompanyId}/links`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contact_id: created.id, role_id: newRoleId || null }),
+        })
+        if (!linked.ok) {
+          const d = await linked.json().catch(() => ({}))
+          toast(d.error || 'The contact was created but could not be linked to the account', 'error')
+        }
+      }
+      setNewName('')
+      setNewMobile('')
+      setNewRoleId('')
+      setShowAddPerson(false)
+    } catch {
+      toast('Could not create the contact', 'error')
+    }
+  }
+
+  async function toggleAlsoLink(contactId: string, link: boolean) {
+    const row = attendeeMap.get(contactId)
+    if (!row) return
+    setAttendeeMap(prev => { const next = new Map(prev); next.set(contactId, { ...row, alsoLink: link }); return next })
+    if (link && resolvedCompanyId) {
+      const r = await fetch(`/api/companies/${resolvedCompanyId}/links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_id: contactId, role_id: row.roleId || null }),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        toast(d.error || 'Could not link this person to the account', 'error')
+      }
+    }
+  }
+
+  /** §3's "Make Individual account" — offered when a picked person has no
+   *  company link at all, as the alternative to logging them standalone. */
+  async function handleMakeIndividual() {
+    if (!selectedPersonId || makingIndividual) return
+    setMakingIndividual(true)
+    try {
+      const r = await fetch(`/api/contacts/${selectedPersonId}/make-individual`, { method: 'POST' })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) { toast(d.error || 'Could not create an Individual account', 'error'); return }
+      setIndividualMadeFor(d.id)
+      toast('Individual account created', 'success')
+    } catch {
+      toast('Could not create an Individual account', 'error')
+    } finally {
+      setMakingIndividual(false)
+    }
+  }
+
+  const attendeeRows = Array.from(attendeeMap.values())
+
   const timesOk = !isPast || (!!startTime && !!endTime)
   const canAdd =
     mode === 'create'
@@ -531,11 +777,20 @@ export function AddMeetingDialog({
     }
 
     const planLink = planItem ? { weekly_plan_item_id: planItem.id } : {}
+    const followUpLink = followUpId ? { deal_follow_up_id: followUpId } : {}
+    // Attendees (§8, Stage 2): ticked rows only, at most one main — the
+    // server also enforces this (pickMain, src/lib/meeting-attendees.ts), so
+    // a stray double-main here is harmless either way.
+    const attendeesPayload = attendeeRows
+      .filter(a => tickedIds.has(a.contact_id))
+      .map(a => ({ contact_id: a.contact_id, is_main: a.contact_id === mainId }))
+    const attendeesLink = attendeesPayload.length > 0 ? { attendees: attendeesPayload } : {}
     setSaving(true)
     if (creating) {
       const r = placeMap.get(npPlace)
       await onAdd({
         ...planLink,
+        ...followUpLink,
         ...manual,
         // Blank type: the company is created untyped and the meeting is 'Other'.
         visit_type: npType || OTHER_VISIT_TYPE,
@@ -564,7 +819,9 @@ export function AddMeetingDialog({
       const company = chosenPersonCompany
       await onAdd({
         ...planLink,
+        ...followUpLink,
         ...manual,
+        ...attendeesLink,
         /* With a company, the same rule a company pick uses — the party's own
            type, and 'Other' for a party whose type is blank.
            STANDALONE_VISIT_TYPE is only for a meeting with NO company. */
@@ -578,7 +835,9 @@ export function AddMeetingDialog({
       const selected = entities.find(e => e.id === selectedCompanyId)
       await onAdd({
         ...planLink,
+        ...followUpLink,
         ...manual,
+        ...attendeesLink,
         // F6: the party's own type, not a type the user was made to pick.
         visit_type: selected?.type || OTHER_VISIT_TYPE,
         // The COMPANY's id, always — a contact id must never be written here.
@@ -605,7 +864,9 @@ export function AddMeetingDialog({
           <DialogDescription>
             {planItem
               ? `On the planned line ${[planItem.from_place, planItem.to_place].filter(Boolean).join(' → ') || 'for this day'}.`
-              : isPast
+              : followUpId
+                ? 'For a follow-up whose Opportunity has no account on file.'
+                : isPast
                 ? 'For a meeting that already happened but was not logged live.'
                 : 'For a visit that was not on the approved plan.'}
           </DialogDescription>
@@ -750,11 +1011,198 @@ export function AddMeetingDialog({
                 </div>
               )}
 
-              {!!selectedPersonId && personCompanies.length === 0 && (
-                <p className="text-meta text-text-muted">
-                  This person is not linked to any company, so the meeting is logged against
-                  them alone.
-                </p>
+              {!!selectedPersonId && personCompanies.length === 0 && !individualMadeFor && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-light bg-surface-sunken px-3 py-2.5">
+                  <p className="text-meta text-text-muted">
+                    This person is not linked to any company, so the meeting is logged against
+                    them alone. You can make them their own account instead.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={handleMakeIndividual}
+                    disabled={makingIndividual}
+                  >
+                    {makingIndividual ? 'Creating…' : 'Make Individual account'}
+                  </Button>
+                </div>
+              )}
+
+              {/*
+                ATTENDEES (§8, Stage 2) — shown once an account is resolved,
+                whichever way: a company picked directly, a person's single
+                linked company auto-filled, one chosen among several, or a
+                brand-new Individual account just created above. Zero
+                attendees is always allowed — nothing here is required.
+              */}
+              {!!resolvedCompanyId && (
+                <div className="space-y-2 rounded-lg border border-border-light p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>Who was there</Label>
+                    <Button variant="ghost" size="sm" type="button" onClick={() => setShowAddPerson(v => !v)}>
+                      <UserPlusIcon />
+                      Add someone else
+                    </Button>
+                  </div>
+
+                  {linksLoad === 'loading' ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : linksLoad === 'error' ? (
+                    <InlineFieldError className="mt-0">
+                      This account&apos;s contacts could not be loaded. You can still add someone
+                      by name below.
+                    </InlineFieldError>
+                  ) : attendeeRows.length === 0 && !showAddPerson ? (
+                    <p className="text-meta text-text-muted">
+                      No contacts are linked to this account yet. Add someone below, or leave this
+                      empty for a walk-in.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {attendeeRows.map(a => {
+                        const ticked = tickedIds.has(a.contact_id)
+                        const isMain = mainId === a.contact_id
+                        return (
+                          <li key={a.contact_id} className="space-y-1.5 rounded-md border border-border-light px-2.5 py-2">
+                            <div className="flex items-center gap-2.5">
+                              <Checkbox
+                                checked={ticked}
+                                onCheckedChange={v => toggleAttendee(a.contact_id, v === true)}
+                                aria-label={`Attended: ${a.name}`}
+                              />
+                              <button
+                                type="button"
+                                className="flex min-h-11 items-center text-text-muted hover:text-warning disabled:pointer-events-none disabled:opacity-40"
+                                onClick={() => setMainId(a.contact_id)}
+                                disabled={!ticked}
+                                aria-label={isMain ? `${a.name} is the main person` : `Mark ${a.name} as the main person`}
+                                title={isMain ? 'Main person' : 'Mark as main'}
+                              >
+                                <StarIcon className={isMain ? 'size-4 fill-warning text-warning' : 'size-4'} />
+                              </button>
+                              <span className="min-w-0 flex-1 truncate text-label text-text-primary">{a.name}</span>
+                              {a.isNewContact && <span className="text-meta text-text-muted">New</span>}
+                            </div>
+                            {a.source === 'added' && (
+                              <label className="ml-[3.75rem] flex items-center gap-2 text-meta text-text-secondary">
+                                <Checkbox
+                                  checked={!!a.alsoLink}
+                                  onCheckedChange={v => toggleAlsoLink(a.contact_id, v === true)}
+                                />
+                                Also link to this account
+                                {contactRoles.length > 0 && a.alsoLink && (
+                                  <Select
+                                    items={{ '': 'No role', ...Object.fromEntries(contactRoles.map(r => [r.id, r.name])) }}
+                                    value={a.roleId || ''}
+                                    onValueChange={v => setAttendeeMap(prev => {
+                                      const next = new Map(prev)
+                                      const row = next.get(a.contact_id)
+                                      if (row) next.set(a.contact_id, { ...row, roleId: String(v ?? '') })
+                                      return next
+                                    })}
+                                  >
+                                    <SelectTrigger className="h-8 w-36 max-w-36 text-meta">
+                                      <SelectValue placeholder="No role" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="">No role</SelectItem>
+                                      {contactRoles.map(r => (
+                                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </label>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+
+                  {showAddPerson && (
+                    <div className="space-y-2 rounded-md border border-border-light bg-surface-sunken p-2.5">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="da-add-search">Search an existing contact</Label>
+                        <Input
+                          id="da-add-search"
+                          className="max-w-none"
+                          value={addQuery}
+                          onChange={e => setAddQuery(e.target.value)}
+                          placeholder="Name or mobile"
+                        />
+                        {addSearching && <p className="text-meta text-text-muted">Searching…</p>}
+                        {addResults.length > 0 && (
+                          <ul className="divide-y divide-border-light overflow-hidden rounded-md border border-border-light">
+                            {addResults
+                              .filter(r => !attendeeMap.has(r.id))
+                              .map(r => (
+                                <li key={r.id}>
+                                  <button
+                                    type="button"
+                                    className="flex min-h-11 w-full items-center px-2.5 text-left text-label text-text-primary hover:bg-surface-control"
+                                    onClick={() => addExistingAttendee(r.id, r.name)}
+                                  >
+                                    {r.name}
+                                  </button>
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
+                      <p className="text-meta text-text-muted">— or create a new person —</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="da-new-person-name">Name</Label>
+                          <Input id="da-new-person-name" className="max-w-none" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Person's name" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="da-new-person-mobile">Mobile (optional)</Label>
+                          <Input
+                            id="da-new-person-mobile"
+                            className="max-w-none"
+                            type="tel"
+                            inputMode="numeric"
+                            maxLength={10}
+                            value={newMobile}
+                            onChange={e => setNewMobile(e.target.value)}
+                            placeholder="10-digit number"
+                          />
+                        </div>
+                      </div>
+                      {contactRoles.length > 0 && (
+                        <div className="space-y-1.5">
+                          <Label htmlFor="da-new-person-role">Role on this account</Label>
+                          <Select
+                            items={{ '': 'No role', ...Object.fromEntries(contactRoles.map(r => [r.id, r.name])) }}
+                            value={newRoleId}
+                            onValueChange={v => setNewRoleId(String(v ?? ''))}
+                          >
+                            <SelectTrigger id="da-new-person-role" className="w-full max-w-none">
+                              <SelectValue placeholder="No role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">No role</SelectItem>
+                              {contactRoles.map(r => (
+                                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" size="sm" type="button" onClick={() => setShowAddPerson(false)}>
+                          <XIcon />
+                          Cancel
+                        </Button>
+                        <Button size="sm" type="button" onClick={createAndAddAttendee} disabled={!newName.trim()}>
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </>
           ) : (

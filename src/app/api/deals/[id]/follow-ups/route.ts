@@ -25,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'read')
     if (!deal) return notFound()
 
     const rows = await prisma.deal_follow_ups.findMany({
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const tid = getTenantId()
 
   try {
-    const deal = await findScopedDeal(user, tid, params.id)
+    const deal = await findScopedDeal(user, tid, params.id, 'write')
     if (!deal) return notFound()
 
     // `visit_id` has no FK constraint, so nothing stops another tenant's id

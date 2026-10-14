@@ -45,11 +45,20 @@
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { PencilIcon, PlusIcon, Trash2Icon, UploadIcon, ZapIcon } from 'lucide-react'
+import {
+  EllipsisVerticalIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+  UploadIcon,
+  UserPlusIcon,
+  ZapIcon,
+} from 'lucide-react'
 
 import Modal from '@/components/ui/Modal'
 import { QuickCreateDialog } from './quick-create-dialog'
 import { ContactDialog, type CreatedContact } from './contact-dialog'
+import { IndividualConflictDialog, type IndividualConflict } from './individual-conflict-dialog'
 import { usePartyMasters } from './party-masters'
 import { useMe, type Me } from '@/hooks/useMe'
 import { useBPForm, BusinessPartnerFormFields } from '@/components/masters/BusinessPartnerForm'
@@ -74,7 +83,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { SectionTabs, type SectionTab } from '@/components/ui/section-tabs'
 import { Switch } from '@/components/ui/switch'
@@ -109,7 +134,20 @@ type CompanyRow = {
   completeness_missing: string | null
   districts: { name: string } | null
   owner: NamedRef | null
+  /* docs/accounts-contacts-spec.md §1: every company row carries which kind
+     of account it is. Always present — `/lib/account-kind.ts` defaults a
+     tenant with no column yet to 'Company', so this is never undefined. */
+  account_kind: 'Company' | 'Individual'
+  /* Set only on a row the caller sees because it was SHARED with them
+     (src/lib/sharing.ts): 'work' or 'view'. Null on every other row, and
+     always null until the sharing tables exist. Absent from an older response. */
+  shared_access?: 'work' | 'view' | null
 }
+
+/* The per-row record rules of sharing (section 26.5): a 'view' share is read
+   only, and no share — even 'work' — lets someone delete the account. */
+const SHARED_VIEW_REASON = 'This account is shared with you to view only.'
+const SHARED_DELETE_REASON = 'Only the owner, or someone whose team includes the owner, can delete this account.'
 
 type ContactRow = {
   id: string
@@ -119,7 +157,14 @@ type ContactRow = {
   is_active: boolean
   contact_types: NamedRef | null
   companies: { id: string; name: string }[]
+  /* Set only on a row the caller sees because an account it is linked to was
+     SHARED with them (src/lib/sharing.ts). Null otherwise, and always null
+     until the sharing tables exist. */
+  shared_access?: 'work' | 'view' | null
 }
+
+/* No share, even 'work', lets someone delete the contact (section 26.5). */
+const SHARED_CONTACT_DELETE_REASON = "Only the contact's owner, or someone whose team includes the owner, can delete this contact."
 
 /** The two tabs, and the query parameter that carries the active one. */
 const TAB_PARAM = 'tab'
@@ -220,13 +265,33 @@ function companyColumns({
     {
       id: 'name',
       header: 'Name',
-      className: 'max-w-field-min',
+      // Capped at `max-w-field-min` by default — the measured worst case
+      // above, at a 1024 window, leaves no slack to give it. Widened at xl
+      // (1280+, this screen's own reference width) where that slack exists,
+      // so Name does not truncate with the Kind badge sitting right next to
+      // it while there is free width going unused (kit rule 2).
+      className: 'max-w-field-min xl:max-w-[320px]',
       skeletonWidth: 'w-40',
       cell: row => (
-        <NameLink
-          href={`/parties/companies/${row.id}?from=${backTo(COMPANIES)}`}
-          name={row.name}
-        />
+        <div className="flex min-w-0 items-center gap-2">
+          <NameLink
+            href={`/parties/companies/${row.id}?from=${backTo(COMPANIES)}`}
+            name={row.name}
+          />
+          {/* Kind badge: every row carries one, Company and Individual alike,
+              so siblings stay visually identical (section 1) — this is not
+              an exception marker like "Shared" below. */}
+          <Badge variant={row.account_kind === 'Individual' ? 'neutral' : 'primary'}>
+            {row.account_kind}
+          </Badge>
+          {row.shared_access && (
+            /* "Shared" marks the exception — an account in this list because
+               someone shared it, not because it is the caller's or their
+               team's. Plain markup, nothing client-only (see the hydration
+               note on the Completeness cell). */
+            <Badge>Shared</Badge>
+          )}
+        </div>
       ),
     },
     {
@@ -339,16 +404,22 @@ function companyColumns({
       /* Section 26: someone without edit rights sees the same screen with the
          control disabled, not a screen missing a column — the value is data
          they are entitled to read. */
-      cell: row => (
-        <Switch
-          aria-label={`Active — ${row.name}`}
-          checked={Boolean(row.is_active)}
-          disabled={!canEdit}
-          onCheckedChange={
-            canEdit ? value => onToggleActive(row, value) : undefined
-          }
-        />
-      ),
+      cell: row => {
+        const rowCanEdit = canEdit && row.shared_access !== 'view'
+        const toggle = (
+          <Switch
+            aria-label={`Active — ${row.name}`}
+            checked={Boolean(row.is_active)}
+            disabled={!rowCanEdit}
+            onCheckedChange={
+              rowCanEdit ? value => onToggleActive(row, value) : undefined
+            }
+          />
+        )
+        return canEdit && row.shared_access === 'view' ? (
+          <PermissionTooltip allowed={false} reason={SHARED_VIEW_REASON}>{toggle}</PermissionTooltip>
+        ) : toggle
+      },
     },
     {
       id: 'actions',
@@ -357,7 +428,15 @@ function companyColumns({
       skeletonWidth: 'h-control w-20',
       cell: row => (
         <div className="flex items-center justify-end gap-2">
-          {canEdit && (
+          {canEdit && row.shared_access === 'view' && (
+            <PermissionTooltip allowed={false} reason={SHARED_VIEW_REASON}>
+              <Button variant="secondary" size="icon" disabled>
+                <PencilIcon />
+                <span className="sr-only">Edit {row.name}</span>
+              </Button>
+            </PermissionTooltip>
+          )}
+          {canEdit && row.shared_access !== 'view' && (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -374,7 +453,15 @@ function companyColumns({
               <TooltipContent>Edit</TooltipContent>
             </Tooltip>
           )}
-          {canDelete && (
+          {canDelete && row.shared_access && (
+            <PermissionTooltip allowed={false} reason={SHARED_DELETE_REASON}>
+              <Button variant="danger" size="icon" disabled>
+                <Trash2Icon />
+                <span className="sr-only">Delete {row.name}</span>
+              </Button>
+            </PermissionTooltip>
+          )}
+          {canDelete && !row.shared_access && (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -423,7 +510,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
   const savingRef               = useRef(false)
   // Every type, active or not: the list filter must still find companies on a
   // deactivated one. The edit picker narrows it below.
-  const [companyTypes, setCompanyTypes] = useState<(NamedRef & { is_active?: boolean })[]>([])
+  const [companyTypes, setCompanyTypes] = useState<(NamedRef & { is_active?: boolean; applies_to?: 'Company' | 'Individual' | 'Both' })[]>([])
   /* Bumped when a create, an edit, a toggle or a delete makes the list stale.
      The template holds `load` in a ref, so this is the ONLY refetch lever. */
   const [refreshKey, setRefreshKey] = useState(0)
@@ -577,6 +664,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     const params = new URLSearchParams()
     if (search) params.set('q', search)
     if (filters.type) params.set('type', filters.type)
+    if (filters.kind) params.set('kind', filters.kind)
     const query = params.toString()
     const r = await fetch(`/api/companies${query ? `?${query}` : ''}`, { signal })
     if (!r.ok) throw new Error(String(r.status))
@@ -600,6 +688,12 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
   }
 
   const filters: ListFilter[] = [
+    {
+      id: 'kind',
+      label: 'Kind',
+      kind: 'select',
+      options: { '': 'Any', Company: 'Company', Individual: 'Individual' },
+    },
     {
       id: 'type',
       label: 'Company Type',
@@ -809,11 +903,19 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
               <select id="company-type" name="type" value={bp.form.type} onChange={bp.F('type')}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                 <option value="">Select type…</option>
-                {/* Active types, plus the company's own if it has since been
-                    deactivated, so an edit neither blanks it nor offers it anew. */}
-                {companyTypes.filter(t => t.is_active !== false || t.name === bp.form.type).map(t => (
-                  <option key={t.id} value={t.name}>{t.name}{t.is_active === false ? ' (inactive)' : ''}</option>
-                ))}
+                {/* docs/accounts-contacts-spec.md §1: a type only offers itself
+                    for the kind(s) it `applies_to` — 'Both' always qualifies.
+                    Active types, plus the company's own if it has since been
+                    deactivated or no longer applies to this kind, so an edit
+                    neither blanks it nor offers it anew. */}
+                {companyTypes
+                  .filter(t => t.name === bp.form.type || (
+                    (t.is_active !== false) &&
+                    (t.applies_to === 'Both' || t.applies_to === ((editing?.account_kind as string | undefined) ?? 'Company'))
+                  ))
+                  .map(t => (
+                    <option key={t.id} value={t.name}>{t.name}{t.is_active === false ? ' (inactive)' : ''}</option>
+                  ))}
               </select>
             </div>
           }
@@ -891,10 +993,22 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
  */
 function contactColumns({
   canDelete,
+  canMakeIndividual,
+  actionsKnown,
+  busyId,
   onDelete,
+  onMakeIndividual,
 }: {
   canDelete: boolean
+  canMakeIndividual: boolean
+  /** Whether `/api/auth/me` has answered yet — "not known yet" is not "not
+   *  allowed" (global rule 4); both menu items stay enabled until it has. */
+  actionsKnown: boolean
+  /** The row currently mid "Make Individual account", so its item can say so
+   *  and the others are left alone. */
+  busyId: string | null
   onDelete: (row: ContactRow) => void
+  onMakeIndividual: (row: ContactRow) => void
 }): ListColumn<ContactRow>[] {
   return [
     {
@@ -902,12 +1016,21 @@ function contactColumns({
       header: 'Name',
       grow: true,
       skeletonWidth: 'w-40',
-      cell: row => (
-        <NameLink
-          href={`/parties/contacts/${row.id}?from=${backTo(CONTACTS)}`}
-          name={row.name}
-        />
-      ),
+      cell: row =>
+        row.shared_access ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <NameLink
+              href={`/parties/contacts/${row.id}?from=${backTo(CONTACTS)}`}
+              name={row.name}
+            />
+            <Badge>Shared</Badge>
+          </div>
+        ) : (
+          <NameLink
+            href={`/parties/contacts/${row.id}?from=${backTo(CONTACTS)}`}
+            name={row.name}
+          />
+        ),
     },
     {
       id: 'designation',
@@ -969,39 +1092,68 @@ function contactColumns({
       className: 'whitespace-nowrap',
       skeletonWidth: 'h-control w-10',
       /*
-       * Delete only. `DELETE /api/contacts/[id]` is a SOFT delete, so it is the
-       * deactivation section 15.2 asks for under another name. There is no Edit
-       * here because there is no contact form yet — P1-T16 builds it, and a
-       * pencil that opens nothing is worse than no pencil. Editing a contact
-       * today happens on its own page.
+       * The kit's row-actions pattern (FRONTEND_RULES.md: "the three-dot menu
+       * appears only when the list has row actions other than opening") — a
+       * quiet ⋮ menu, same as the Contact page's own ⋮ menu, rather than a
+       * lone red Delete icon sitting alone in the row. `DELETE
+       * /api/contacts/[id]` is a SOFT delete, so "Delete" here is the
+       * deactivation section 15.2 asks for under another name.
        */
-      cell: row => (
-        <div className="flex items-center justify-end gap-2">
-          {canDelete && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="danger"
-                    size="icon"
-                    onClick={() => onDelete(row)}
-                  />
-                }
+      cell: row => {
+        const deleteBlocked = row.shared_access
+          ? SHARED_CONTACT_DELETE_REASON
+          : null
+        const busy = busyId === row.id
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  aria-label={`Actions for ${row.name}`}
+                />
+              }
+            >
+              <EllipsisVerticalIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <PermissionTooltip
+                allowed={!actionsKnown || canMakeIndividual}
+                reason="Only someone who can create accounts can do this."
               >
-                <Trash2Icon />
-                <span className="sr-only">Delete {row.name}</span>
-              </TooltipTrigger>
-              <TooltipContent>Delete</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      ),
+                <DropdownMenuItem
+                  disabled={(actionsKnown && !canMakeIndividual) || busy}
+                  onClick={() => onMakeIndividual(row)}
+                >
+                  <UserPlusIcon />
+                  {busy ? 'Creating…' : 'Make Individual account'}
+                </DropdownMenuItem>
+              </PermissionTooltip>
+              <PermissionTooltip
+                allowed={!actionsKnown || (canDelete && !deleteBlocked)}
+                reason={deleteBlocked ?? 'Only someone who can delete contacts can do this.'}
+              >
+                <DropdownMenuItem
+                  variant="danger"
+                  disabled={(actionsKnown && !(canDelete && !deleteBlocked))}
+                  onClick={() => onDelete(row)}
+                >
+                  <Trash2Icon />
+                  Delete
+                </DropdownMenuItem>
+              </PermissionTooltip>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      },
     },
   ]
 }
 
 function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNode }) {
   const { toast } = useToast()
+  const router = useRouter()
   const isAdmin = me?.role === 'Administrator'
   // G1 again: the contacts tab reads the `contacts` section, not `companies`
   // and certainly not `business`.
@@ -1012,11 +1164,123 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
   // The permission alone, never a role name (see the Companies tab).
   const canCreate = me?.permissions?.contacts?.create ?? false
   const createKnown = me !== null
+  // "Make Individual account" gates on `companies.create`, the same
+  // permission `POST /api/contacts/[id]/make-individual` itself checks (it
+  // creates an Individual account) — same rule as the Contact page's ⋮ menu.
+  const canMakeIndividual = isAdmin || (me?.permissions?.companies?.create ?? false)
+  const actionsKnown = me !== null
 
   // Every type, active or not, for the list filter.
   const [contactTypes, setContactTypes] = useState<(NamedRef & { is_active?: boolean })[]>([])
-  const [deleting, setDeleting] = useState<ContactRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // "Make Individual account" — success navigates to the new account; a 409
+  // (already Self somewhere) opens the shared conflict dialog instead of a
+  // raw error. Same flow as the Contact page's own menu item.
+  const [makingIndividualId, setMakingIndividualId] = useState<string | null>(null)
+  const [individualConflict, setIndividualConflict] = useState<IndividualConflict | null>(null)
+
+  async function makeIndividual(row: ContactRow) {
+    if (makingIndividualId) return
+    setMakingIndividualId(row.id)
+    try {
+      const res = await fetch(`/api/contacts/${row.id}/make-individual`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 201) {
+        const created = data as { id: string }
+        router.push(`/parties/companies/${created.id}`)
+        return
+      }
+      if (res.status === 409) {
+        const body = data as { error?: string; existing_account_id?: string }
+        setIndividualConflict({
+          message: body.error ?? 'This person is already the Self contact of another account.',
+          existingAccountId: body.existing_account_id,
+        })
+        return
+      }
+      toast((data as { error?: string }).error ?? 'Could not create an Individual account.', 'error')
+    } catch {
+      toast('The connection dropped. Nothing was created.', 'error')
+    } finally {
+      setMakingIndividualId(null)
+    }
+  }
+
+  /**
+   * Delete — the same dry-run → confirm flow the Contact page itself runs
+   * against `DELETE /api/contacts/[id]` (see that route's own comments):
+   *   - 409 naming an Individual account this contact is Self for, or "this
+   *     contact has history" → blocked, no confirm option, just a way out;
+   *   - 409 `confirm_required` with `linked_accounts` → a dry run, shown so
+   *     the user can confirm with `?confirm=1`;
+   *   - neither → the first call already deleted it.
+   */
+  type DeleteFlow =
+    | { row: ContactRow; stage: 'blocked'; message: string; selfAccountId?: string }
+    | { row: ContactRow; stage: 'confirm'; linkedAccounts: { id: string; name: string }[] }
+    | null
+  const [deleteFlow, setDeleteFlow] = useState<DeleteFlow>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  async function startDelete(row: ContactRow) {
+    if (deleting) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/contacts/${row.id}`, { method: 'DELETE' })
+      if (res.status === 404) {
+        toast('This record was already deleted', 'info')
+        setRefreshKey(k => k + 1)
+        return
+      }
+      if (res.ok) {
+        toast('Deleted successfully')
+        setRefreshKey(k => k + 1)
+        return
+      }
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string
+        linked_accounts?: { id: string; name: string }[]
+        self_account_id?: string
+      }
+      if (res.status === 409 && data.error === 'confirm_required') {
+        setDeleteFlow({ row, stage: 'confirm', linkedAccounts: data.linked_accounts ?? [] })
+        return
+      }
+      setDeleteFlow({
+        row,
+        stage: 'blocked',
+        message: data.error ?? 'This contact cannot be deleted.',
+        selfAccountId: data.self_account_id,
+      })
+    } catch {
+      toast('The connection dropped. Nothing was deleted.', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function confirmDeleteFlow() {
+    if (!deleteFlow || deleteFlow.stage !== 'confirm' || deleting) return
+    const row = deleteFlow.row
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/contacts/${row.id}?confirm=1`, { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast((data as { error?: string }).error ?? 'Could not delete this contact.', 'error')
+        setDeleteFlow(null)
+        return
+      }
+      toast('Deleted successfully')
+      setDeleteFlow(null)
+      setRefreshKey(k => k + 1)
+    } catch {
+      toast('The connection dropped. Nothing was deleted.', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
   const [createOpen, setCreateOpen] = useState(false)
   const [companyOptions, setCompanyOptions] = useState<NamedRef[]>([])
   const partyMasters = usePartyMasters()
@@ -1055,27 +1319,6 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
       .then(d => setContactTypes(Array.isArray(d) ? d : []))
       .catch(() => toast('Failed to load contact types', 'error'))
   }, [toast])
-
-  async function confirmDelete() {
-    const row = deleting
-    if (!row) return
-    setDeleting(null)
-    const res = await fetch(`/api/contacts/${row.id}`, { method: 'DELETE' })
-    const data = await res.json().catch(() => ({}))
-    // 404: already gone (deleted in another tab, or no longer in scope) — the
-    // outcome the user asked for, so refresh rather than report an error.
-    if (res.status === 404) {
-      toast('This record was already deleted', 'info')
-      setRefreshKey(k => k + 1)
-      return
-    }
-    if (!res.ok) {
-      toast((data as { error?: string }).error ?? 'Delete failed', 'error')
-      return
-    }
-    toast('Deleted successfully')
-    setRefreshKey(k => k + 1)
-  }
 
   /*
    * Not memoised, no catch — see the Companies tab's `load` for why both of
@@ -1184,7 +1427,14 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
             </PermissionTooltip>
           </div>
         }
-        columns={contactColumns({ canDelete, onDelete: setDeleting })}
+        columns={contactColumns({
+          canDelete,
+          canMakeIndividual,
+          actionsKnown,
+          busyId: makingIndividualId,
+          onDelete: row => void startDelete(row),
+          onMakeIndividual: row => void makeIndividual(row),
+        })}
         rowKey={row => row.id}
         filters={filters}
         load={load}
@@ -1214,27 +1464,68 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
         }}
       />
 
-      <AlertDialog
-        open={deleting !== null}
-        onOpenChange={o => { if (!o) setDeleting(null) }}
+      <IndividualConflictDialog
+        conflict={individualConflict}
+        onOpenChange={open => { if (!open) setIndividualConflict(null) }}
+      />
+
+      {/* Deletion is BLOCKED, not just warned about — same as the Contact
+          page — so this carries no confirm option, only a way out (and a
+          link to the Self account when that is the reason). */}
+      <Dialog
+        open={deleteFlow?.stage === 'blocked'}
+        onOpenChange={open => { if (!open) setDeleteFlow(null) }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The contact is withdrawn from the list and from every company it
-              is linked to. The record itself is kept, so anything already
-              referring to this person still reads correctly.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>
-              Delete contact
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>This contact cannot be deleted</DialogTitle>
+            <DialogDescription>
+              {deleteFlow?.stage === 'blocked' ? deleteFlow.message : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary">Close</Button>} />
+            {deleteFlow?.stage === 'blocked' && deleteFlow.selfAccountId ? (
+              <Button render={<Link href={`/parties/companies/${deleteFlow.selfAccountId}`} />}>
+                Go to that account
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* The dry-run 409: list what this delete will unlink, then let the
+          user actually confirm it — same flow as the Contact page. */}
+      <Dialog
+        open={deleteFlow?.stage === 'confirm'}
+        onOpenChange={open => { if (!open) setDeleteFlow(null) }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Delete {deleteFlow?.row.name}?</DialogTitle>
+            <DialogDescription>
+              This also removes {deleteFlow?.row.name} from the account{
+                deleteFlow?.stage === 'confirm' && deleteFlow.linkedAccounts.length === 1 ? '' : 's'
+              } below. The contact is deactivated, not erased.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteFlow?.stage === 'confirm' && deleteFlow.linkedAccounts.length > 0 && (
+            <ul className="flex flex-col gap-1 rounded-lg border border-border-light bg-surface-control px-3 py-2">
+              {deleteFlow.linkedAccounts.map(a => (
+                <li key={a.id} className="text-body text-text-primary">
+                  {a.name}
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary">Cancel</Button>} />
+            <Button variant="danger" onClick={() => void confirmDeleteFlow()} disabled={deleting}>
+              {deleting ? 'Deleting…' : 'Confirm delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

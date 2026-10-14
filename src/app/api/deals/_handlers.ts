@@ -7,6 +7,8 @@ import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { trimmed } from '@/lib/validation'
 import { DEAL_LIST_INCLUDE, checkProbability, shapeDeal } from './_shape'
 import { foreignDealRef } from './_access'
+import { getCompanyAccessLevel, getCompanyMemberships, getDealMemberships, meets, richer, widenScope, type MemberAccess } from '@/lib/sharing'
+import { contactLinkedToCompany } from './_access'
 
 /**
  * Deals — the Phase 2 entity (REBUILD-PLAN.md §4).
@@ -67,13 +69,29 @@ export async function GET(req: NextRequest) {
   // and unlike an activity row, so the column is passed to scopeWhere()
   // explicitly. `?ownerId=` INTERSECTS the allowed set — it narrows, it never
   // widens (see intersectScope's comment; that is gap G3).
-  const ids = intersectScope(await scopedUserIds(user, 'deals'), sp.get('ownerId'))
+  const requestedOwner = sp.get('ownerId')
+  const ids = intersectScope(await scopedUserIds(user, 'deals'), requestedOwner)
 
   try {
+    // Sharing (src/lib/sharing.ts), OR-ed into the scope and never in place of
+    // it: every deal on an account shared with the caller, plus every deal
+    // shared with them directly. Not under Company scope (already everything)
+    // and not when `?ownerId=` narrows to one owner. Nothing shared → the query
+    // is unchanged.
+    //
+    // ⚠️ This is the LIST. Pipeline reports, dashboards, reminders and the
+    // Missed / outcome counts stay owner-based and do not read sharing.
+    const widen = ids !== null && !requestedOwner
+    const [accounts, direct] = widen
+      ? await Promise.all([getCompanyMemberships(user, tid), getDealMemberships(user, tid)])
+      : [new Map<string, MemberAccess>(), new Map<string, MemberAccess>()]
     const rows = await prisma.deals.findMany({
       where: {
         tenant_id: tid,
-        ...scopeWhere(ids, 'owner_user_id'),
+        ...widenScope(scopeWhere(ids, 'owner_user_id'), [
+          ...(accounts.size ? [{ company_id: { in: [...accounts.keys()] } }] : []),
+          ...(direct.size ? [{ id: { in: [...direct.keys()] } }] : []),
+        ]),
         ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
         ...(stageId ? { deal_stage_id: stageId } : {}),
         ...(companyId ? { company_id: companyId } : {}),
@@ -88,7 +106,22 @@ export async function GET(req: NextRequest) {
     // every total downstream; `expected_close_date` and the nested
     // `deal_follow_ups.due_date` are @db.Date and must come back "YYYY-MM-DD".
     // Both only happen while the relation keys are still Prisma's own.
-    const data = (serialize(rows, 'deals') as Record<string, unknown>[]).map(shapeDeal)
+    const data = (serialize(rows, 'deals') as Record<string, unknown>[])
+      .map(shapeDeal)
+      // `shared_access` only on a row the caller sees BECAUSE it was shared
+      // (its owner is outside their scope); the richer of the account share
+      // and the direct share. `null` everywhere else.
+      .map(row => {
+        const r = row as { id: string; owner_user_id?: string | null; company_id?: string | null }
+        const viaScope = ids === null || (!!r.owner_user_id && ids.includes(r.owner_user_id))
+        const shared = viaScope
+          ? null
+          : richer(
+              (r.company_id ? accounts.get(r.company_id) : undefined) ?? null,
+              direct.get(r.id) ?? null
+            )
+        return { ...row, shared_access: shared }
+      })
 
     return NextResponse.json(data)
   } catch (err) {
@@ -123,6 +156,14 @@ function parseExpectedValue(value: unknown): { value: number } | { error: string
  * `stage_entered_at` is set to now() here rather than left to the column
  * default so the ageing clock (§4.7) starts from creation for certain, and so
  * the same expression is used on create and on every stage move.
+ *
+ * §7 (spec, 2026-10-13): **the account is now required.** An opportunity with
+ * no account was the old rule (§4.1's "company and contact are both optional")
+ * — a Deal already carrying no account keeps working everywhere else (GET,
+ * stage moves, won/lost, follow-ups all read `company_id` as nullable still),
+ * but a NEW one must name the account it is for. The optional contact, when
+ * given, must be one of that account's own linked people — a contact from a
+ * different account is a 400, not a silent cross-link.
  */
 export async function POST(req: NextRequest) {
   const user = await requireUser()
@@ -136,6 +177,7 @@ export async function POST(req: NextRequest) {
   } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'Opportunity name is required' }, { status: 400 })
+  if (!company_id) return NextResponse.json({ error: 'Choose the account this opportunity is for.' }, { status: 400 })
 
   // Validated in the route AND in the database. The CHECK is what makes the
   // rule true; this is what makes it a sentence the user can read instead of a
@@ -150,6 +192,19 @@ export async function POST(req: NextRequest) {
   try {
     const miss = await foreignDealRef(tid, body)
     if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
+    // The account must be one the caller can at least READ (owner-scope, or a
+    // sharing membership) — `foreignDealRef` only proves it is this tenant's,
+    // which would otherwise let a caller file an opportunity against an
+    // account they cannot open themselves.
+    const companyAccess = await getCompanyAccessLevel(user, tid, company_id)
+    if (!meets(companyAccess, 'read')) {
+      return NextResponse.json({ error: 'Choose the account this opportunity is for.' }, { status: 400 })
+    }
+
+    if (!(await contactLinkedToCompany(tid, company_id, contact_id))) {
+      return NextResponse.json({ error: 'That contact is not linked to the chosen account.' }, { status: 400 })
+    }
 
     const created = await prisma.deals.create({
       data: {

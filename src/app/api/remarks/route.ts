@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { denySummaryThreadViolation, resolveRemarkContext } from './_access'
 import { isSummaryContext } from './_context'
+import { businessDate } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,7 +40,10 @@ export async function GET(req: NextRequest) {
         context_type: ctx.contextType,
         context_id: ctx.contextId,
       },
-      include: { users: { select: { id: true, name: true } } },
+      include: {
+        users: { select: { id: true, name: true } },
+        _count: { select: { other_contextual_remarks: true } },
+      },
       orderBy: { created_at: 'asc' },
     })
 
@@ -57,8 +61,27 @@ export async function GET(req: NextRequest) {
       readSet = new Set(reads.map(r => r.remark_id))
     }
 
+    const today = businessDate()
     const data = serialize(rows, 'contextual_remarks') as Record<string, unknown>[]
-    const enriched = data.map(r => ({ ...r, is_read: readSet.has(r.id as string) }))
+    const enriched = data.map((r, i) => {
+      const row = rows[i]
+      const isOwn = row.author_user_id === user.userId
+      const edited =
+        row.updated_at instanceof Date &&
+        row.updated_at.getTime() - row.created_at.getTime() > 1000
+      const canDelete =
+        isOwn &&
+        row.context_type === 'meeting' &&
+        businessDate(row.created_at) === today &&
+        row._count.other_contextual_remarks === 0
+      return {
+        ...r,
+        is_read: readSet.has(r.id as string),
+        edited,
+        can_edit: isOwn,
+        can_delete: canDelete,
+      }
+    })
     /*
      * `context_id` is echoed because for a summary the caller never sent one —
      * it was derived here — and the client needs it to mark a remark read and

@@ -16,9 +16,8 @@ import { Truncate } from '@/components/ui/truncate'
  * `components/ui/board.tsx` already owns four of the five things F9 asks for,
  * and owns them against real data on the Deals screen:
  *
- *   - seven columns maximum, and it THROWS past seven. Everywhere else that
- *     cap is a worry, because `deal_stages` is user-editable. Here the seven
- *     are Monday to Sunday, so the constraint is the requirement.
+ *   - one column per value it is given. Here the seven are Monday to
+ *     Sunday, always exactly seven.
  *   - each column scrolls vertically on its own, 25 cards then Load more.
  *   - the heading states the TRUE total, never the rendered count.
  *   - the row scrolls horizontally when seven columns do not fit.

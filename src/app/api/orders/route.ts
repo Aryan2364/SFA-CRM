@@ -5,8 +5,11 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { firstForeignTenantRef } from '@/lib/tenant-fk'
+import { getAccessibleCompanyIds, widenScope } from '@/lib/sharing'
+import { sharedOrderWhere } from './_access'
 import { getGstRequiredForOrders } from '@/lib/gst-setting'
 import { effectiveBlockedReason, effectiveMissing, effectivelyComplete } from '@/lib/gst-policy'
+import { readAccountKind } from '@/lib/account-kind'
 import {
   isOrderStatus,
   orderTotals,
@@ -173,8 +176,9 @@ async function placementBlock(
   if (!party) return 'Party is not a saved record'
   // A tenant that does not require GST lets a party missing only its GST
   // number through (src/lib/gst-policy.ts). The stored is_complete is the
-  // full five-field rule either way.
-  const gstRequired = await getGstRequiredForOrders(tenantId)
+  // full five-field rule either way. An Individual account (docs/accounts-contacts-spec.md
+  // §1) is never gated on GST, whatever the tenant's switch says.
+  const gstRequired = (await getGstRequiredForOrders(tenantId)) && (await readAccountKind(tenantId, entityId)) === 'Company'
   if (effectivelyComplete(party.is_complete, party.completeness_missing, gstRequired)) return null
 
   return `Party is incomplete: ${effectiveMissing(party.completeness_missing, gstRequired) || 'required details missing'}`
@@ -246,10 +250,17 @@ export async function GET(req: NextRequest) {
   if (ids && ids.length === 0) return NextResponse.json([])
 
   try {
+    // Sharing (src/lib/sharing.ts): the orders of accounts shared with the
+    // caller (any level), reached the same two ways as the `entityId` filter
+    // below, OR-ed into the scope — never in place of it. Not under Company
+    // scope, not when `?userId=` narrows to one person. Opportunity-only
+    // sharing reaches no orders. Nothing shared → the query is unchanged.
+    // ⚠️ The list only: order reports and dashboards stay owner-based.
+    const shared = ids === null || userId ? [] : await getAccessibleCompanyIds(user, tid)
     const rows = await prisma.orders.findMany({
       where: {
         tenant_id: tid,
-        ...scopeWhere(ids),
+        ...widenScope(scopeWhere(ids), sharedOrderWhere(tid, shared)),
         ...(status ? { status } : {}),
         ...(discounted === 'yes' ? { has_discount: true } : {}),
         ...(discounted === 'no' ? { has_discount: false } : {}),

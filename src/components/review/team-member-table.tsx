@@ -37,9 +37,15 @@ export type TeamMemberRow = {
   expenseTotal: number
   orderCount: number
   orderValue: number
+  /** To-dos due this week that were never started or moved (src/lib/missed-todos.ts). */
+  missedCount: number
+  /** Every to-do's end state for the week — see countOutcomesByUser(). */
+  outcomeCounts: { met: number; metLate: number; couldntMeet: number; missed: number }
+  /** Parties this person has "couldn't meet" 3+ times in the last 30 days. */
+  repeatedCouldntMeet: { party_id: string; party_name: string | null }[]
 }
 
-type SortKey = 'name' | 'plannedGoal' | 'meetings' | 'ticked' | 'notMet' | 'newParties' | 'expenseTotal' | 'orderValue'
+type SortKey = 'name' | 'plannedGoal' | 'meetings' | 'ticked' | 'notMet' | 'met' | 'metLate' | 'couldntMeet' | 'missedCount' | 'newParties' | 'expenseTotal' | 'orderValue'
 
 const COLUMNS: { key: SortKey; header: string; numeric: boolean; render: (r: TeamMemberRow) => string }[] = [
   { key: 'name', header: 'Person', numeric: false, render: r => r.name },
@@ -47,6 +53,10 @@ const COLUMNS: { key: SortKey; header: string; numeric: boolean; render: (r: Tea
   { key: 'meetings', header: 'Meetings', numeric: true, render: r => fmtNumber(r.meetings) },
   { key: 'ticked', header: 'Ticked / open', numeric: true, render: r => `${fmtNumber(r.ticked)} / ${fmtNumber(r.open)}` },
   { key: 'notMet', header: 'Not met', numeric: true, render: r => fmtNumber(r.notMet) },
+  { key: 'met', header: 'Met', numeric: true, render: r => fmtNumber(r.outcomeCounts.met) },
+  { key: 'metLate', header: 'Met late', numeric: true, render: r => fmtNumber(r.outcomeCounts.metLate) },
+  { key: 'couldntMeet', header: "Couldn't meet", numeric: true, render: r => fmtNumber(r.outcomeCounts.couldntMeet) },
+  { key: 'missedCount', header: 'Missed', numeric: true, render: r => fmtNumber(r.missedCount) },
   { key: 'newParties', header: 'New parties', numeric: true, render: r => fmtNumber(r.newParties) },
   { key: 'expenseTotal', header: 'Expenses', numeric: true, render: r => fmtAmount(r.expenseTotal) },
   { key: 'orderValue', header: 'Order value', numeric: true, render: r => fmtAmount(r.orderValue) },
@@ -64,9 +74,15 @@ export function TeamMemberTable({
 
   const sorted = useMemo(() => {
     const copy = [...rows]
+    const value = (r: TeamMemberRow): number | string => {
+      if (sortKey === 'met') return r.outcomeCounts.met
+      if (sortKey === 'metLate') return r.outcomeCounts.metLate
+      if (sortKey === 'couldntMeet') return r.outcomeCounts.couldntMeet
+      return r[sortKey] as number | string
+    }
     copy.sort((a, b) => {
       if (sortKey === 'name') return asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
-      const diff = (a[sortKey] as number) - (b[sortKey] as number)
+      const diff = (value(a) as number) - (value(b) as number)
       return asc ? diff : -diff
     })
     return copy
@@ -115,6 +131,20 @@ export function TeamMemberTable({
                     >
                       {r.name}
                     </Link>
+                  </td>
+                ) : c.key === 'couldntMeet' ? (
+                  <td key={c.key} className="py-3 pr-3 text-right tabular-nums">
+                    <span className="inline-flex items-center justify-end gap-1.5">
+                      {c.render(r)}
+                      {r.repeatedCouldntMeet.length > 0 && (
+                        <span
+                          className="inline-flex size-4 items-center justify-center rounded-full bg-warning-surface text-[10px] font-semibold text-warning"
+                          title={`Couldn't meet 3+ times with: ${r.repeatedCouldntMeet.map(p => p.party_name ?? 'Unknown').join(', ')}`}
+                        >
+                          !
+                        </span>
+                      )}
+                    </span>
                   </td>
                 ) : (
                   <td

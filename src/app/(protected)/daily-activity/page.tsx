@@ -37,11 +37,18 @@ import { ExpensesTab } from '@/components/daily-activity/expenses-tab'
 import { OrderEntryDialog } from '@/components/daily-activity/order-entry-dialog'
 import { PlannedCard } from '@/components/daily-activity/planned-card'
 import { SummaryTab } from '@/components/daily-activity/summary-tab'
+import { TodoCard } from '@/components/daily-activity/todo-card'
+import { MissedSection, type MergedMissed } from '@/components/daily-activity/missed-section'
+import { CouldntMeetDialog, type CouldntMeetTarget } from '@/components/daily-activity/couldnt-meet-dialog'
+import { NextMeetingDialog } from '@/components/daily-activity/next-meeting-dialog'
 import { VisitCard } from '@/components/daily-activity/visit-card'
 import { WeekStrip } from '@/components/daily-activity/week-strip'
 import {
   Expense,
+  FollowUpItem,
   getPosition,
+  MissedTodo,
+  NextMeetingItem,
   PlannedItem,
   reverseGeocode,
   toDateStr,
@@ -98,15 +105,26 @@ function DailyActivityInner() {
   const [visitsLoading, setVisitsLoading] = useState(true)
   const [planned, setPlanned] = useState<PlannedItem[]>([])
   const [plannedLoading, setPlannedLoading] = useState(true)
+  const [followUps, setFollowUps] = useState<FollowUpItem[]>([])
+  const [nextMeetings, setNextMeetings] = useState<NextMeetingItem[]>([])
+  const [missed, setMissed] = useState<MissedTodo[]>([])
+  const [todosLoading, setTodosLoading] = useState(true)
+  const [startingMissed, setStartingMissed] = useState<string | null>(null)
+  const [couldntMeetTarget, setCouldntMeetTarget] = useState<CouldntMeetTarget | null>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [expensesLoading, setExpensesLoading] = useState(true)
 
   const [acting, setActing] = useState(false)
   const [startingPlanItem, setStartingPlanItem] = useState<string | null>(null)
-  const [meetingDialog, setMeetingDialog] = useState<{ open: boolean; planItem: PlannedItem | null }>({ open: false, planItem: null })
+  const [startingTodo, setStartingTodo] = useState<string | null>(null)
+  const [meetingDialog, setMeetingDialog] = useState<{ open: boolean; planItem: PlannedItem | null; followUpId?: string | null }>({ open: false, planItem: null })
   const [orderEntry, setOrderEntry] = useState<Visit | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Visit | null>(null)
   const [locationDenied, setLocationDenied] = useState<{ visitId: string; action: 'start' | 'stop' } | null>(null)
+  /* "Next meeting?" — opened automatically right after a successful Stop
+     (`mode: 'prompt'`), and from the Completed card's own "Next meeting"
+     button (`mode: 'manage'`), which is always available. */
+  const [nextMeetingDialog, setNextMeetingDialog] = useState<{ visitId: string; mode: 'prompt' | 'manage' } | null>(null)
 
   const [remarksPanel, setRemarksPanel] = useState<{ contextType: 'meeting' | 'expense'; contextId: string; title: string } | null>(null)
   const initialRemarks = searchParams.get('remarks')
@@ -135,6 +153,10 @@ function DailyActivityInner() {
   // checks orders.create (and orders.edit as well on a re-punch, which the
   // card cannot see from the day's list).
   const canTakeOrder = !!perms?.orders?.create
+  // Missed → Move reuses each source's own route and permission: a
+  // follow-up's due date is deals:edit, an account's next-meeting date is
+  // companies:edit — never a hardcoded role, and never the meetings
+  // permission that gates everything else on this screen.
   // What the cards are handed: `null` until /me has answered, so a control
   // is shown disabled with no reason rather than refused (kit §26).
   const known = (allowed: boolean) => (me ? allowed : null)
@@ -164,6 +186,29 @@ function DailyActivityInner() {
     setPlannedLoading(false)
   }, [selectedDate])
 
+  /**
+   * To-dos b) and c), relayed task — open Opportunity follow-ups and
+   * accounts' own `next_follow_up_date`, from the ONE new route that
+   * answers both (`/api/daily-activity/todos`). Kept separate from
+   * `loadPlanned` because they are a separate endpoint with its own
+   * loading flag; the Meetings list below composes all three sources.
+   */
+  const loadTodos = useCallback(async () => {
+    setTodosLoading(true)
+    try {
+      const r = await fetch(`/api/daily-activity/todos?date=${selectedDate}`)
+      const d = r.ok ? await r.json() : { followups: [], nextMeetings: [], missed: [] }
+      setFollowUps(Array.isArray(d.followups) ? d.followups : [])
+      setNextMeetings(Array.isArray(d.nextMeetings) ? d.nextMeetings : [])
+      setMissed(Array.isArray(d.missed) ? d.missed : [])
+    } catch {
+      setFollowUps([])
+      setNextMeetings([])
+      setMissed([])
+    }
+    setTodosLoading(false)
+  }, [selectedDate])
+
   const loadExpenses = useCallback(async () => {
     setExpensesLoading(true)
     try {
@@ -178,6 +223,7 @@ function DailyActivityInner() {
 
   useEffect(() => { void loadVisits() }, [loadVisits])
   useEffect(() => { void loadPlanned() }, [loadPlanned])
+  useEffect(() => { void loadTodos() }, [loadTodos])
   useEffect(() => { void loadExpenses() }, [loadExpenses])
 
   // Week navigation, relative to the week currently in view rather than to
@@ -215,6 +261,10 @@ function DailyActivityInner() {
     }
     setMeetingDialog({ open: false, planItem: null })
     await loadVisits()
+    // A follow-up with no company opens this same dialog (see
+    // `meetingDialog.followUpId`); its card only disappears once the
+    // follow-up row the server linked it to drops off `/todos`.
+    if (partial.deal_follow_up_id) await loadTodos()
   }
 
   /**
@@ -249,6 +299,132 @@ function DailyActivityInner() {
     await loadVisits()
     setStartingPlanItem(null)
     await handleStart(created.id)
+  }
+
+  /**
+   * To-do b) — an Opportunity follow-up whose deal HAS a company: Start
+   * creates the meeting with that company (same visit-type derivation as
+   * `handleStartPlanned`), the server links it to the deal
+   * (`deal_meetings`) and to the follow-up (`deal_follow_ups.visit_id`),
+   * then it is started the same way as any other meeting. A follow-up
+   * whose deal has NO company cannot auto-start — nothing to create the
+   * meeting with — so that card's Start opens `AddMeetingDialog` instead;
+   * see `meetingDialog.followUpId` in the render below.
+   */
+  async function handleStartFollowUp(item: FollowUpItem) {
+    if (!item.company_id || !item.company_name) return
+    setStartingTodo(item.id)
+    const r = await fetch('/api/daily-activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        visit_date: selectedDate,
+        visit_type: item.company_visit_type || OTHER_VISIT_TYPE,
+        entity_id: item.company_id,
+        entity_name: item.company_name,
+        is_new_entity: false,
+        deal_follow_up_id: item.id,
+      }),
+    })
+    if (!r.ok) {
+      toast((await r.json()).error ?? 'Could not start the meeting', 'error')
+      setStartingTodo(null)
+      return
+    }
+    const created: Visit = await r.json()
+    await loadVisits()
+    await loadTodos()
+    setStartingTodo(null)
+    await handleStart(created.id)
+  }
+
+  /**
+   * To-do c) — an account whose own `next_follow_up_date` is today. Start
+   * creates and starts a plain meeting with that account; nothing is
+   * written back to `companies.next_follow_up_date`, which stays
+   * informational only, and no deal linking applies (c) has no deal).
+   */
+  async function handleStartNextMeeting(item: NextMeetingItem) {
+    setStartingTodo(item.id)
+    const r = await fetch('/api/daily-activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        visit_date: selectedDate,
+        visit_type: item.type || OTHER_VISIT_TYPE,
+        entity_id: item.id,
+        entity_name: item.name,
+        is_new_entity: false,
+      }),
+    })
+    if (!r.ok) {
+      toast((await r.json()).error ?? 'Could not start the meeting', 'error')
+      setStartingTodo(null)
+      return
+    }
+    const created: Visit = await r.json()
+    await loadVisits()
+    await loadTodos()
+    setStartingTodo(null)
+    await handleStart(created.id)
+  }
+
+  /**
+   * Missed → Start. One meeting, created today, linked to every movable
+   * source in the merged group (a plan line AND a follow-up on the same
+   * account both ride on the one POST — see `/api/daily-activity`). A
+   * plan-line-only group has no party the card can act on without the
+   * dialog (the party IS the heading, but the line is never re-linked —
+   * §5.3's own rule), so it opens `AddMeetingDialog` pre-filled instead.
+   */
+  async function handleStartMissed(group: MergedMissed) {
+    const followUp = group.items.find(i => i.kind === 'followup') ?? null
+    const planOnly = group.items.every(i => i.kind === 'plan')
+    if (planOnly || !group.party_id) {
+      setMeetingDialog({ open: true, planItem: null, followUpId: followUp?.id ?? null })
+      return
+    }
+    setStartingMissed(group.key)
+    const visitType = group.items.find(i => i.visit_type)?.visit_type || OTHER_VISIT_TYPE
+    const r = await fetch('/api/daily-activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        visit_date: selectedDate,
+        visit_type: visitType,
+        entity_id: group.party_id,
+        entity_name: group.heading,
+        is_new_entity: false,
+        ...(followUp ? { deal_follow_up_id: followUp.id } : {}),
+      }),
+    })
+    if (!r.ok) {
+      toast((await r.json()).error ?? 'Could not start the meeting', 'error')
+      setStartingMissed(null)
+      return
+    }
+    const created: Visit = await r.json()
+    await loadVisits()
+    await loadTodos()
+    setStartingMissed(null)
+    await handleStart(created.id)
+  }
+
+  /** Opens the Couldn't-meet dialog for a Missed group — the plain Move
+   *  action is gone (see missed-section.tsx); a new date, when given in the
+   *  dialog, reschedules through the same route Move used to call. Picks
+   *  one representative item from the group for `todo_kind`/`todo_ref`
+   *  (merged groups share one party, so a follow-up and a next-meeting on
+   *  the same account resolve to the same reschedule target either way). */
+  function handleCouldntMeetMissed(group: MergedMissed) {
+    const first = group.items[0]
+    setCouldntMeetTarget({
+      todo_kind: first.kind === 'next-meeting' ? 'next_meeting' : first.kind,
+      todo_ref: first.id,
+      party_id: first.party_id,
+      due_date: group.originalDate,
+      heading: group.heading,
+    })
   }
 
   async function handleStart(id: string) {
@@ -301,8 +477,13 @@ function DailyActivityInner() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (!r.ok) toast((await r.json()).error ?? 'Could not stop the meeting', 'error')
-    else await loadVisits()
+    if (!r.ok) {
+      toast((await r.json()).error ?? 'Could not stop the meeting', 'error')
+    } else {
+      await loadVisits()
+      // The "Next meeting?" prompt, right after a successful stop.
+      setNextMeetingDialog({ visitId: id, mode: 'prompt' })
+    }
     setActing(false)
   }
 
@@ -323,10 +504,26 @@ function DailyActivityInner() {
    * A planned line stops standing on its own once a meeting carries its
    * id — from then on the meeting IS the line, and showing both would be
    * the same work listed twice.
+   *
+   * BUG FIX (relayed task): editing or re-approving a weekly plan deletes
+   * and recreates its `weekly_plan_items` rows with NEW ids
+   * (`/api/weekly-plans/[id]/route.ts` and `.../edit-by-manager/route.ts`,
+   * both ~line 120-210). A line already started carries the OLD id on its
+   * visit, so after a re-approve that id matches nothing in the fresh
+   * `planned` list and the line reappeared as a second, duplicate card
+   * beside the meeting it already became.
+   *
+   * No schema change is available here, so the second filter below widens
+   * "claimed" to same party + same day, not just same id: if the viewer
+   * already has a visit today whose `entity_id` equals the plan line's
+   * `party_id`, that line is done too, regardless of which
+   * `weekly_plan_item_id` (old or new) the visit happens to carry. A route
+   * line (`party_id` null) cannot collide this way and is unaffected.
    */
   const openPlanned = useMemo(() => {
-    const claimed = new Set(visits.map(v => v.weekly_plan_item_id).filter(Boolean) as string[])
-    return planned.filter(p => !claimed.has(p.id))
+    const claimedIds = new Set(visits.map(v => v.weekly_plan_item_id).filter(Boolean) as string[])
+    const metPartyIds = new Set(visits.map(v => v.entity_id).filter(Boolean) as string[])
+    return planned.filter(p => !claimedIds.has(p.id) && !(p.party_id && metPartyIds.has(p.party_id)))
   }, [planned, visits])
 
   const displayDate = new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', {
@@ -407,11 +604,12 @@ function DailyActivityInner() {
         {/* ZONE 2 — the only scrolling zone. */}
         <div className="min-h-0 flex-1 overflow-y-auto">
           <TabsContent value="meetings" className="pt-4">
-            {visitsLoading || plannedLoading ? (
+            {visitsLoading || plannedLoading || todosLoading ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {[0, 1, 2].map(i => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}
               </div>
-            ) : visits.length === 0 && openPlanned.length === 0 ? (
+            ) : visits.length === 0 && openPlanned.length === 0 && followUps.length === 0 && nextMeetings.length === 0 &&
+                !(selectedDate === toDateStr(new Date()) && missed.length > 0) ? (
               <EmptyState
                 variant="nothing-yet"
                 heading="Nothing on this day"
@@ -420,18 +618,61 @@ function DailyActivityInner() {
               >
                 {isFuture
                   ? 'Meetings cannot be logged for a future date.'
-                  : 'Approved weekly-plan lines appear here on their own. Anything unplanned is logged by hand.'}
+                  : 'Approved weekly-plan lines, due follow-ups and next-meeting accounts appear here on their own. Anything unplanned is logged by hand.'}
               </EmptyState>
             ) : (
               <div className="space-y-4">
+                {/* To do = planned lines + follow-ups + next-meeting
+                    accounts, none of which are a meeting yet. */}
                 <p className="text-body text-text-secondary">
-                  {openPlanned.length > 0 && <>{openPlanned.length} planned · </>}
+                  {(openPlanned.length + followUps.length + nextMeetings.length) > 0 && (
+                    <>{openPlanned.length + followUps.length + nextMeetings.length} to do · </>
+                  )}
                   {visits.length} logged
                   {activeCount > 0 && <> · {activeCount} active</>}
                   {doneCount > 0 && <> · {doneCount} done</>}
                   {manualCount > 0 && <> · {manualCount} manually entered</>}
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {followUps.map(item => (
+                    <TodoCard
+                      key={`fu-${item.id}`}
+                      kind="followup"
+                      heading={item.company_name ?? item.deal_name}
+                      subheading={[
+                        [`Opportunity: ${item.deal_name}`, item.mode !== 'Meeting' ? item.mode : ''].filter(Boolean).join(' · '),
+                        item.notes ?? '',
+                      ].filter(Boolean)}
+                      offered={isFuture ? false : me ? true : null}
+                      canStart={known(canLogMeeting && canEditMeeting)}
+                      starting={startingTodo === item.id}
+                      onStart={() =>
+                        item.company_id && item.company_name
+                          ? handleStartFollowUp(item)
+                          : setMeetingDialog({ open: true, planItem: null, followUpId: item.id })
+                      }
+                      onCouldntMeet={() => setCouldntMeetTarget({
+                        todo_kind: 'followup', todo_ref: item.id, party_id: item.company_id ?? null,
+                        due_date: selectedDate, heading: item.company_name ?? item.deal_name,
+                      })}
+                    />
+                  ))}
+                  {nextMeetings.map(item => (
+                    <TodoCard
+                      key={`nm-${item.id}`}
+                      kind="next-meeting"
+                      heading={item.name}
+                      subheading={[]}
+                      offered={isFuture ? false : me ? true : null}
+                      canStart={known(canLogMeeting && canEditMeeting)}
+                      starting={startingTodo === item.id}
+                      onStart={() => handleStartNextMeeting(item)}
+                      onCouldntMeet={() => setCouldntMeetTarget({
+                        todo_kind: 'next_meeting', todo_ref: item.id, party_id: item.id,
+                        due_date: selectedDate, heading: item.name,
+                      })}
+                    />
+                  ))}
                   {openPlanned.map(item => (
                     <PlannedCard
                       key={item.id}
@@ -450,6 +691,10 @@ function DailyActivityInner() {
                       starting={startingPlanItem === item.id}
                       onStart={handleStartPlanned}
                       onAddMeeting={p => setMeetingDialog({ open: true, planItem: p })}
+                      onCouldntMeet={p => setCouldntMeetTarget({
+                        todo_kind: 'plan', todo_ref: p.id, party_id: p.party_id ?? null,
+                        due_date: selectedDate, heading: p.party_name ?? 'Planned visit',
+                      })}
                     />
                   ))}
                   {/*
@@ -476,12 +721,32 @@ function DailyActivityInner() {
                       onDelete={setPendingDelete}
                       onOrderEntry={setOrderEntry}
                       onMinutes={v => setRemarksPanel({ contextType: 'meeting', contextId: v.id, title: v.entity_name })}
+                      onSetNextMeeting={v => setNextMeetingDialog({ visitId: v.id, mode: 'manage' })}
                     />
                   ))}
                 </div>
+
+                {/* Only on TODAY — a past day's own list is a report, not a
+                    to-do list, and items missed before that day are not
+                    this day's problem. */}
+                {selectedDate === toDateStr(new Date()) && (
+                  <MissedSection
+                    items={missed}
+                    canStart={known(canLogMeeting && canEditMeeting)}
+                    startingKey={startingMissed}
+                    onStart={handleStartMissed}
+                    onCouldntMeet={handleCouldntMeetMissed}
+                  />
+                )}
               </div>
             )}
           </TabsContent>
+
+          <CouldntMeetDialog
+            target={couldntMeetTarget}
+            onClose={() => setCouldntMeetTarget(null)}
+            onSaved={async () => { setCouldntMeetTarget(null); await loadTodos() }}
+          />
 
           <TabsContent value="expenses" className="pt-4">
             <ExpensesTab
@@ -505,8 +770,9 @@ function DailyActivityInner() {
 
       <AddMeetingDialog
         open={meetingDialog.open}
-        onOpenChange={v => setMeetingDialog(s => ({ open: v, planItem: v ? s.planItem : null }))}
+        onOpenChange={v => setMeetingDialog(s => ({ open: v, planItem: v ? s.planItem : null, followUpId: v ? s.followUpId : null }))}
         planItem={meetingDialog.planItem}
+        followUpId={meetingDialog.followUpId}
         visitDate={selectedDate}
         onAdd={handleAdd}
       />
@@ -529,6 +795,15 @@ function DailyActivityInner() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {nextMeetingDialog && (
+        <NextMeetingDialog
+          visitId={nextMeetingDialog.visitId}
+          mode={nextMeetingDialog.mode}
+          onClose={() => setNextMeetingDialog(null)}
+          onSaved={loadVisits}
+        />
+      )}
 
       {/* Location is refused by the BROWSER, not by this app, so the way
           out is an instruction plus a retry — never a dead end. */}
