@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
   // `expenses` drove nav visibility only — no route enforced it before P4-T1.
   if (!await checkPermission(user, 'expenses', 'view')) return forbidden()
   if (!user.userId) return NextResponse.json([])
-  const date = req.nextUrl.searchParams.get('date') ?? businessDate()
   // Self by default: this list is Daily Activity's Expenses tab, where the
   // caller enters their own expenses. Reviewing someone else's is
   // /api/review/expenses. `?userId=` can only narrow the `expenses` scope.
@@ -23,15 +22,34 @@ export async function GET(req: NextRequest) {
   const ids = requested
     ? intersectScope(await scopedUserIds(user, 'expenses'), requested)
     : [user.userId]
+  // Two shapes: `?date=` (original, single day, used by the desktop Daily
+  // Activity tab) or `?from=&to=` (inclusive range, added for the phone
+  // Expenses list — newest first, across a week/month rather than one day).
+  // Neither is required; with nothing given it falls back to today.
+  const from = req.nextUrl.searchParams.get('from')
+  const to = req.nextUrl.searchParams.get('to')
+  const date = req.nextUrl.searchParams.get('date')
+  // Strict "YYYY-MM-DD" format only (not calendar validity), matching the
+  // pattern used elsewhere (e.g. src/app/api/journal/route.ts).
+  const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+  if (from && !DATE_ONLY.test(from)) {
+    return NextResponse.json({ error: 'from must be YYYY-MM-DD' }, { status: 400 })
+  }
+  if (to && !DATE_ONLY.test(to)) {
+    return NextResponse.json({ error: 'to must be YYYY-MM-DD' }, { status: 400 })
+  }
+  const expenseDateFilter = from || to
+    ? { gte: from ? new Date(from) : undefined, lte: to ? new Date(to) : undefined }
+    : new Date(date ?? businessDate())
   try {
     const data = await prisma.expenses.findMany({
       where: {
         tenant_id: getTenantId(),
         ...scopeWhere(ids),
         // expense_date is @db.Date.
-        expense_date: new Date(date),
+        expense_date: expenseDateFilter,
       },
-      orderBy: { created_at: 'asc' },
+      orderBy: { created_at: from || to ? 'desc' : 'asc' },
     })
     // amount is NUMERIC and expense_date is DATE (PLAN.md 5.1).
     // photo_url is rendered as an <a href>; a row written before POST

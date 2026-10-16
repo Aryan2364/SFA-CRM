@@ -25,8 +25,11 @@ import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
+import { useLayout } from '@/lib/layout'
 import { EMPTY, fmtAmount, fmtDate, parseApiDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
+
+import { PhoneDealsPage } from './phone-deals-page'
 
 import { Truncate } from '@/components/ui/truncate'
 import {
@@ -609,6 +612,9 @@ function NoStagesNotice({ canSetUp, known }: { canSetUp: boolean; known: boolean
  * itself is one component below this so the boundary is local.
  */
 export default function DealsPage() {
+  const { layout } = useLayout()
+  if (layout === 'phone') return <PhoneDealsPage />
+
   return (
     <Suspense
       fallback={

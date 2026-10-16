@@ -14,6 +14,7 @@ import { useToast } from '@/contexts/ToastContext'
 import { invalidateMeCache, useMe } from '@/hooks/useMe'
 // The same minimum /api/auth/change-password enforces.
 import { MIN_PASSWORD_LENGTH } from '@/lib/password-policy'
+import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 
 /**
  * The signed-in user's own account: who they are, read-only, and a change of
@@ -37,6 +38,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export default function ProfilePage() {
   const me = useMe()
+  // Phone foundation §41.18: the screen below More owns the app bar, with
+  // a back target to More. On desktop PhoneShell is not mounted, so this is
+  // a no-op there.
+  usePhoneAppBar({ title: 'Profile', back: '/more' })
 
   return (
     <div className="space-y-6">

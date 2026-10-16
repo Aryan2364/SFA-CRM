@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
-  if (!await checkPermission(user, 'expense_categories', 'view')) return forbidden()
+  // Reps need the category names to create an expense even without view on the expense-categories master.
+  if (!await checkPermission(user, 'expense_categories', 'view') && !await checkPermission(user, 'expenses', 'create')) return forbidden()
   // Active rows only by default — the expense form's picker relies on that.
   // `?include_inactive=1` is for the master's own screen, where a deleted
   // (deactivated) category must stay visible to be reactivated.

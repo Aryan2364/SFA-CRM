@@ -2,10 +2,11 @@
 
 import { Suspense, useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { PlusIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
+import { useMe } from '@/hooks/useMe'
 import { QuickFilterChip } from '@/components/alerts/data-health-alert'
 import { DataHealthAlerts, type DataHealthAlertItem } from '@/components/alerts/data-health-popover'
 import { DISCOUNT_FLAG, ORDER_STATUS, SpecBadge, StatusBadge } from '@/components/status-badge'
@@ -20,6 +21,8 @@ import { OptionSelect } from '@/components/orders/option-select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import { PhoneList, PhoneListRow } from '@/components/ui/phone-list'
+import { useLayout } from '@/lib/layout'
 import { fmtAmount, fmtDate, fmtQty } from '@/lib/format'
 import { ORDER_STATUSES, type DiscountType, type OrderStatus } from '@/lib/order-math'
 
@@ -517,8 +520,133 @@ function orderColumns(onOpen: (id: string) => void): ListColumn<OrderRow>[] {
  * reach a party: its own `entity_id`, or the visit it was taken at. The name is
  * looked up afterwards for the chip's LABEL only and never filters anything.
  */
+/**
+ * Phone branch of /orders — PhoneList with status chips (§41.5 rules
+ * 20-21), rows: account, date, total, status. "+" -> /orders/new.
+ *
+ * A separate, self-contained fetch rather than reusing OrdersPageInner's
+ * `load`: the desktop screen's state (drawer, team picker, draft alert,
+ * discount filter) is desktop-only furniture this screen does not need,
+ * and the phone list owns its own permission gate for the "+" button
+ * (orders:create, the same action POST /api/orders checks).
+ */
+function PhoneOrdersList() {
+  const { toast } = useToast()
+  const router = useRouter()
+  const me = useMe()
+  const [state, setState] = useState<'loading' | 'failed' | 'ready'>('loading')
+  const [rows, setRows] = useState<OrderRow[]>([])
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  // Undefined until /me answers: "not known yet" is not "not allowed".
+  const canCreate = me ? Boolean(me.permissions?.orders?.create) : undefined
+
+  /* Arriving from an account's "Orders" row. Narrowed through `?entityId=`,
+     exactly as the desktop's View All above — it matches an order's own
+     party AND the meeting it was taken at, so it keys on the id, never the
+     name. The name is looked up for the chip's label only. */
+  const accountId = useSearchParams().get('account') ?? ''
+  const [accountName, setAccountName] = useState('')
+
+  useEffect(() => {
+    setAccountName('')
+    if (!accountId) return
+    let live = true
+    fetch(`/api/companies/${accountId}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (live && d?.name) setAccountName(d.name) })
+      .catch(() => { /* the chip falls back to "this account" */ })
+    return () => { live = false }
+  }, [accountId])
+
+  async function load() {
+    setState('loading')
+    try {
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      if (accountId) params.set('entityId', accountId)
+      const r = await fetch(`/api/orders?${params.toString()}`)
+      if (!r.ok) throw new Error(String(r.status))
+      const body = await r.json()
+      setRows(Array.isArray(body) ? body : [])
+      setState('ready')
+    } catch {
+      setState('failed')
+      toast('Could not load orders', 'error')
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, accountId])
+
+  const draftCount = rows.filter(o => o.status === 'Draft').length
+  const placedCount = rows.filter(o => o.status === 'Placed').length
+  const filtered = status ? rows.filter(o => o.status === status) : rows
+
+  return (
+    <PhoneList<OrderRow>
+      state={state}
+      onRetry={load}
+      onRefresh={load}
+      rows={filtered}
+      total={filtered.length}
+      rowKey={o => o.id}
+      noun={{ one: 'order', many: 'orders' }}
+      search={{ value: search, onChange: setSearch }}
+      add={{
+        label: 'New order',
+        href: accountId ? `/orders/new?account=${encodeURIComponent(accountId)}` : '/orders/new',
+        allowed: canCreate,
+        reason: 'Only someone who can create orders can raise one',
+      }}
+      listKey={accountId ? `orders:account:${accountId}` : undefined}
+      activeFilters={
+        accountId
+          ? [
+              {
+                key: 'account',
+                label: `For ${accountName || 'this account'}`,
+                clearLabel: 'Show all orders',
+                onClear: () => router.replace('/orders'),
+              },
+            ]
+          : undefined
+      }
+      filters={{
+        label: 'Status',
+        value: status,
+        onChange: setStatus,
+        allLabel: 'All',
+        allCount: rows.length,
+        chips: [
+          { value: 'Draft', label: 'Draft', count: draftCount },
+          { value: 'Placed', label: 'Placed', count: placedCount },
+        ],
+      }}
+      empty={
+        <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+          <p className="text-body font-medium text-text-primary">No orders yet</p>
+          <p className="text-body text-text-muted">Orders raised against an account are listed here.</p>
+        </div>
+      }
+      renderRow={order => (
+        <PhoneListRow
+          href={`/orders/${order.id}`}
+          name={order.entity_name ?? (order.visit_id ? 'Meeting order' : 'Direct order')}
+          status={<StatusBadge vocabulary={ORDER_STATUS} status={order.status} />}
+          facts={[fmtDate(order.order_date)]}
+          amount={fmtAmount(order.total_amount)}
+        />
+      )}
+    />
+  )
+}
+
 function OrdersPageInner() {
   const { toast } = useToast()
+  const { layout } = useLayout()
   const searchParams = useSearchParams()
 
   /*
@@ -698,6 +826,10 @@ function OrdersPageInner() {
       onAction: () => { setOnlyDraft(true); setRefreshKey(k => k + 1) },
     },
   ]
+
+  if (layout === 'phone') {
+    return <PhoneOrdersList />
+  }
 
   return (
     <>

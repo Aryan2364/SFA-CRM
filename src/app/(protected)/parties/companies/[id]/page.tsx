@@ -97,9 +97,14 @@ import {
 } from '@/components/status-badge'
 import { SharedWithCard } from '@/components/sharing/shared-with-card'
 import { useToast } from '@/contexts/ToastContext'
-import { useMe } from '@/hooks/useMe'
+import { useMe, type Me } from '@/hooks/useMe'
 import { EMPTY, fmtDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useLayout } from '@/lib/layout'
+import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
+import { RecordSummary, type KeyFact } from '@/components/ui/record-summary'
+import { ActionBar } from '@/components/ui/action-bar'
+import { PhoneContactActionsSheet } from '@/components/ui/contact-actions'
 
 // ─────────────────────────────────────────────────────────────
 // The wire shape
@@ -301,10 +306,217 @@ function CallButton({ mobile, name }: { mobile: string; name: string }) {
 // The page
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// PHONE — Account detail (docs/phone-plan.md screen 2)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Reuses `CompanyDetail`'s own `company`/`links`/`load` state and the same
+ * `GET /api/companies/[id]` + `GET /api/companies/[id]/links` calls — no
+ * second fetch path to drift from the desktop one.
+ */
+function PhoneAccountDetail({
+  id,
+  company,
+  error,
+  loading,
+  load,
+  links,
+  linksLoading,
+  me,
+  router,
+}: {
+  id: string
+  company: Company | null
+  error: LoadError | null
+  loading: boolean
+  load: () => Promise<void>
+  links: CompanyLink[]
+  linksLoading: boolean
+  me: Me | null
+  router: ReturnType<typeof useRouter>
+}) {
+  usePhoneAppBar({
+    title: company?.name ?? 'Account',
+    back: '/parties',
+    menu:
+      company && me ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label="More actions"
+                className="flex size-10 items-center justify-center rounded-full active:bg-surface-control"
+              />
+            }
+          >
+            <EllipsisVerticalIcon aria-hidden className="size-5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              disabled={!(me.permissions?.deals?.create ?? false)}
+              onClick={() => router.push(`/deals/new?account=${id}`)}
+            >
+              New opportunity
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!(me.permissions?.orders?.create ?? false)}
+              onClick={() => router.push(`/orders/new?account=${id}`)}
+            >
+              Place order
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!(me.permissions?.contacts?.create ?? false)}
+              onClick={() => router.push(`/parties/contacts/new?account=${id}`)}
+            >
+              Add contact
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : undefined,
+  })
+
+  const [phoneSheetOpen, setPhoneSheetOpen] = useState(false)
+  const [addressSheetOpen, setAddressSheetOpen] = useState(false)
+
+  if (loading) {
+    return <CompanySkeleton />
+  }
+
+  if (error || !company) {
+    const heading =
+      error === 'not-found'
+        ? 'This account is not here'
+        : error === 'forbidden'
+          ? 'You cannot open accounts'
+          : 'The account could not be loaded'
+    return (
+      <EmptyState
+        variant="failed"
+        heading={heading}
+        actionLabel={error === 'failed' ? undefined : 'Go to Accounts'}
+        onAction={error === 'failed' ? undefined : () => router.push('/parties')}
+      >
+        {error === 'failed' ? (
+          <button type="button" className="text-body text-primary" onClick={() => void load()}>
+            Try again
+          </button>
+        ) : (
+          'An administrator can change access under Settings, Access Control.'
+        )}
+      </EmptyState>
+    )
+  }
+
+  const primaryAddress = company.addresses?.find(a => a.is_primary) ?? company.addresses?.[0] ?? null
+  const addressLine = primaryAddress
+    ? [primaryAddress.address_line, primaryAddress.city, primaryAddress.districts?.name]
+        .filter(Boolean)
+        .join(', ')
+    : ''
+
+  const facts: KeyFact[] = [
+    { label: 'Owner', value: company.owner?.name ?? null },
+    { label: 'Type', value: company.type || (company.account_kind ?? 'Company') },
+    { label: 'Next follow-up', value: company.next_follow_up_date ? fmtDate(company.next_follow_up_date) : null },
+    { label: 'GST number', value: company.gst_number },
+  ]
+
+  const canLogMeeting = me ? Boolean(me.permissions?.meetings?.create) : undefined
+
+  return (
+    <div className="flex flex-col gap-5 pb-24">
+      <RecordSummary
+        name={company.name}
+        badges={
+          <>
+            <StatusBadge vocabulary={USER_STATUS} status={company.is_active ? 'Active' : 'Inactive'} />
+            {!company.is_complete ? <Badge variant="warning">Incomplete</Badge> : null}
+          </>
+        }
+        meta={addressLine || undefined}
+        facts={facts}
+      />
+
+      <div className="flex flex-col gap-2">
+        {company.mobile_1 ? (
+          <button
+            type="button"
+            onClick={() => setPhoneSheetOpen(true)}
+            className="flex min-h-11 items-center gap-2 rounded-lg border border-border-light bg-surface px-3 text-body font-medium text-primary active:bg-surface-control"
+          >
+            <PhoneIcon aria-hidden className="size-4" />
+            {company.mobile_1}
+          </button>
+        ) : null}
+        {company.email ? (
+          <a
+            href={`mailto:${company.email}`}
+            className="flex min-h-11 items-center gap-2 rounded-lg border border-border-light bg-surface px-3 text-body font-medium text-primary active:bg-surface-control"
+          >
+            {company.email}
+          </a>
+        ) : null}
+        {addressLine ? (
+          <button
+            type="button"
+            onClick={() => setAddressSheetOpen(true)}
+            className="flex min-h-11 items-start gap-2 rounded-lg border border-border-light bg-surface px-3 py-2 text-left text-body text-text-primary active:bg-surface-control"
+          >
+            <MapPinIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-text-secondary" />
+            {addressLine}
+          </button>
+        ) : null}
+      </div>
+
+      <RelatedRow
+        label="Contacts"
+        count={linksLoading ? undefined : links.length}
+        href={`/parties/contacts?account=${id}`}
+      />
+      <RelatedRow label="Opportunities" href={`/deals?account=${id}`} />
+      <RelatedRow label="Orders" href={`/orders?account=${id}`} />
+      {/* No Meetings row: /daily-activity is desktop-only (docs/phone-plan.md,
+          Decisions) and no API lists or counts one account's meetings, so a
+          row here could only be a dead end. Log meeting below is the way on. */}
+
+      <ActionBar>
+        <Button
+          className="w-full"
+          disabled={canLogMeeting === false}
+          onClick={() => router.push(`/daily-activity/new?account=${id}`)}
+        >
+          Log meeting
+        </Button>
+      </ActionBar>
+
+      <PhoneContactActionsSheet open={phoneSheetOpen} onOpenChange={setPhoneSheetOpen} phone={company.mobile_1 ?? undefined} />
+      <PhoneContactActionsSheet open={addressSheetOpen} onOpenChange={setAddressSheetOpen} address={addressLine || undefined} />
+    </div>
+  )
+}
+
+function RelatedRow({ label, count, href }: { label: string; count?: number; href: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex min-h-11 items-center justify-between rounded-lg border border-border-light bg-surface px-3 py-2 text-body font-medium text-text-primary active:bg-surface-control"
+    >
+      <span>{label}</span>
+      <span className="flex items-center gap-1 text-text-secondary">
+        {count !== undefined ? count : ''}
+        <span aria-hidden>›</span>
+      </span>
+    </Link>
+  )
+}
+
 function CompanyDetail() {
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { layout } = useLayout()
 
   const id = params?.id ?? ''
 
@@ -400,6 +612,22 @@ function CompanyDetail() {
     .split(',')
     .map(part => part.trim())
     .filter(Boolean)
+
+  if (layout === 'phone') {
+    return (
+      <PhoneAccountDetail
+        id={id}
+        company={company}
+        error={error}
+        loading={loading}
+        load={load}
+        links={links}
+        linksLoading={linksLoading}
+        me={me}
+        router={router}
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6 pb-2">

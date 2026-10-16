@@ -69,10 +69,6 @@ const nextConfig = {
         source: '/:path*',
         headers: securityHeaders,
       },
-      {
-        source: '/site.webmanifest',
-        headers: [{ key: 'Content-Type', value: 'application/manifest+json' }],
-      },
     ]
   },
 }

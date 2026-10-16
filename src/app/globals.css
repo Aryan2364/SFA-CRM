@@ -623,6 +623,35 @@
    predates the kit's sonner-based toasts (section 25); it stays until
    the toast work is done, and goes with it.
    ---------------------------------------------------------------- */
+/* ----------------------------------------------------------------
+   PHONE FOUNDATION - FRONTEND_RULES_PHONE.md section 41.
+   Token values scoped to [data-layout="phone"] (set on <html> by
+   src/lib/layout.ts / layout.server.ts), derived from this file's own
+   SFACRM tokens above rather than the kit's brand. Only what the phone
+   shell and the ported components need; the kit's fuller phone type
+   scale (41.9 rule 4 table) is not reproduced in full here — see the
+   phone-foundation build report for what is deferred.
+   ---------------------------------------------------------------- */
+[data-layout='phone'] {
+  --h-app-bar: 56px;
+  --h-tab-bar: 56px;
+  --z-shell: 40;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* 41.9 rule 4: body text is 16px on phone (never under 16px in a field,
+     rule 5), derived from this product's own --text-body token rather
+     than a new value. */
+  --text-body: 16px;
+}
+
+/* ----------------------------------------------------------------
+   PRODUCT-SPECIFIC, not from the kit.
+   ToastContext.tsx drives its progress bar with this animation. It
+   predates the kit's sonner-based toasts (section 25); it stays until
+   the toast work is done, and goes with it.
+   ---------------------------------------------------------------- */
 @keyframes toast-progress {
   from { width: 100%; }
   to   { width: 0%; }

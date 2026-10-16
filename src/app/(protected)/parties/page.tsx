@@ -45,6 +45,9 @@
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useLayout } from '@/lib/layout'
+import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
+import { PhoneList, PhoneListRow } from '@/components/ui/phone-list'
 import {
   EllipsisVerticalIcon,
   PencilIcon,
@@ -1531,12 +1534,138 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
 }
 
 // ══════════════════════════════════════════════════════════════
+// PHONE — Accounts list (docs/phone-plan.md screen 1)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Phone's Accounts tab root. Reuses the same `GET /api/companies` the
+ * desktop Companies tab calls — no new route. Company/Individual chips with
+ * counts come from one unfiltered fetch, same approach as `allCompanies`
+ * above (cheap at this tenant's scale; re-fetched on every search/filter
+ * change would not be, which is why search/kind still narrow server-side).
+ */
+function PhoneAccountsList({ me }: { me: Me | null }) {
+  usePhoneAppBar({ title: 'Accounts' })
+  const router = useRouter()
+  const canCreate = me?.permissions?.companies?.create ?? false
+  const createKnown = me !== null
+
+  const [search, setSearch] = useState('')
+  const [kind, setKind] = useState<string | null>(null)
+  const [rows, setRows] = useState<CompanyRow[]>([])
+  const [state, setState] = useState<'loading' | 'failed' | 'ready'>('loading')
+  const [counts, setCounts] = useState<{ company: number; individual: number; total: number }>({
+    company: 0,
+    individual: 0,
+    total: 0,
+  })
+
+  const load = useRef(async () => {})
+  load.current = async () => {
+    setState('loading')
+    try {
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      if (kind) params.set('kind', kind)
+      const r = await fetch(`/api/companies?${params.toString()}`, { cache: 'no-store' })
+      if (!r.ok) throw new Error(String(r.status))
+      const body = await r.json()
+      setRows(Array.isArray(body) ? body : [])
+      setState('ready')
+    } catch {
+      setState('failed')
+    }
+  }
+
+  useEffect(() => {
+    void load.current()
+  }, [search, kind])
+
+  // Counts for the filter chips — one unfiltered fetch, independent of the
+  // search/kind-filtered list above.
+  useEffect(() => {
+    let live = true
+    fetch('/api/companies', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : []))
+      .then((d: unknown) => {
+        if (!live || !Array.isArray(d)) return
+        const all = d as CompanyRow[]
+        setCounts({
+          total: all.length,
+          company: all.filter(c => (c.account_kind ?? 'Company') === 'Company').length,
+          individual: all.filter(c => c.account_kind === 'Individual').length,
+        })
+      })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+
+  function renderRow(row: CompanyRow) {
+    const facts = [row.type || row.account_kind || 'Company', row.districts?.name].filter(
+      (v): v is string => Boolean(v)
+    )
+    return (
+      <PhoneListRow
+        href={`/parties/companies/${row.id}`}
+        name={row.name}
+        facts={facts}
+        meta={row.mobile_1 ?? undefined}
+      />
+    )
+  }
+
+  return (
+    <PhoneList
+      state={state}
+      onRetry={() => void load.current()}
+      onRefresh={() => load.current()}
+      noun={{ one: 'account', many: 'accounts' }}
+      rows={rows}
+      total={rows.length}
+      rowKey={r => r.id}
+      renderRow={renderRow}
+      search={{ value: search, onChange: setSearch }}
+      filters={{
+        label: 'Kind',
+        value: kind,
+        onChange: setKind,
+        allLabel: 'All',
+        allCount: counts.total,
+        chips: [
+          { value: 'Company', label: 'Company', count: counts.company },
+          { value: 'Individual', label: 'Individual', count: counts.individual },
+        ],
+      }}
+      add={{
+        label: 'Add account',
+        href: '/parties/new',
+        allowed: createKnown ? canCreate : undefined,
+        reason: 'Only someone who can create accounts can add them',
+      }}
+      empty={
+        <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+          <p className="text-body font-medium text-text-primary">No accounts yet</p>
+          <p className="text-body text-text-muted">Add the first one to get started.</p>
+        </div>
+      }
+    />
+  )
+}
+
+// ══════════════════════════════════════════════════════════════
 // THE PAGE
 // ══════════════════════════════════════════════════════════════
 
 function PartiesScreen() {
   const me = useMe()
   const searchParams = useSearchParams()
+  const { layout } = useLayout()
+
+  // Phone: a single Accounts list (§41.5). Contacts has no phone tab of its
+  // own here — reached from an account's "Contacts" related row instead
+  // (docs/phone-plan.md screen 2), so the phone branch never needs the
+  // Companies/Contacts tab switch below.
+  if (layout === 'phone') return <PhoneAccountsList me={me} />
 
   /*
    * Section 26: a whole area the user has no access to is hidden rather than

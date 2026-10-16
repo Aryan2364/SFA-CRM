@@ -25,6 +25,8 @@ import { PlanBoardSkeleton, WeeklyPlanSkeleton } from '@/components/weekly-plan/
 import { PlanLineDialog, DayPicker, type PlanLineDraft } from '@/components/weekly-plan/plan-line-dialog'
 import { WeeklyPriorities } from '@/components/weekly-plan/weekly-priorities'
 import type { ItemsDiff } from '@/lib/weekly-plan-diff'
+import { useLayout } from '@/lib/layout'
+import { PhoneWeeklyPlan } from './phone-weekly-plan'
 
 // ---- helpers ----
 function getMondayOf(date: Date): Date {
@@ -1224,7 +1226,7 @@ type MeState =
   | { status: 'failed' }
   | { status: 'ready'; userId: string | null; canAddUsers: boolean }
 
-export default function WeeklyPlanPage() {
+function DesktopWeeklyPlanPage() {
   const router = useRouter()
   const [me, setMe] = useState<MeState>({ status: 'loading' })
 
@@ -1286,4 +1288,14 @@ export default function WeeklyPlanPage() {
       )}
     </div>
   )
+}
+
+/**
+ * One URL for both layouts (FRONTEND_RULES_PHONE §41.2 rule 4): the phone
+ * gets the read-only week view, the desktop the full plan editor.
+ */
+export default function WeeklyPlanPage() {
+  const { layout } = useLayout()
+  if (layout === 'phone') return <PhoneWeeklyPlan />
+  return <DesktopWeeklyPlanPage />
 }

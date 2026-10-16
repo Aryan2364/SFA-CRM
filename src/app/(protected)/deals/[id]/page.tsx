@@ -80,6 +80,8 @@ import { useMe } from '@/hooks/useMe'
 import { SharedWithCard } from '@/components/sharing/shared-with-card'
 import { toast } from '@/components/ui/sonner'
 import { DealDialog, type NamedRow as DialogRow } from '../deal-dialog'
+import { useLayout } from '@/lib/layout'
+import { PhoneDealDetailPage } from './phone-deal-detail'
 
 // ─────────────────────────────────────────────────────────────
 // The wire shape
@@ -309,6 +311,14 @@ function StageHistoryCard({
 }
 
 export default function DealDetailPage() {
+  const { layout } = useLayout()
+  const params = useParams<{ id: string }>()
+  const id = params?.id ?? ''
+  if (layout === 'phone') return <PhoneDealDetailPage id={id} />
+  return <DesktopDealDetailPage />
+}
+
+function DesktopDealDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
   const id = params?.id ?? ''

@@ -1,15 +1,20 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 
 import { AppShell } from '@/components/shell/app-shell'
+import { PhoneShell } from '@/components/shell/phone-shell'
+import { PHONE_TABS } from '@/components/shell/phone-tabs'
 import { Button } from '@/components/ui/button'
 import { invalidateMeCache, useMe } from '@/hooks/useMe'
+import { useLayout } from '@/lib/layout'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const me = useMe()
   const router = useRouter()
+  const pathname = usePathname()
+  const { layout } = useLayout()
   const [signingOut, setSigningOut] = useState(false)
 
   // The same sign-out as the top bar's user menu. /api/auth/logout is
@@ -50,6 +55,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     )
+  }
+
+  // Desktop shell is completely unchanged. On phone, every page is wrapped
+  // in the phone shell (app bar + bottom tab bar); the page's own title
+  // isn't threaded through yet (no per-page PageHeader contract — see the
+  // phone-foundation build report), so the top-level screen's own tab
+  // label is used, falling back to the product name for screens reached
+  // one tap further in (which also get a back arrow instead of the tab bar).
+  if (layout === 'phone') {
+    const tab = PHONE_TABS.find(item => item.href === pathname)
+    return <PhoneShell title={tab?.label ?? 'RGB SFA'}>{children}</PhoneShell>
   }
 
   return <AppShell>{children}</AppShell>
