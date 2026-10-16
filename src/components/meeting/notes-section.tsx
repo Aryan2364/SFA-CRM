@@ -1,13 +1,21 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { LinkIcon, SendIcon } from 'lucide-react'
+import Link from 'next/link'
+import { HistoryIcon, LinkIcon, SendIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { LoadError } from '@/components/ui/load-error'
 import { SearchableSelect } from '@/components/ui/searchable-select'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -21,7 +29,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
-import { fmtDateTime } from '@/lib/format'
+import { formatDuration } from '@/components/daily-activity/types'
+import { fmtDate, fmtDateTime, fmtTime } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { NOTE_CONTEXT, type NoteTarget, type Remark } from './types'
 
 /**
@@ -62,15 +72,20 @@ import { NOTE_CONTEXT, type NoteTarget, type Remark } from './types'
  * wrong thing. Both spellings below are correct; do not "tidy" either.
  */
 export function NotesSection({
+  visitId,
   targets,
   canWrite,
   earlierNote,
+  canViewHistory,
 }: {
+  visitId: string
   /** "This meeting" first, then each open Deal, then each recent Order. */
   targets: NoteTarget[]
   canWrite: boolean
   /** `daily_visits.notes`, read-only. See the header. */
   earlierNote?: string | null
+  /** Three-state: `null` while `useMe()` hasn't resolved — see the page. */
+  canViewHistory: boolean | null
 }) {
   const { toast } = useToast()
   const [targetId, setTargetId] = useState(targets[0]?.id ?? '')
@@ -191,15 +206,18 @@ export function NotesSection({
           squeezed "Minutes of the meeting" onto three lines. The picker
           takes the row under the title instead. */}
       <CardHeader className="flex-col items-stretch gap-3">
-        <CardTitle className="flex items-center gap-2 whitespace-nowrap">
-          Minutes of the meeting
-          {linked ? (
-            <Badge variant="primary" className="gap-1">
-              <LinkIcon className="size-3" />
-              {target.kind === 'deal' ? 'Opportunity' : 'Order'}
-            </Badge>
-          ) : null}
-        </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 whitespace-nowrap">
+            Minutes of the meeting
+            {linked ? (
+              <Badge variant="primary" className="gap-1">
+                <LinkIcon className="size-3" />
+                {target.kind === 'deal' ? 'Opportunity' : 'Order'}
+              </Badge>
+            ) : null}
+          </CardTitle>
+          <PastNotesButton visitId={visitId} canView={canViewHistory} />
+        </div>
         {targets.length > 1 ? (
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-label text-text-secondary">File under</span>
@@ -400,6 +418,220 @@ function NoteItem({
           </AlertDialogContent>
         </AlertDialog>
       ) : null}
+    </li>
+  )
+}
+
+/** Earlier meetings per page — matches the route's own `PAGE_SIZE`. */
+const PAST_NOTES_PAGE_SIZE = 5
+/** Kit §14 rule 4: every request carries a deadline. */
+const TIMEOUT_MS = 15_000
+
+type PastMinute = { id: string; body: string; created_at: string; author: string | null }
+
+type PastMeeting = {
+  id: string
+  visit_date: string
+  start_time: string | null
+  duration_secs: number | null
+  status: 'Pending' | 'Active' | 'Completed'
+  is_manual_entry: boolean
+  held_by: string | null
+  main_attendee: string | null
+  earlier_note: string | null
+  minutes: PastMinute[]
+  can_open: boolean
+}
+
+type PastHistory = { total: number; items: PastMeeting[]; next_offset: number | null }
+
+/**
+ * "Past notes (N)" — replaces the old standalone "Previous meetings" section
+ * (Aryan, 2026-10-16). Living in the Minutes header keeps it next to what it
+ * is a history OF, instead of a separate card the eye has to find; opening it
+ * is a side panel rather than an always-expanded block, since most visits to
+ * this page are not about reading the back-catalogue.
+ *
+ * The count loads eagerly so the button's label is right before anyone
+ * clicks it; the panel reuses that first page and only re-fetches to go
+ * older. See `GET /api/daily-activity/[id]/history` for who matches and why.
+ */
+function PastNotesButton({ visitId, canView }: { visitId: string; canView: boolean | null }) {
+  const { toast } = useToast()
+  const [history, setHistory] = useState<PastHistory | null>(null)
+  const [failed, setFailed] = useState<false | 'error' | 'forbidden'>(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  const fetchPage = useCallback(
+    async (offset: number): Promise<PastHistory> => {
+      const r = await fetch(`/api/daily-activity/${visitId}/history?offset=${offset}`, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      })
+      if (r.status === 403) throw new Error('forbidden')
+      if (!r.ok) throw new Error('failed')
+      return r.json()
+    },
+    [visitId]
+  )
+
+  const load = useCallback(async () => {
+    setFailed(false)
+    try {
+      const page = await fetchPage(0)
+      setHistory(page)
+    } catch (err) {
+      setFailed(err instanceof Error && err.message === 'forbidden' ? 'forbidden' : 'error')
+    }
+  }, [fetchPage])
+
+  // Loaded once the gate resolves to allowed, so a `canView === false` or
+  // `null` viewer never fires the request at all.
+  useEffect(() => {
+    if (canView) void load()
+  }, [canView, load])
+
+  async function loadOlder() {
+    if (!history || history.next_offset === null) return
+    setLoadingMore(true)
+    try {
+      const page = await fetchPage(history.next_offset)
+      setHistory(prev =>
+        prev
+          ? { ...page, items: [...prev.items, ...page.items.filter(p => !prev.items.some(i => i.id === p.id))] }
+          : page
+      )
+    } catch {
+      toast('Could not load older meetings. Try again.', 'error')
+    }
+    setLoadingMore(false)
+  }
+
+  const count = history?.total ?? 0
+
+  return (
+    <>
+      <PermissionTooltip
+        allowed={canView !== false}
+        reason="Only someone who can view meetings may see past notes."
+      >
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setOpen(true)}
+          disabled={!canView || failed === 'forbidden'}
+        >
+          <HistoryIcon />
+          Past notes {history ? `(${count})` : ''}
+        </Button>
+      </PermissionTooltip>
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+          <SheetHeader className="border-b border-border-light">
+            <SheetTitle>Past notes {history ? `(${count})` : ''}</SheetTitle>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {failed ? (
+              <LoadError forbidden={failed === 'forbidden'} what="past notes" onRetry={load} />
+            ) : history === null ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            ) : history.items.length === 0 ? (
+              <p className="py-4 text-center text-body text-text-secondary">No meetings exist yet.</p>
+            ) : (
+              <>
+                <ul className="flex flex-col divide-y divide-border-light">
+                  {history.items.map(m => (
+                    <PastMeetingRow key={m.id} meeting={m} />
+                  ))}
+                </ul>
+                {history.next_offset !== null ? (
+                  <Button
+                    variant="secondary"
+                    className="mt-3 min-h-11 w-full sm:min-h-0"
+                    onClick={loadOlder}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore
+                      ? 'Loading…'
+                      : `Show older (${history.total - history.items.length} more)`}
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  )
+}
+
+function PastMeetingRow({ meeting: m }: { meeting: PastMeeting }) {
+  const nothingWritten = m.minutes.length === 0 && !m.earlier_note
+
+  return (
+    <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+        <div className="min-w-0">
+          <p className="text-body font-medium text-text-primary">
+            {fmtDate(m.visit_date)}
+            {m.start_time ? ` · ${fmtTime(m.start_time)}` : ''}
+          </p>
+          <p className="text-label text-text-secondary">
+            {m.held_by ?? 'Unknown'}
+            {m.main_attendee ? ` · with ${m.main_attendee}` : ''}
+            {m.duration_secs ? ` · ${formatDuration(m.duration_secs)}` : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {m.is_manual_entry ? (
+            <Badge variant="warning" className="gap-1">
+              <HistoryIcon className="size-3" />
+              Entered by hand
+            </Badge>
+          ) : null}
+          {m.status !== 'Completed' ? <Badge variant="neutral">{m.status}</Badge> : null}
+          {/* Only a meeting the viewer may open is linked; the others would
+              404 on their own page. */}
+          {m.can_open ? (
+            <Link
+              href={`/daily-activity/meeting/${m.id}`}
+              className={cn(
+                'inline-flex min-h-11 items-center rounded-lg text-label text-primary-text hover:underline sm:min-h-0',
+                'outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring'
+              )}
+            >
+              Open meeting
+            </Link>
+          ) : null}
+        </div>
+      </div>
+
+      {nothingWritten ? (
+        <p className="text-body text-text-muted">No minutes were written at this meeting.</p>
+      ) : (
+        <ul className="space-y-3 rounded-lg bg-surface-sunken p-3">
+          {m.earlier_note ? (
+            <li className="text-body text-text-primary">
+              <p className="text-label text-text-secondary">Earlier note</p>
+              <p className="whitespace-pre-wrap">{m.earlier_note}</p>
+            </li>
+          ) : null}
+          {m.minutes.map(minute => (
+            <li key={minute.id} className="text-body text-text-primary">
+              <p className="text-label text-text-secondary">
+                {minute.author ?? 'Unknown'} · {fmtDateTime(minute.created_at)}
+              </p>
+              <p className="whitespace-pre-wrap">{minute.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   )
 }

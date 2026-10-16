@@ -1,0 +1,287 @@
+import { prisma } from '@/lib/db'
+import { SessionUser } from '@/lib/auth'
+import { checkPermission } from '@/lib/permissions'
+import { scopedUserIds, scopeWhere } from '@/lib/scope'
+import {
+  getAccessibleCompanyIds,
+  getAccessibleDealIds,
+  getCompanyMemberships,
+  widenScope,
+  type MemberAccess,
+} from '@/lib/sharing'
+
+/**
+ * The five record types global search covers, and the query logic shared by
+ * `/api/search` (the top bar dropdown AND the "See all results" page's
+ * per-type paging) and `/api/search/recent` (re-checking a Recent list).
+ *
+ * Each `search*` function is gated and scoped exactly the way that type's own
+ * list route is — see the long comment in the old `route.ts` this was split
+ * from, preserved on `GET` below. Reusing these same five functions from both
+ * routes, rather than writing the scope test twice, is what keeps Recent and
+ * "See all results" from drifting out of sync with the dropdown's own rules.
+ *
+ * `opts.q` (substring match) and `opts.ids` (exact id set, for Recent) are
+ * mutually exclusive; neither given means "nothing can match" and the
+ * function returns empty without querying — an unfiltered type listing is
+ * never what any caller here wants.
+ */
+export type ResultType = 'account' | 'contact' | 'opportunity' | 'order' | 'meeting'
+export type Result = { type: ResultType; id: string; title: string; subtitle: string | null; href: string }
+export type SearchPage = { rows: Result[]; total: number }
+
+export type SearchOpts = {
+  /** Substring to match (dropdown and "See all results"). */
+  q?: string
+  /** Exact ids to re-check (Recent). Only rows still in scope come back. */
+  ids?: string[]
+  take: number
+  skip?: number
+  /** Whether to also run the COUNT query. Recent never needs it. */
+  withTotal?: boolean
+}
+
+const EMPTY: SearchPage = { rows: [], total: 0 }
+
+async function countIf(withTotal: boolean | undefined, run: () => Promise<number>): Promise<number> {
+  return withTotal ? run() : 0
+}
+
+export async function searchAccounts(user: SessionUser, tid: string, opts: SearchOpts): Promise<SearchPage> {
+  if (!(await checkPermission(user, 'companies', 'view'))) return EMPTY
+  const q = opts.q?.trim()
+  if (!q && !opts.ids?.length) return EMPTY
+  const digits = q?.replace(/\D/g, '')
+  const ids = await scopedUserIds(user, 'companies')
+  const memberships: Map<string, MemberAccess> = ids === null ? new Map() : await getCompanyMemberships(user, tid)
+  const scope = {
+    tenant_id: tid,
+    ...widenScope(
+      scopeWhere(ids, 'owner_user_id'),
+      memberships.size ? [{ id: { in: [...memberships.keys()] } }] : []
+    ),
+  }
+  const matcher = opts.ids?.length
+    ? { id: { in: opts.ids } }
+    : {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' as const } },
+          ...(digits
+            ? [{ mobile_1: { contains: digits } }, { mobile_2: { contains: digits } }]
+            : []),
+          { gst_number: { contains: q, mode: 'insensitive' as const } },
+        ],
+      }
+  const where = { ...scope, ...matcher }
+  const [rows, total] = await Promise.all([
+    prisma.companies.findMany({
+      where,
+      select: { id: true, name: true, mobile_1: true, type: true },
+      orderBy: { name: 'asc' },
+      take: opts.take,
+      skip: opts.skip,
+    }),
+    countIf(opts.withTotal, () => prisma.companies.count({ where })),
+  ])
+  return {
+    total,
+    rows: rows.map(r => ({
+      type: 'account',
+      id: r.id,
+      title: r.name,
+      subtitle: r.mobile_1 ?? r.type,
+      href: `/parties/companies/${r.id}`,
+    })),
+  }
+}
+
+export async function searchContacts(user: SessionUser, tid: string, opts: SearchOpts): Promise<SearchPage> {
+  if (!(await checkPermission(user, 'contacts', 'view'))) return EMPTY
+  const q = opts.q?.trim()
+  if (!q && !opts.ids?.length) return EMPTY
+  const digits = q?.replace(/\D/g, '')
+  const ids = await scopedUserIds(user, 'contacts')
+  const memberships: Map<string, MemberAccess> = ids === null ? new Map() : await getCompanyMemberships(user, tid)
+  const sharedCompanies = [...memberships.keys()]
+  const scope = {
+    tenant_id: tid,
+    is_active: true,
+    ...widenScope(
+      scopeWhere(ids, 'owner_user_id'),
+      sharedCompanies.length
+        ? [{ company_contacts: { some: { tenant_id: tid, company_id: { in: sharedCompanies } } } }]
+        : []
+    ),
+  }
+  const matcher = opts.ids?.length
+    ? { id: { in: opts.ids } }
+    : {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' as const } },
+          ...(digits
+            ? [{ mobile: { contains: digits } }, { alternate_mobile: { contains: digits } }]
+            : []),
+          { email: { contains: q, mode: 'insensitive' as const } },
+        ],
+      }
+  const where = { ...scope, ...matcher }
+  const [rows, total] = await Promise.all([
+    prisma.contacts.findMany({
+      where,
+      select: { id: true, name: true, mobile: true },
+      orderBy: { name: 'asc' },
+      take: opts.take,
+      skip: opts.skip,
+    }),
+    countIf(opts.withTotal, () => prisma.contacts.count({ where })),
+  ])
+  return {
+    total,
+    rows: rows.map(r => ({
+      type: 'contact',
+      id: r.id,
+      title: r.name,
+      subtitle: r.mobile,
+      href: `/parties/contacts/${r.id}`,
+    })),
+  }
+}
+
+export async function searchOpportunities(user: SessionUser, tid: string, opts: SearchOpts): Promise<SearchPage> {
+  if (!(await checkPermission(user, 'deals', 'view'))) return EMPTY
+  const q = opts.q?.trim()
+  if (!q && !opts.ids?.length) return EMPTY
+  const ids = await scopedUserIds(user, 'deals')
+  const widen = ids !== null
+  const [accounts, direct] = widen
+    ? await Promise.all([getAccessibleCompanyIds(user, tid), getAccessibleDealIds(user, tid)])
+    : [[], []]
+  const scope = {
+    tenant_id: tid,
+    ...widenScope(scopeWhere(ids, 'owner_user_id'), [
+      ...(accounts.length ? [{ company_id: { in: accounts } }] : []),
+      ...(direct.length ? [{ id: { in: direct } }] : []),
+    ]),
+  }
+  const matcher = opts.ids?.length
+    ? { id: { in: opts.ids } }
+    : { name: { contains: q, mode: 'insensitive' as const } }
+  const where = { ...scope, ...matcher }
+  const [rows, total] = await Promise.all([
+    prisma.deals.findMany({
+      where,
+      select: { id: true, name: true, companies: { select: { name: true } } },
+      orderBy: { created_at: 'desc' },
+      take: opts.take,
+      skip: opts.skip,
+    }),
+    countIf(opts.withTotal, () => prisma.deals.count({ where })),
+  ])
+  return {
+    total,
+    rows: rows.map(r => ({
+      type: 'opportunity',
+      id: r.id,
+      title: r.name,
+      subtitle: r.companies?.name ?? null,
+      href: `/deals/${r.id}`,
+    })),
+  }
+}
+
+export async function searchOrders(user: SessionUser, tid: string, opts: SearchOpts): Promise<SearchPage> {
+  if (!(await checkPermission(user, 'orders', 'view'))) return EMPTY
+  const q = opts.q?.trim()
+  if (!q && !opts.ids?.length) return EMPTY
+  const ids = await scopedUserIds(user, 'orders')
+  const shared = ids === null ? [] : await getAccessibleCompanyIds(user, tid)
+  const scope = {
+    tenant_id: tid,
+    ...widenScope(scopeWhere(ids), [
+      ...(shared.length
+        ? [
+            { entity_id: { in: shared } },
+            { daily_visits: { is: { tenant_id: tid, entity_id: { in: shared } } } },
+          ]
+        : []),
+    ]),
+  }
+  const matcher = opts.ids?.length
+    ? { id: { in: opts.ids } }
+    : { entity_name: { contains: q, mode: 'insensitive' as const } }
+  const where = { ...scope, ...matcher }
+  const [rows, total] = await Promise.all([
+    prisma.orders.findMany({
+      where,
+      select: { id: true, entity_name: true, order_date: true, status: true },
+      orderBy: [{ order_date: 'desc' }, { created_at: 'desc' }],
+      take: opts.take,
+      skip: opts.skip,
+    }),
+    countIf(opts.withTotal, () => prisma.orders.count({ where })),
+  ])
+  return {
+    total,
+    rows: rows.map(r => ({
+      type: 'order',
+      id: r.id,
+      title: r.entity_name ?? 'Order',
+      subtitle: `${r.status} · ${r.order_date.toISOString().slice(0, 10)}`,
+      href: `/orders/${r.id}`,
+    })),
+  }
+}
+
+export async function searchMeetings(user: SessionUser, tid: string, opts: SearchOpts): Promise<SearchPage> {
+  if (!(await checkPermission(user, 'meetings', 'view'))) return EMPTY
+  const q = opts.q?.trim()
+  if (!q && !opts.ids?.length) return EMPTY
+  const ids = await scopedUserIds(user, 'meetings')
+  const scope = { tenant_id: tid, ...scopeWhere(ids) }
+  const matcher = opts.ids?.length
+    ? { id: { in: opts.ids } }
+    : { entity_name: { contains: q, mode: 'insensitive' as const } }
+  const where = { ...scope, ...matcher }
+  const [rows, total] = await Promise.all([
+    prisma.daily_visits.findMany({
+      where,
+      select: { id: true, entity_name: true, visit_date: true, user_id: true, visit_type: true },
+      orderBy: { visit_date: 'desc' },
+      take: opts.take,
+      skip: opts.skip,
+    }),
+    countIf(opts.withTotal, () => prisma.daily_visits.count({ where })),
+  ])
+  return {
+    total,
+    rows: rows.map(r => {
+      const date = r.visit_date.toISOString().slice(0, 10)
+      // The caller's own day: /daily-activity, whose tab values are
+      // plans/meetings/expenses/summary. A colleague's: /review/[userId],
+      // which reuses the same screen under different tab VALUES
+      // (plans/activity/summary/expenses — "activity" holds the meetings).
+      const href =
+        r.user_id === user.userId
+          ? `/daily-activity?date=${date}&tab=meetings`
+          : `/review/${r.user_id}?date=${date}&tab=activity`
+      return {
+        type: 'meeting',
+        id: r.id,
+        title: r.entity_name ?? r.visit_type,
+        subtitle: date,
+        href,
+      }
+    }),
+  }
+}
+
+export const SEARCHERS: Record<
+  ResultType,
+  (user: SessionUser, tid: string, opts: SearchOpts) => Promise<SearchPage>
+> = {
+  account: searchAccounts,
+  contact: searchContacts,
+  opportunity: searchOpportunities,
+  order: searchOrders,
+  meeting: searchMeetings,
+}

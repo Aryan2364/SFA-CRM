@@ -15,12 +15,11 @@ export const dynamic = 'force-dynamic'
  *
  * GET is gated on `meetings:view`, not `todo_unmet_reasons:view` — the
  * Couldn't-meet dialog (src/components/daily-activity/couldnt-meet-dialog.tsx)
- * needs the active list for ANY caller who can reach that dialog, and
- * `todo_unmet_reasons` is never grantable to a non-Administrator today (see
- * UNSTORABLE_MASTERS in masters-registry.ts — its section value fails the
- * `role_permissions.section` CHECK constraint, so no row ever seeds it). Write
- * actions (POST/this route's PUT/DELETE) stay gated on `todo_unmet_reasons`
- * and so remain Administrator-only until that constraint is widened.
+ * needs the active list for ANY caller who can reach that dialog, regardless
+ * of whether they hold the `todo_unmet_reasons` master permission itself.
+ * Write actions (POST/this route's PUT/DELETE) are gated on `todo_unmet_reasons`
+ * like any other master, and are now grantable to any role via Access Control
+ * (see masters-registry.ts — `todo_unmet_reasons` is an ordinary MASTERS entry).
  */
 export async function GET(req: NextRequest) {
   const user = await requireUser()

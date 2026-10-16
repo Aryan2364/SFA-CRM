@@ -77,6 +77,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { useMe } from '@/hooks/useMe'
+import { recordRecentItem } from '@/lib/recent-items'
 import { SharedWithCard } from '@/components/sharing/shared-with-card'
 import { toast } from '@/components/ui/sonner'
 import { DealDialog, type NamedRow as DialogRow } from '../deal-dialog'
@@ -402,6 +403,21 @@ function DesktopDealDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Global search's "Recent" (src/lib/recent-items.ts). Fires from this
+  // shared component rather than `phone-deal-detail.tsx`, so it covers
+  // both layouts without touching that file.
+  useEffect(() => {
+    if (deal && me?.userId) {
+      recordRecentItem(me.userId, {
+        type: 'opportunity',
+        id: deal.id,
+        title: deal.name,
+        subtitle: deal.company?.name ?? null,
+        href: `/deals/${deal.id}`,
+      })
+    }
+  }, [deal, me?.userId])
 
   /*
    * A quiet re-read after a change lands: the stage history and the days in

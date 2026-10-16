@@ -235,6 +235,14 @@ const BATCH_FILES = {
     'src/app/api/masters/lead-types/route.ts',
     'src/app/api/masters/lead-types/[id]/route.ts',
   ],
+  // Global search (top bar, §12.2). New route, no pre-migration version to
+  // diff against — Pass A just confirms it exists and is read with `git show`
+  // once committed; Pass B still proves every query it runs carries tenant_id.
+  'global-search': [
+    'src/app/api/search/route.ts',
+    'src/app/api/search/_shared.ts',
+    'src/app/api/search/recent/route.ts',
+  ],
 }
 
 const allowlist = JSON.parse(fs.readFileSync('scripts/tenant-scope-allowlist.json', 'utf8')).allow

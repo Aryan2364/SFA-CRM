@@ -116,7 +116,9 @@ export async function POST(req: NextRequest) {
 
   await Promise.all(
     SEEDED_MASTERS.map(m =>
-      seedClient[m.model].createMany({
+      // Every SEEDED_MASTERS entry has a real Prisma model — `model: null` is
+      // only for todo_unmet_reasons, which carries no `seeded` rows.
+      seedClient[m.model!].createMany({
         data: m.seeded!.map(row => ({
           tenant_id: tid,
           name: row.name,

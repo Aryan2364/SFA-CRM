@@ -5,6 +5,7 @@ import { requireUser, SessionUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { canReadVisitViaSharing, opportunityOnlyDealIds, widenScope } from '@/lib/sharing'
+import { listAttendees, listAttendeesForVisits, visitIdsSharingAttendees } from '@/lib/meeting-attendees'
 
 export const dynamic = 'force-dynamic'
 
@@ -80,10 +81,26 @@ async function opportunityOnlyVisitIds(
  * The page links to a past meeting only when it is, because
  * `/daily-activity/meeting/[id]` still applies the scope and would 404.
  *
- * "Earlier" means before the current meeting — an earlier date, or the same
- * date and created first — so opening an old meeting never lists later ones as
- * "previous". A meeting with no company has no history: free text and
- * `contact_id` (not yet in the database) are not reliable identities.
+ * "Earlier" means before the current meeting's ACTUAL time — `start_time` when
+ * it was recorded, else `visit_date` at midnight — with `created_at` only as a
+ * tie-breaker, so a meeting typed in after the fact still sorts by when it
+ * happened, not by when it was saved. Computed in JS rather than in the SQL
+ * `WHERE`/`ORDER BY`, because `COALESCE(start_time, visit_date)` mixes a
+ * timestamptz and a date column in a way Prisma's query builder cannot express;
+ * this route already fetches every candidate row before paging (see below), so
+ * sorting and slicing the full set in JS costs nothing extra.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠️ MATCHING (Aryan, 2026-10-16, "Past notes"): same account OR shared attendee
+ *
+ * An earlier meeting counts when it has the same `entity_id` (account) as
+ * today's, OR when it shares at least one attendee contact with today's
+ * meeting (`meeting_attendees`, src/lib/meeting-attendees.ts — guarded; if the
+ * table does not exist yet, attendee matching silently contributes nothing and
+ * only the account rule applies). A meeting with no account AND no attendees on
+ * either side has no basis to match anything, so it reports an empty history —
+ * never a blank "company_linked: false" distinct from a zero result; the panel
+ * says "No meetings exist yet." for every empty reason alike.
  *
  * ---------------------------------------------------------------------------
  * ⚠️ THE ONE NARROWING: OPPORTUNITY-ONLY SHARING (Aryan, 2026-10-13)
@@ -112,7 +129,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   try {
     const scope = await scopedUserIds(user, 'meetings')
-    const currentSelect = { id: true, entity_id: true, visit_date: true, created_at: true } as const
+    const currentSelect = {
+      id: true, entity_id: true, visit_date: true, start_time: true, created_at: true,
+    } as const
     let current = await prisma.daily_visits.findFirst({
       where: { id: params.id, tenant_id: tid, ...scopeWhere(scope) },
       select: currentSelect,
@@ -131,20 +150,34 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       }
     }
     if (!current) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    if (!current.entity_id) {
+
+    // Today's attendees — the other half of the matching rule, alongside the
+    // account. `[]` whenever the table is missing or nobody was recorded.
+    const myAttendeeContactIds = (await listAttendees(tid, current.id)).map(a => a.contact_id)
+    const attendeeMatchIds = await visitIdsSharingAttendees(tid, myAttendeeContactIds, current.id)
+
+    const matchClauses: Record<string, unknown>[] = []
+    if (current.entity_id) matchClauses.push({ entity_id: current.entity_id })
+    if (attendeeMatchIds.length > 0) matchClauses.push({ id: { in: attendeeMatchIds } })
+
+    if (matchClauses.length === 0) {
+      // No account and no shared attendee on either side — nothing to match
+      // against, for any reason. Same empty shape the UI reads for every
+      // other empty case; see "No meetings exist yet." above.
       return NextResponse.json({ company_linked: false, total: 0, items: [], next_offset: null })
     }
 
-    const linkedOnly = await opportunityOnlyVisitIds(user, tid, current.entity_id)
+    // Opportunity-only narrowing only applies to the account rule; it has
+    // nothing to say about a meeting matched purely through a shared
+    // attendee at a different account, so it is left unnarrowed there.
+    const linkedOnly = current.entity_id
+      ? await opportunityOnlyVisitIds(user, tid, current.entity_id)
+      : null
 
     const where = {
       tenant_id: tid,
-      entity_id: current.entity_id,
       id: { not: current.id },
-      OR: [
-        { visit_date: { lt: current.visit_date } },
-        { visit_date: current.visit_date, created_at: { lt: current.created_at } },
-      ],
+      OR: matchClauses,
       // Opportunity-only narrowing — but a person ALWAYS sees the meetings they
       // held themselves, whatever their sharing level: hiding someone's own
       // work from them is never the intent. Only added when narrowing applies,
@@ -162,26 +195,38 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           }
         : {}),
     }
-    const [visits, total] = await Promise.all([
-      prisma.daily_visits.findMany({
-        where,
-        // Explicit fields only — never the whole row (location, addresses) and
-        // never `contact_id`, which is not in the database yet.
-        select: {
-          id: true, user_id: true, visit_date: true, start_time: true,
-          duration_secs: true, status: true, is_manual_entry: true, notes: true,
-          users: { select: { name: true } },
-        },
-        orderBy: [
-          { visit_date: 'desc' },
-          { start_time: { sort: 'desc', nulls: 'last' } },
-          { created_at: 'desc' },
-        ],
-        skip: offset,
-        take: PAGE_SIZE,
-      }),
-      prisma.daily_visits.count({ where }),
-    ])
+
+    // Every candidate row, unpaged: "earlier" is decided by an actual-time
+    // comparison (see the header) that Prisma cannot express as a WHERE/ORDER
+    // BY on mixed date/timestamptz columns, so the sort and the offset/limit
+    // slice both happen in JS below instead of in SQL.
+    const candidates = await prisma.daily_visits.findMany({
+      where,
+      // Explicit fields only — never the whole row (location, addresses) and
+      // never `contact_id`, which is not in the database yet.
+      select: {
+        id: true, user_id: true, visit_date: true, start_time: true, created_at: true,
+        duration_secs: true, status: true, is_manual_entry: true, notes: true,
+        users: { select: { name: true } },
+      },
+    })
+
+    const effectiveMs = (v: { start_time: Date | null; visit_date: Date }) =>
+      (v.start_time ?? v.visit_date).getTime()
+    const curEffectiveMs = effectiveMs(current)
+
+    const earlier = candidates
+      .filter(v => {
+        const ms = effectiveMs(v)
+        return ms < curEffectiveMs || (ms === curEffectiveMs && v.created_at.getTime() < current.created_at.getTime())
+      })
+      .sort((a, b) => {
+        const diff = effectiveMs(b) - effectiveMs(a)
+        return diff !== 0 ? diff : b.created_at.getTime() - a.created_at.getTime()
+      })
+
+    const total = earlier.length
+    const visits = earlier.slice(offset, offset + PAGE_SIZE)
 
     // One query for the page's minutes, not one per meeting.
     const remarks = visits.length
@@ -203,6 +248,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       users: { name: string } | null
     }[]
 
+    // The main attendee per listed meeting, when one was marked. Guarded the
+    // same way as every other attendees read.
+    const attendeesByVisit = await listAttendeesForVisits(tid, visits.map(v => v.id))
+
     const rows = serialize(visits, 'daily_visits') as (Record<string, unknown> & {
       id: string
       user_id: string
@@ -217,6 +266,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         ...v,
         held_by: users?.name ?? null,
         earlier_note: notes?.trim() || null,
+        main_attendee: attendeesByVisit.get(v.id)?.find(a => a.is_main)?.name ?? null,
         minutes: minutes
           .filter(m => m.context_id === v.id)
           .map(m => ({ id: m.id, body: m.body, created_at: m.created_at, author: m.users?.name ?? null })),

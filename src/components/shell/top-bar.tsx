@@ -1,18 +1,33 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   BellIcon,
+  CalendarDaysIcon,
+  ContactIcon,
+  HandshakeIcon,
   LogOutIcon,
   PanelLeftIcon,
   SearchIcon,
+  ShoppingCartIcon,
   TrophyIcon,
   UserIcon,
+  UserRoundSearchIcon,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { getRecentItems, recordRecentItem } from '@/lib/recent-items'
 import { Button } from '@/components/ui/button'
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,7 +42,6 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { invalidateMeCache, useMe } from '@/hooks/useMe'
 
@@ -99,15 +113,9 @@ type TopBarProps = {
   onToggleSidebar: () => void
   /** Section 23.2: the label carries the action, the icon never moves. */
   toggleLabel: string
-  /**
-   * Handed in by whatever owns the search results. Until a search screen
-   * exists there is nothing to hand in, and the field says so rather
-   * than accepting a query it will silently drop.
-   */
-  onSearch?: (query: string) => void
 }
 
-export function TopBar({ onToggleSidebar, toggleLabel, onSearch }: TopBarProps) {
+export function TopBar({ onToggleSidebar, toggleLabel }: TopBarProps) {
   return (
     <header className="flex h-topbar shrink-0 items-center gap-3 border-b border-border-light bg-surface px-4">
       <Tooltip>
@@ -122,7 +130,7 @@ export function TopBar({ onToggleSidebar, toggleLabel, onSearch }: TopBarProps) 
         <TooltipContent>{toggleLabel}</TooltipContent>
       </Tooltip>
 
-      <GlobalSearch onSearch={onSearch} />
+      <GlobalSearch />
 
       <div className="ml-auto flex items-center gap-2">
         <NotificationBell />
@@ -132,43 +140,277 @@ export function TopBar({ onToggleSidebar, toggleLabel, onSearch }: TopBarProps) 
   )
 }
 
-function GlobalSearch({ onSearch }: { onSearch?: (query: string) => void }) {
-  const [query, setQuery] = useState('')
+type SearchResult = {
+  type: 'account' | 'contact' | 'opportunity' | 'order' | 'meeting'
+  id: string
+  title: string
+  subtitle: string | null
+  href: string
+}
 
-  const field = (
-    <InputGroup className="w-search max-w-full">
-      <InputGroupAddon>
-        <SearchIcon className="size-icon" />
-      </InputGroupAddon>
-      <InputGroupInput
-        type="search"
-        aria-label="Search"
-        placeholder="Search"
-        value={query}
-        disabled={!onSearch}
-        onChange={event => setQuery(event.target.value)}
-        onKeyDown={event => {
-          if (event.key === 'Enter' && query.trim()) onSearch?.(query.trim())
-        }}
-      />
-    </InputGroup>
+const SEARCH_GROUPS: { type: SearchResult['type']; heading: string; icon: ReactNode }[] = [
+  { type: 'account', heading: 'Accounts', icon: <UserRoundSearchIcon /> },
+  { type: 'contact', heading: 'Contacts', icon: <ContactIcon /> },
+  { type: 'opportunity', heading: 'Opportunities', icon: <HandshakeIcon /> },
+  { type: 'order', heading: 'Orders', icon: <ShoppingCartIcon /> },
+  { type: 'meeting', heading: 'Meetings', icon: <CalendarDaysIcon /> },
+]
+
+const SEE_ALL_VALUE = '__see-all__'
+
+/**
+ * Section 12.2's global search. The field itself is a trigger — clicking or
+ * focusing it, or pressing Ctrl/Cmd+K from anywhere (section 39.5), opens
+ * `CommandDialog`, which brings its own layout and scroller (section 24
+ * rule 6). Typing debounces ~250ms against `GET /api/search`, cmdk's own
+ * client-side filtering is off (`shouldFilter={false}`) because the server
+ * already decided what matches and under what scope.
+ *
+ * Empty and focused: "Recent" — the last few records this user opened
+ * (src/lib/recent-items.ts), re-checked against `/api/search/recent` so a
+ * record the caller lost access to since never shows. Typed: results, plus a
+ * fixed "See all results" row that opens `/search?q=`, the type-paged full
+ * results page — the dropdown's own 5-per-type cap is never the end of the
+ * road. `highlighted` controls cmdk's own highlight (same mechanism
+ * `usePhoneHighlight` in command.tsx already uses on phone): it starts empty
+ * so Enter right after typing, before any arrow key, opens "See all" rather
+ * than guessing which row the caller meant.
+ */
+function GlobalSearch() {
+  const router = useRouter()
+  const me = useMe()
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [highlighted, setHighlighted] = useState('')
+  // cmdk reasserts its own "first row" highlight through `onValueChange`
+  // itself — not just on a keypress — so clearing `highlighted` once in
+  // `CommandInput`'s `onValueChange` is not enough; cmdk immediately reports
+  // its own guess back and overwrites it. `movedByKeys` is the same gate
+  // `usePhoneHighlight` in command.tsx already uses for the identical
+  // problem on phone: until an arrow/Home/End key actually moves the
+  // highlight, cmdk's own `onValueChange` reports are ignored and `value`
+  // stays `''`, so cmdk itself has nothing selected and Enter has nothing to
+  // activate — which is what lets Enter fall through to "See all results".
+  const [movedByKeys, setMovedByKeys] = useState(false)
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const [searched, setSearched] = useState(false)
+  const [recents, setRecents] = useState<SearchResult[]>([])
+
+  const openSearch = useCallback(() => {
+    setOpen(true)
+    setHighlighted('')
+    setMovedByKeys(false)
+  }, [])
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        openSearch()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [openSearch])
+
+  // Recent: loaded once per open, from localStorage, then re-checked against
+  // the server. Not query-dependent — it only ever shows while the box is
+  // still empty.
+  useEffect(() => {
+    if (!open || !me?.userId) return
+    const local = getRecentItems(me.userId)
+    if (local.length === 0) {
+      setRecents([])
+      return
+    }
+    const abort = new AbortController()
+    const items = local.map(r => `${r.type}:${r.id}`).join(',')
+    fetch(`/api/search/recent?items=${encodeURIComponent(items)}`, { signal: abort.signal })
+      .then(r => (r.ok ? r.json() : { results: [] }))
+      .then(body => {
+        const byKey = new Map((body.results ?? []).map((r: SearchResult) => [`${r.type}:${r.id}`, r]))
+        // Server order is unspecified; keep the caller's own openedAt order
+        // and drop anything the server didn't hand back (gone or out of scope).
+        setRecents(local.map(r => byKey.get(`${r.type}:${r.id}`)).filter((r): r is SearchResult => !!r))
+      })
+      .catch(() => {
+        /* Recent just stays empty — never a raw error for a convenience list. */
+      })
+    return () => abort.abort()
+  }, [open, me?.userId])
+
+  useEffect(() => {
+    if (!open) return
+    const trimmed = query.trim()
+    if (trimmed.length < 2) {
+      setResults([])
+      setLoading(false)
+      setSearched(false)
+      return
+    }
+    setLoading(true)
+    const abort = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
+          signal: abort.signal,
+        })
+        if (response.ok) {
+          const body = await response.json()
+          setResults(body.results ?? [])
+        }
+      } catch {
+        /* A failed search leaves the dropdown exactly as it was — stale
+           results, never a raw error overlay (section 6 rule 6). */
+      } finally {
+        setLoading(false)
+        setSearched(true)
+      }
+    }, 250)
+    return () => {
+      clearTimeout(timer)
+      abort.abort()
+    }
+  }, [open, query])
+
+  const select = useCallback(
+    (row: SearchResult) => {
+      setOpen(false)
+      setQuery('')
+      if (me?.userId) recordRecentItem(me.userId, row)
+      router.push(row.href)
+    },
+    [router, me?.userId]
   )
 
-  /*
-   * A disabled field carries pointer-events-none and can never open a
-   * tooltip of its own, which is section 26's mechanic and the reason
-   * `PermissionTooltip` exists. The reason here is not a permission, but
-   * the shape is identical - a control the user can see, cannot use, and
-   * is owed an explanation for - and section 1 rule 3 says to use the
-   * component that already does the job rather than write a second one.
-   */
+  const seeAll = useCallback(
+    (q: string) => {
+      setOpen(false)
+      setQuery('')
+      router.push(`/search?q=${encodeURIComponent(q)}`)
+    },
+    [router]
+  )
+
+  const trimmed = query.trim()
+
   return (
-    <PermissionTooltip
-      allowed={Boolean(onSearch)}
-      reason="Global search arrives with the search screen."
-    >
-      {field}
-    </PermissionTooltip>
+    <>
+      <InputGroup
+        className="w-search max-w-full cursor-pointer"
+        onClick={() => openSearch()}
+      >
+        <InputGroupAddon>
+          <SearchIcon className="size-icon" />
+        </InputGroupAddon>
+        <InputGroupInput
+          type="search"
+          aria-label="Search"
+          placeholder="Search"
+          readOnly
+          className="cursor-pointer"
+          onFocus={() => openSearch()}
+        />
+      </InputGroup>
+
+      <CommandDialog
+        open={open}
+        onOpenChange={next => (next ? openSearch() : setOpen(false))}
+        title="Search"
+        description="Search accounts, contacts, opportunities, orders and meetings"
+      >
+        <Command
+          shouldFilter={false}
+          value={movedByKeys ? highlighted : ''}
+          onValueChange={v => {
+            if (movedByKeys) setHighlighted(v)
+          }}
+        >
+          <CommandInput
+            autoFocus
+            value={query}
+            onValueChange={v => {
+              setQuery(v)
+              setHighlighted('')
+              setMovedByKeys(false)
+            }}
+            onKeyDown={event => {
+              if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                setMovedByKeys(true)
+                return
+              }
+              // Controlling cmdk's `value` was not enough on its own — cmdk
+              // still resolves an Enter to its own idea of "the first row"
+              // even with `value=""` and no key having moved the highlight
+              // (measured: Enter right after typing opened the top account,
+              // not "See all"). So Enter is intercepted here directly,
+              // before it ever reaches cmdk's own handler, whenever the
+              // highlight has not been moved by an arrow key yet.
+              if (event.key === 'Enter' && !movedByKeys && trimmed.length >= 2) {
+                event.preventDefault()
+                event.stopPropagation()
+                seeAll(trimmed)
+              }
+            }}
+            placeholder="Search accounts, contacts, opportunities, orders, meetings…"
+          />
+          <CommandList>
+            {trimmed.length < 2 ? (
+              recents.length > 0 ? (
+                <CommandGroup heading="Recent">
+                  {recents.map(row => (
+                    <SearchRow key={`recent-${row.type}-${row.id}`} row={row} onSelect={() => select(row)} />
+                  ))}
+                </CommandGroup>
+              ) : (
+                <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>
+              )
+            ) : loading ? (
+              <CommandEmpty>Searching…</CommandEmpty>
+            ) : (
+              <>
+                {results.length === 0 && searched && (
+                  <p className="px-3 py-6 text-center text-body text-text-muted">
+                    No results for &ldquo;{trimmed}&rdquo;
+                  </p>
+                )}
+                {SEARCH_GROUPS.map(group => {
+                  const rows = results.filter(r => r.type === group.type)
+                  if (rows.length === 0) return null
+                  return (
+                    <CommandGroup key={group.type} heading={group.heading}>
+                      {rows.map(row => (
+                        <SearchRow key={`${row.type}-${row.id}`} row={row} onSelect={() => select(row)} />
+                      ))}
+                    </CommandGroup>
+                  )
+                })}
+                <CommandGroup>
+                  <CommandItem value={SEE_ALL_VALUE} onSelect={() => seeAll(trimmed)}>
+                    <SearchIcon />
+                    <span>See all results for &ldquo;{trimmed}&rdquo;</span>
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
+      </CommandDialog>
+    </>
+  )
+}
+
+function SearchRow({ row, onSelect }: { row: SearchResult; onSelect: () => void }) {
+  const group = SEARCH_GROUPS.find(g => g.type === row.type)
+  return (
+    <CommandItem value={`${row.type}-${row.id}`} onSelect={onSelect}>
+      {group?.icon}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{row.title}</span>
+        {row.subtitle && <span className="truncate text-meta text-text-muted">{row.subtitle}</span>}
+      </span>
+    </CommandItem>
   )
 }
 

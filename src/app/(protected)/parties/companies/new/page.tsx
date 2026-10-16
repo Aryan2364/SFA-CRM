@@ -659,7 +659,7 @@ export default function NewCompanyPage() {
                     className={cn(
                       'min-h-11 rounded-md px-4 text-body font-medium transition-colors duration-200',
                       kind === k
-                        ? 'bg-primary text-text-inverse'
+                        ? 'bg-primary text-primary-foreground'
                         : 'text-text-secondary hover:text-text-primary'
                     )}
                   >
@@ -694,7 +694,7 @@ export default function NewCompanyPage() {
                       className={cn(
                         'min-h-11 rounded-md px-4 text-body font-medium transition-colors duration-200',
                         personMode === opt.v
-                          ? 'bg-primary text-text-inverse'
+                          ? 'bg-primary text-primary-foreground'
                           : 'text-text-secondary hover:text-text-primary'
                       )}
                     >
@@ -1063,8 +1063,8 @@ function StepChip({
       <span
         className={cn(
           'flex h-6 w-6 items-center justify-center rounded-full text-label font-medium',
-          state === 'done' && 'bg-success text-text-inverse',
-          state === 'current' && 'bg-primary text-text-inverse',
+          state === 'done' && 'bg-success text-primary-foreground',
+          state === 'current' && 'bg-primary text-primary-foreground',
           state === 'upcoming' && 'border border-border text-text-muted'
         )}
         aria-hidden

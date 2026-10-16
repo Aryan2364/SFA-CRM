@@ -7,6 +7,7 @@ import { PlusIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
+import { recordRecentItem } from '@/lib/recent-items'
 import { QuickFilterChip } from '@/components/alerts/data-health-alert'
 import { DataHealthAlerts, type DataHealthAlertItem } from '@/components/alerts/data-health-popover'
 import { DISCOUNT_FLAG, ORDER_STATUS, SpecBadge, StatusBadge } from '@/components/status-badge'
@@ -98,12 +99,26 @@ function OrderDetailDrawer({ order, canEdit, onClose, onStatusChange }: {
   onStatusChange: () => void
 }) {
   const { toast } = useToast()
+  const me = useMe()
   const [status, setStatus] = useState<OrderStatus>(order.status)
   const [saving, setSaving] = useState(false)
   /* §3.5's refusal, kept on screen after the toast has gone: the reason an
      order cannot be placed is a property of the record, so it stays visible
      until the party is fixed rather than vanishing in four seconds. */
   const [blockedReason, setBlockedReason] = useState<string | null>(order.blocked_reason)
+
+  // Global search's "Recent" (src/lib/recent-items.ts).
+  useEffect(() => {
+    if (me?.userId) {
+      recordRecentItem(me.userId, {
+        type: 'order',
+        id: order.id,
+        title: order.entity_name ?? 'Order',
+        subtitle: `${order.status} · ${order.order_date.slice(0, 10)}`,
+        href: `/orders/${order.id}`,
+      })
+    }
+  }, [order.id, order.entity_name, order.status, order.order_date, me?.userId])
 
   async function updateStatus(newStatus: OrderStatus) {
     setSaving(true)

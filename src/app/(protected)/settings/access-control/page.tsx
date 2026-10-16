@@ -249,31 +249,14 @@ const PERM_GROUPS: PermGroup[] = [
   })),
   {
     /*
-     * ⚠️ THESE TWO BEHAVE DIFFERENTLY IN DEV AND IN PRODUCTION. Do not "fix"
-     * either one against what you observe locally.
-     *
-     * `leaderboard` and `points_config` are deliberately kept OUT of
-     * ALL_SECTIONS (see POINTS_SECTIONS in src/lib/masters-registry.ts) on the
-     * grounds that production's `role_permissions_section_check` constraint
-     * does not list them, so an INSERT for either fails there.
-     *
-     * **The local database has no CHECK constraint on `role_permissions`
-     * at all** — Prisma does not model CHECKs, so `db push` never created one,
-     * exactly as with `orders.status`. Toggling either of these locally
-     * therefore returns 200 and writes a row, which is the OPPOSITE of what it
-     * does in production. Verified: a PUT for `leaderboard` inserted a row on
-     * localhost. So local success here is not evidence the toggle works, and
-     * local behaviour must not be used to justify promoting these two into
-     * ALL_SECTIONS.
-     *
-     * They are the mirror-image of the bug the Record above fixes: a toggle
-     * that renders for a section the store may reject, rather than a section
-     * with no toggle at all. They are rendered because they were rendered
-     * before and `/api/auth/me` still reports them; removing them would drop
-     * two capabilities from the screen without delivering the constraint
-     * change that is the actual fix. Derived from POINTS_SECTIONS rather than
-     * retyped so the two lists cannot disagree about which keys are in this
-     * state.
+     * `leaderboard` and `points_config` used to be kept out of ALL_SECTIONS on
+     * the belief that production's `role_permissions_section_check` constraint
+     * rejected them. Verified false on production RDS (2026-10-16): the
+     * constraint does not exist there or locally, so both sections are
+     * ordinary, insertable `role_permissions` rows now and are seeded like any
+     * other section by `POST /api/settings/roles`. Still derived from
+     * POINTS_SECTIONS (src/lib/masters-registry.ts) rather than retyped, so
+     * this table and ALL_SECTIONS cannot disagree about which keys exist.
      */
     module: 'Points Module',
     group: 'Gamification',

@@ -71,8 +71,9 @@ export type MasterDef = {
   href: string | null
   /** `/api/masters/<slug>`. */
   api: string
-  /** Prisma model name, for serialize(). */
-  model: string
+  /** Prisma model name, for serialize(). `null` when the master has no Prisma
+   *  model and is read/written through raw SQL instead (see `todo_unmet_reasons`). */
+  model: string | null
   /** Stable group id. Each screen maps it to its own heading. */
   group: MasterGroup
   /** Lucide icon name. Declared for the screens; not consumed yet. */
@@ -292,29 +293,22 @@ export const MASTERS = [
       { name: 'Product Fit', sort_order: 6 },
     ],
   },
-] as const satisfies readonly MasterDef[]
-
-/**
- * "Couldn't-meet reasons" (todo_unmet_reasons) — deliberately kept OUT of
- * MASTERS/ALL_SECTIONS, for the same reason `leaderboard`/`points_config`
- * are kept out (see POINTS_SECTIONS's comment in permissions.ts): its
- * `role_permissions.section` value is not in the database's CHECK
- * constraint, so `POST /api/settings/roles` would abort role creation
- * outright if this key were seeded like an ordinary master. It still needs
- * a PermSection literal so routes can call checkPermission on it, so it is
- * carried separately and only ever read (never written) by role-permission
- * seeding — see `UNSTORABLE_MASTER_SECTIONS` in permissions.ts. The result
- * today: every non-Administrator is denied (no row ever exists to grant
- * it), same as a freshly seeded-denied section, until the CHECK constraint
- * is widened and this is folded into MASTERS properly.
- */
-export const UNSTORABLE_MASTERS = [
+  /**
+   * "Couldn't-meet reasons" (todo_unmet_reasons). Verified on production RDS
+   * (2026-10-16): `role_permissions_section_check` does not exist there (nor
+   * locally) — the table accepts any section name — so this is an ordinary
+   * master like any other. `model: null` because it has no Prisma model;
+   * every access goes through the raw-SQL helpers in
+   * `src/lib/todo-outcomes.ts` (see `src/app/api/masters/todo-unmet-reasons/
+   * route.ts`), never `prisma.<model>`. It is deliberately NOT in `seeded` —
+   * no code assumes a particular reason exists.
+   */
   {
     key: 'todo_unmet_reasons', label: "Couldn't-meet Reasons",
     href: '/masters/todo-unmet-reasons', api: '/api/masters/todo-unmet-reasons',
     model: null, group: 'lead_config', icon: 'circle-x',
   },
-] as const
+] as const satisfies readonly MasterDef[]
 
 /**
  * MASTERS is deliberately narrow — every field is a literal type, which is what
@@ -403,33 +397,20 @@ export const OPERATION_SECTIONS = [
 ] as const
 
 /**
- * ⚠️ NOT STORABLE. `leaderboard` and `points_config` are absent from the
- * `role_permissions_section_check` constraint and have zero rows in the live
- * database, so an INSERT for either one fails. They are kept out of
- * ALL_SECTIONS for that reason: `POST /api/settings/roles` seeds a row per
- * section and would abort role creation outright.
- *
- * `/api/auth/me` includes them anyway — it builds a display-only map and never
- * writes — so the Access Control matrix can go on rendering their toggles
- * exactly as it did before this registry existed. Those toggles do not save
- * today and did not save before; fixing that needs the constraint widened, and
- * is not this task.
+ * `leaderboard` and `points_config` govern the Points module. They used to be
+ * kept out of `ALL_SECTIONS` on the belief that `role_permissions_section_check`
+ * rejected them — verified false on production RDS (2026-10-16): the
+ * constraint does not exist on RDS or locally, so `role_permissions` accepts
+ * any section name. They are seeded and written like any other section now.
  */
 export const POINTS_SECTIONS = ['leaderboard', 'points_config'] as const
 
-/** Keys with a PermSection literal but never written to role_permissions —
- *  see UNSTORABLE_MASTERS above. */
-export const UNSTORABLE_MASTER_SECTIONS = UNSTORABLE_MASTERS.map(m => m.key)
-
-/** The 26 sections that can be written to role_permissions. */
+/** The sections that can be written to role_permissions. */
 export const ALL_SECTIONS = [
   ...MASTER_SECTION_KEYS,
   ...OPERATION_SECTIONS,
+  ...POINTS_SECTIONS,
 ]
 
-/** The 28 keys the client's permission map carries. Read-only — see POINTS_SECTIONS. */
-export const ALL_PERMISSION_KEYS = [
-  ...ALL_SECTIONS,
-  ...POINTS_SECTIONS,
-  ...UNSTORABLE_MASTER_SECTIONS,
-]
+/** The keys the client's permission map carries. */
+export const ALL_PERMISSION_KEYS = ALL_SECTIONS

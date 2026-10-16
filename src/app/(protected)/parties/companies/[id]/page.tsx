@@ -99,6 +99,7 @@ import { SharedWithCard } from '@/components/sharing/shared-with-card'
 import { useToast } from '@/contexts/ToastContext'
 import { useMe, type Me } from '@/hooks/useMe'
 import { EMPTY, fmtDate } from '@/lib/format'
+import { recordRecentItem } from '@/lib/recent-items'
 import { cn } from '@/lib/utils'
 import { useLayout } from '@/lib/layout'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
@@ -607,6 +608,21 @@ function CompanyDetail() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Global search's "Recent" (src/lib/recent-items.ts) — recorded here rather
+  // than only from the search dropdown's own onSelect, so a company opened by
+  // any other route (the Parties list, a link from a Deal) shows up too.
+  useEffect(() => {
+    if (company && me?.userId) {
+      recordRecentItem(me.userId, {
+        type: 'account',
+        id: company.id,
+        title: company.name,
+        subtitle: company.mobile_1,
+        href: `/parties/companies/${company.id}`,
+      })
+    }
+  }, [company, me?.userId])
 
   const missing = (company?.completeness_missing ?? '')
     .split(',')

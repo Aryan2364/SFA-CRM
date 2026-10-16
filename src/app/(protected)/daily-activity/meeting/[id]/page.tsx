@@ -72,7 +72,6 @@ import { DealsSection } from '@/components/meeting/deals-section'
 import { NewDealDialog } from '@/components/meeting/new-deal-dialog'
 import { NotesSection } from '@/components/meeting/notes-section'
 import { OrdersSection } from '@/components/meeting/orders-section'
-import { PreviousMeetingsSection } from '@/components/meeting/previous-meetings-section'
 import type {
   MeetingContext,
   MeetingDeal,
@@ -195,6 +194,13 @@ export default function MeetingPage() {
      yet is not not allowed"). `ctx` is already loaded by this point (the page
      returns earlier otherwise), so only `me` can still be in flight. */
   const canEditAttendees: boolean | null = me === null ? null : canWriteNotes
+  /* "Past notes" button in the Minutes header: same three-state rule as
+     `canEditAttendees` above — `null` while `useMe()` is still in flight, so
+     the button renders disabled with no reason rather than a wrong "not
+     allowed". `meetings.view` is the permission the history route itself
+     checks; reaching this page at all already proves access to THIS meeting
+     (via scope or sharing), which is the other half of the route's gate. */
+  const canViewHistory: boolean | null = me === null ? null : !!me?.permissions?.meetings?.view
   /* POST /api/orders with a visit_id checks orders.create, and — when the
      meeting already carries an order, so the post is a re-punch — orders.edit
      as well. */
@@ -350,12 +356,11 @@ export default function MeetingPage() {
       </header>
 
       {/*
-        DOM order is the phone's reading order: what happened last time, then
-        this meeting's minutes, then Deals and Orders. On a wide screen the
-        grid places them explicitly — Previous meetings top-left above Deals,
+        DOM order is the phone's reading order: this meeting's minutes (with
+        earlier meetings now reachable from its own "Past notes" button), then
+        Deals and Orders. On a wide screen the grid places them explicitly —
         the minutes in the right column spanning both rows so they stay sticky
-        beside everything on the left. The second row is `1fr` so the minutes'
-        height lands there, never as a gap under Previous meetings.
+        beside everything on the left.
       */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:grid-rows-[auto_1fr]">
         <div className="flex flex-col gap-4 lg:col-span-2 lg:col-start-1 lg:row-start-1">
@@ -367,12 +372,17 @@ export default function MeetingPage() {
             control shown here can never 403.
           */}
           <MeetingAttendeesSection visitId={visit.id} canEdit={canEditAttendees} />
-          <PreviousMeetingsSection visitId={visit.id} />
         </div>
 
         <div className="lg:col-start-3 lg:row-span-2 lg:row-start-1">
           <div className="lg:sticky lg:top-28">
-            <NotesSection targets={noteTargets} canWrite={canWriteNotes} earlierNote={visit.notes} />
+            <NotesSection
+              visitId={visit.id}
+              targets={noteTargets}
+              canWrite={canWriteNotes}
+              earlierNote={visit.notes}
+              canViewHistory={canViewHistory}
+            />
           </div>
         </div>
 

@@ -43,9 +43,10 @@ export async function POST(req: NextRequest) {
       })
 
       // Seed an empty permission row per section, from the one registry.
-      // ALL_SECTIONS deliberately excludes leaderboard/points_config: they are
-      // not in the role_permissions_section_check constraint, and inserting
-      // either one would fail the whole createMany and abort role creation.
+      // ALL_SECTIONS includes every section — masters, operations and the
+      // points sections (leaderboard/points_config) — the
+      // role_permissions_section_check constraint does not exist on RDS or
+      // locally (verified 2026-10-16), so every section is insertable.
       // ignoreDuplicates: true -> skipDuplicates, against the real
       // @@unique([tenant_id, profile, section]).
       await tx.role_permissions.createMany({

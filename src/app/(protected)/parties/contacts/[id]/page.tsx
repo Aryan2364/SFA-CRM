@@ -85,6 +85,7 @@ import { LEAD_STAGE, StatusBadge, USER_STATUS } from '@/components/status-badge'
 import { useMe } from '@/hooks/useMe'
 import { useToast } from '@/contexts/ToastContext'
 import { EMPTY, fmtDate } from '@/lib/format'
+import { recordRecentItem } from '@/lib/recent-items'
 import { cn } from '@/lib/utils'
 
 import { IndividualConflictDialog, type IndividualConflict } from '../../individual-conflict-dialog'
@@ -303,6 +304,19 @@ function ContactDetail() {
     me?.role === 'Administrator' || (me?.permissions?.companies?.create ?? false)
   const canDeleteContact =
     me?.role === 'Administrator' || (me?.permissions?.contacts?.delete ?? false)
+
+  // Global search's "Recent" (src/lib/recent-items.ts).
+  useEffect(() => {
+    if (contact && me?.userId) {
+      recordRecentItem(me.userId, {
+        type: 'contact',
+        id: contact.id,
+        title: contact.name,
+        subtitle: contact.mobile,
+        href: `/parties/contacts/${contact.id}`,
+      })
+    }
+  }, [contact, me?.userId])
 
   const { toast } = useToast()
 

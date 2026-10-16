@@ -260,6 +260,30 @@ export async function setAttendees(
 /** Add attendees at meeting-creation time (same shape as `setAttendees`, for a brand-new visit with no prior rows). */
 export const recordAttendees = setAttendees
 
+/**
+ * Other meetings (within this tenant) that share at least one of `contactIds`
+ * as an attendee, excluding `excludeVisitId`. `[]` while the table does not
+ * exist or `contactIds` is empty — "Past notes" matching falls back to the
+ * account-only rule in that case.
+ */
+export async function visitIdsSharingAttendees(
+  tenantId: string,
+  contactIds: string[],
+  excludeVisitId: string
+): Promise<string[]> {
+  if (contactIds.length === 0) return []
+  const rows = await guardedRead<{ visit_id: string }[]>([], () =>
+    prisma.$queryRaw<{ visit_id: string }[]>(Prisma.sql`
+      SELECT DISTINCT a.visit_id::text AS visit_id
+        FROM meeting_attendees a
+       WHERE a.tenant_id = ${tenantId}::uuid
+         AND a.visit_id != ${excludeVisitId}::uuid
+         AND a.contact_id::text IN (${Prisma.join(contactIds)})
+    `)
+  )
+  return rows.map(r => r.visit_id)
+}
+
 /** True once the table exists, for pages that want to hide the attendees UI instead of showing an empty panel. */
 export async function isAttendeesAvailable(tenantId: string): Promise<boolean> {
   return guardedRead<boolean>(false, async () => {
