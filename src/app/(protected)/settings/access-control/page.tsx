@@ -220,7 +220,7 @@ const OPERATION_ROWS: Record<OperationSection, OperationRow> = {
 
   /* Added here at the same time as this Record. Each is enforced by its routes
      and scoped by `src/lib/scope.ts`; none was grantable before. */
-  companies:   { label: 'Companies',      group: 'parties_pipeline', isOperation: true },
+  companies:   { label: 'Accounts',       group: 'parties_pipeline', isOperation: true },
   contacts:    { label: 'Contacts',       group: 'parties_pipeline', isOperation: true },
   deals:       { label: 'Opportunities',  group: 'parties_pipeline', isOperation: true },
 

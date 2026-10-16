@@ -119,7 +119,7 @@ export function PartyPicker({
             className="w-full sm:w-auto"
           >
             <PlusIcon />
-            Create new lead
+            New account
           </Button>
         ) : null}
       </div>

@@ -128,7 +128,7 @@ export async function loadCompanies(
     select: { id: true, owner_user_id: true },
   })
   if (companies.length !== ids.length)
-    return { error: 'One or more of the companies selected could not be found' }
+    return { error: 'One or more of the accounts selected could not be found' }
 
   return { companies }
 }

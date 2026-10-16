@@ -99,7 +99,7 @@ export function foreignDealRef(
   return firstForeignTenantRef([
     { value: body.owner_user_id, label: 'Owner',
       find: id => prisma.users.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
-    { value: body.company_id, label: 'Company',
+    { value: body.company_id, label: 'Account',
       find: id => prisma.companies.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
     { value: body.contact_id, label: 'Contact',
       find: id => prisma.contacts.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },

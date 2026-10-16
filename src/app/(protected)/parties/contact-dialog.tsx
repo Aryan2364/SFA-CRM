@@ -296,7 +296,7 @@ export function ContactDialog({
               dialog identical whichever company it was opened from.
             */
             <div className="col-span-12">
-              <Label htmlFor="cd-company">Company</Label>
+              <Label htmlFor="cd-company">Account</Label>
               <Input
                 id="cd-company"
                 className="mt-1.5"
@@ -306,24 +306,24 @@ export function ContactDialog({
                 aria-describedby="cd-company-hint"
               />
               <p id="cd-company-hint" className="mt-1.5 text-label text-text-muted">
-                Fixed — this contact is being added to this company.
+                Fixed — this contact is being added to this account.
               </p>
             </div>
           ) : (
             /* No single company owns this dialog from the Contacts tab —
                the user chooses which one this contact belongs to. */
             <div className="col-span-12">
-              <Label htmlFor="cd-company-picker">Company</Label>
+              <Label htmlFor="cd-company-picker">Account</Label>
               <SearchableSelect
                 id="cd-company-picker"
                 className="mt-1.5"
                 options={Object.fromEntries((companies ?? []).map(c => [c.id, c.name]))}
                 value={pickedCompanyId}
                 onValueChange={setPickedCompanyId}
-                placeholder="No company"
+                placeholder="No account"
               />
               <p className="mt-1.5 text-label text-text-muted">
-                A contact can be linked to a company later, and to more than one.
+                A contact can be linked to an account later, and to more than one.
               </p>
             </div>
           )}
@@ -492,7 +492,7 @@ export function ContactDialog({
               options={Object.fromEntries(users.map(u => [u.id, u.name]))}
               value={ownerValue}
               onValueChange={set('owner_user_id')}
-              placeholder="Same as the company’s owner"
+              placeholder="Same as the account’s owner"
               disabled={ownerChoice.state !== 'any'}
             />
             {ownerChoice.state === 'self' && (

@@ -492,9 +492,9 @@ function ContactDetail() {
                 <span className="inline-flex items-center gap-1.5">
                   <BuildingIcon className="size-icon shrink-0" aria-hidden="true" />
                   {companies.length === 0
-                    ? 'No company linked'
+                    ? 'No account linked'
                     : `Linked to ${companies.length} ${
-                        companies.length === 1 ? 'company' : 'companies'
+                        companies.length === 1 ? 'account' : 'accounts'
                       }`}
                 </span>
                 {/*
@@ -827,14 +827,14 @@ function CompaniesCard({ companies }: { companies: LinkedCompany[] }) {
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BuildingIcon className="size-icon text-text-secondary" aria-hidden="true" />
-          Companies
+          Accounts
         </CardTitle>
       </CardHeader>
 
       {companies.length === 0 ? (
-        <EmptyState variant="nothing-yet" heading="No company linked">
-          A contact does not have to belong to a company — §3.4 makes the link
-          optional — but linking one is what puts this person on that company&apos;s
+        <EmptyState variant="nothing-yet" heading="No account linked">
+          A contact does not have to belong to an account — §3.4 makes the link
+          optional — but linking one is what puts this person on that account&apos;s
           page and lets an opportunity find them.
         </EmptyState>
       ) : (

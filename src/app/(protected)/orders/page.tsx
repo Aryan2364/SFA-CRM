@@ -723,7 +723,7 @@ function OrdersPageInner() {
                   label={
                     companyName
                       ? `Showing orders for ${companyName}`
-                      : 'Showing orders for one company'
+                      : 'Showing orders for one account'
                   }
                   /* Never a dead end: the narrowing the link applied can be
                      taken off without leaving the page. `refreshKey` is what
@@ -765,7 +765,7 @@ function OrdersPageInner() {
         searchHint={SEARCH_HINT}
         emptyYet={{
           heading: 'No orders yet',
-          body: 'Orders raised against a dealer, distributor or lead are listed here.',
+          body: 'Orders raised against a dealer, distributor or account are listed here.',
           ...(canCreateOrder
             ? { actionLabel: 'Create order', onAction: () => setCreateOpen(true) }
             : {}),

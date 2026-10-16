@@ -502,7 +502,7 @@ export default function NewCompanyPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: false }),
       })
-      if (!flip.ok) toast('Company saved, but it could not be set to Inactive.', 'error')
+      if (!flip.ok) toast('Account saved, but it could not be set to Inactive.', 'error')
     }
 
     /*
@@ -529,7 +529,7 @@ export default function NewCompanyPage() {
     }
     if (savedAddresses < realAddresses.length) {
       toast(
-        `Company saved, but ${realAddresses.length - savedAddresses} of ${realAddresses.length} addresses could not be. Add them from the company page.`,
+        `Account saved, but ${realAddresses.length - savedAddresses} of ${realAddresses.length} addresses could not be. Add them from the account page.`,
         'error'
       )
     }
@@ -553,7 +553,7 @@ export default function NewCompanyPage() {
     setSaving(false)
     setCompany(finalCompany)
     if (landlineWarning) toast(landlineWarning, 'warning')
-    else toast('Company saved. Add its contact people next.')
+    else toast('Account saved. Add its contact people next.')
   }
 
   const stepTwo = company !== null
@@ -798,7 +798,7 @@ export default function NewCompanyPage() {
 
           <Card className="mt-4">
             <CardHeader>
-              <CardTitle>{kind === 'Individual' ? 'Account details' : 'Company details'}</CardTitle>
+              <CardTitle>Account details</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-12 gap-4">
@@ -818,7 +818,7 @@ export default function NewCompanyPage() {
                 {/* Not compulsory, blank by default — §3.3 inverts the old rule.
                     Filtered to the types that apply to the current kind. */}
                 <div className="col-span-12 sm:col-span-6">
-                  <Label htmlFor="co-type">{kind === 'Individual' ? 'Type' : 'Company type'}</Label>
+                  <Label htmlFor="co-type">{kind === 'Individual' ? 'Type' : 'Account type'}</Label>
                   <SearchableSelect
                     id="co-type"
                     className="mt-1.5"
@@ -1116,7 +1116,7 @@ function StepTwo({
         <Banner variant="warning" className="mb-4">
           <BannerTitle>Saved, and marked Incomplete</BannerTitle>
           <BannerDescription>
-            Still missing: {company.completeness_missing}. The company is usable
+            Still missing: {company.completeness_missing}. The account is usable
             now; these fields are what a full record needs.
           </BannerDescription>
         </Banner>
@@ -1140,8 +1140,8 @@ function StepTwo({
               actionLabel="Add contact"
               onAction={() => setContactOpen(true)}
             >
-              Add the people you deal with at this company, or finish now and
-              add them later from the company page.
+              Add the people you deal with at this account, or finish now and
+              add them later from the account page.
             </EmptyState>
           ) : (
             <ul className="divide-y divide-border-light">

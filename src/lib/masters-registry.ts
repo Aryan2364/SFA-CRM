@@ -160,7 +160,7 @@ export const MASTERS = [
 
   // ── Lead configuration ───────────────────────────────────────────────────
   {
-    key: 'lead_types', label: 'Lead Types',
+    key: 'lead_types', label: 'Account Types',
     href: '/masters/lead-types', api: '/api/masters/lead-types',
     model: 'company_types', group: 'lead_config', icon: 'bookmark',
     /**

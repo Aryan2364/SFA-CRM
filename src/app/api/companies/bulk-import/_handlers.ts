@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
     const check = (column: string, message: string | null) => { if (message) error(column, message) }
 
     const name = v('Name')
-    if (!name) error('Name', 'Name is blank; every company needs one')
+    if (!name) error('Name', 'Name is blank; every account needs one')
 
     // Company Type is NOT compulsory (REBUILD-PLAN.md:126) — a blank column is
     // accepted. A value that is not in the master is still an error: it is a

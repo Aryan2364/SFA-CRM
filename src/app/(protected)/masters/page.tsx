@@ -87,8 +87,8 @@ const CARDS: CardDef[] = [
   },
   {
     group: 'lead_config',
-    title: 'Lead Management',
-    subtitle: 'Lead types, opportunity stages & temperatures',
+    title: 'Account Management',
+    subtitle: 'Account types, opportunity stages & temperatures',
     color: 'border-violet-200 bg-violet-50/40',
     headerBg: 'bg-violet-50',
     iconColor: 'text-violet-600',

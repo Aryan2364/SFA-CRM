@@ -171,11 +171,11 @@ export function DealsSection({
         {!visible ? (
           <p className="py-6 text-center text-body text-text-secondary">
             Opportunities are not part of your access. Ask an administrator if you need
-            to see this company&rsquo;s pipeline.
+            to see this account&rsquo;s pipeline.
           </p>
         ) : !companyId ? (
           <p className="py-6 text-center text-body text-text-secondary">
-            This meeting is not linked to a saved company, so there is no
+            This meeting is not linked to a saved account, so there is no
             pipeline to show. Save the party as a record to track opportunities against
             it.
           </p>

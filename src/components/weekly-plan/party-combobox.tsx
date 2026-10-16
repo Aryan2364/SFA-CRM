@@ -142,7 +142,7 @@ export function PartyCombobox({
           setOpen(true)
         }}
         onFocus={() => setOpen(true)}
-        placeholder="Search company or contact…"
+        placeholder="Search account or contact…"
         // 16px below sm: anything smaller makes iOS zoom the page on focus.
         className="w-full rounded-lg border border-border-light px-3 py-2 text-[16px] text-text-primary focus:ring-2 focus:ring-primary-ring focus:outline-none disabled:bg-surface-sunken disabled:text-text-muted sm:text-sm"
       />
@@ -190,7 +190,7 @@ export function PartyCombobox({
                       : 'bg-success-bg text-success',
                   )}
                 >
-                  {o.type === 'company' ? 'Company' : 'Contact'}
+                  {o.type === 'company' ? 'Account' : 'Contact'}
                 </span>
                 <span
                   className={cn(

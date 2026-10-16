@@ -114,7 +114,7 @@ export function QuickCreateDialog({
      * still validated when a mobile is entered.
      */
     const next: Record<string, string> = {}
-    if (!name.trim()) next.name = 'Enter the company name.'
+    if (!name.trim()) next.name = 'Enter the account name.'
     const bad = checkMobile(mobile, 'Mobile Number')
     if (mobile.trim() && bad) next.mobile = bad
     setErrors(next)
@@ -134,7 +134,7 @@ export function QuickCreateDialog({
     setSaving(false)
 
     if (!res.ok) {
-      setErrors({ form: (data as { error?: string }).error ?? 'Could not save this company.' })
+      setErrors({ form: (data as { error?: string }).error ?? 'Could not save this account.' })
       return
     }
 
@@ -147,7 +147,7 @@ export function QuickCreateDialog({
       {/* Section 24: 400px, the confirmation width. Two fields do not need more. */}
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Quick create company</DialogTitle>
+          <DialogTitle>Quick create account</DialogTitle>
           <DialogDescription>
             Only the name is required to start. The record is saved as
             Incomplete until the rest is filled in.
@@ -156,7 +156,7 @@ export function QuickCreateDialog({
 
         <div className="flex flex-col gap-4">
           <div>
-            <Label htmlFor="qc-name" required>Company name</Label>
+            <Label htmlFor="qc-name" required>Account name</Label>
             <Input
               id="qc-name"
               className="mt-1.5"
@@ -188,7 +188,7 @@ export function QuickCreateDialog({
         <DialogFooter>
           <DialogClose render={<Button variant="secondary">Cancel</Button>} />
           <Button onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Create company'}
+            {saving ? 'Saving…' : 'Create account'}
           </Button>
         </DialogFooter>
       </DialogContent>

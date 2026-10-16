@@ -105,7 +105,7 @@ export default function LeadTypesPage() {
   return (
     <>
       <CrudPage
-        title="Lead Types" backHref="/masters" columns={COLS}
+        title="Account Types" backHref="/masters" columns={COLS}
         rows={crud.rows} allRowsCount={crud.allRows.length}
         isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
         loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
@@ -116,7 +116,7 @@ export default function LeadTypesPage() {
         onDelete={r => crud.remove(r.id as string)} deleteMode="soft"
         onReorder={handleReorder}
       />
-      <Modal title={editing ? 'Edit Lead Type' : 'Add Lead Type'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
+      <Modal title={editing ? 'Edit Account Type' : 'Add Account Type'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
         <div className="space-y-4">
           <div>
             <label htmlFor="lead-type-name" className="block text-sm font-medium text-text-secondary mb-1">Type Name <span className="text-danger">*</span></label>

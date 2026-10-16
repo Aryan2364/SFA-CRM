@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
   // Body-sourced ids, looked up in the caller's tenant before anything is
   // written — see src/lib/tenant-fk.ts.
   const miss = await firstForeignTenantRef([
-    { value: new_prospect ? null : entity_id, label: 'Company',
+    { value: new_prospect ? null : entity_id, label: 'Account',
       find: id => prisma.companies.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
     { value: new_prospect?.state_id, label: 'State',
       find: id => prisma.states.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
@@ -254,7 +254,7 @@ export async function POST(req: NextRequest) {
   if (contact_id) {
     if (new_prospect) {
       return NextResponse.json(
-        { error: 'A lead being created here has no contacts yet, so a person cannot be named on this meeting' },
+        { error: 'An account being created here has no contacts yet, so a person cannot be named on this meeting' },
         { status: 400 }
       )
     }
@@ -282,7 +282,7 @@ export async function POST(req: NextRequest) {
   let linkDealId: string | null = null
   if (deal_id !== undefined && deal_id !== null && deal_id !== '') {
     if (new_prospect) {
-      return NextResponse.json({ error: 'A meeting for an opportunity is at its own account, not a new lead' }, { status: 400 })
+      return NextResponse.json({ error: 'A meeting for an opportunity is at its own account, not a brand-new one' }, { status: 400 })
     }
     if (!await checkPermission(user, 'deals', 'view')) return forbidden()
     const deal = await findScopedDeal(user, tid, String(deal_id), 'write')

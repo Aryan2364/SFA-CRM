@@ -281,7 +281,7 @@ function PartyCombobox({ value, onChange, options, disabled }: {
         type="text" disabled={disabled} value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
-        placeholder="Search company or contact…"
+        placeholder="Search account or contact…"
         className="w-full border border-border-light rounded-lg px-3 py-2 text-[16px] sm:text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted"
       />
       {!disabled && open && (
@@ -298,7 +298,7 @@ function PartyCombobox({ value, onChange, options, disabled }: {
                   <span className={`shrink-0 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ${
                     o.type === 'company' ? 'bg-primary-subtle text-primary' : 'bg-success-bg text-success'
                   }`}>
-                    {o.type === 'company' ? 'Company' : 'Contact'}
+                    {o.type === 'company' ? 'Account' : 'Contact'}
                   </span>
                   <span className={`min-w-0 truncate ${o.id === value ? 'text-primary font-medium' : 'text-text-secondary'}`}>
                     {o.name}
@@ -414,7 +414,7 @@ function MyPlanTab({ userId }: { userId: string }) {
       }
       list.sort((a, b) => a.name.localeCompare(b.name))
       setParties(list)
-    }).catch(() => toast('Failed to load companies and contacts', 'error'))
+    }).catch(() => toast('Failed to load accounts and contacts', 'error'))
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

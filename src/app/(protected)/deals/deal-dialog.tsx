@@ -371,7 +371,7 @@ export function DealDialog({
           </div>
 
           <div className="col-span-12 sm:col-span-6">
-            <Label htmlFor="dd-company" required>Company</Label>
+            <Label htmlFor="dd-company" required>Account</Label>
             <SearchableSelect
               id="dd-company"
               className="mt-1.5"
@@ -405,7 +405,7 @@ export function DealDialog({
               placeholder={
                 contacts.length === 0
                   ? form.company_id
-                    ? 'No contacts at this company'
+                    ? 'No contacts at this account'
                     : 'No contacts available'
                   : 'No contact'
               }

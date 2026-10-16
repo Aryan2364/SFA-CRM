@@ -176,7 +176,7 @@ export const MEASURES = {
 
   // ── Parties ─────────────────────────────────────────────────────────────
   companies_added: {
-    key: 'companies_added', label: 'Companies Added', source: 'companies',
+    key: 'companies_added', label: 'Accounts Added', source: 'companies',
     kind: 'count', format: 'number',
   },
   contacts_added: {

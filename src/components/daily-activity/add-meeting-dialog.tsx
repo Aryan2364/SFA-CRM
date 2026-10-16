@@ -419,7 +419,7 @@ export function AddMeetingDialog({
     fetch('/api/business-partners?status=all&mine=1')
       .then(r => (r.ok ? r.json() : []))
       .then((d: Entity[]) => { setEntities(Array.isArray(d) ? d : []); setEntLoading(false) })
-      .catch(() => { setEntLoading(false); toast('Failed to load leads', 'error') })
+      .catch(() => { setEntLoading(false); toast('Failed to load accounts', 'error') })
 
     setLeadTypesState('loading')
     fetch('/api/masters/lead-types?active=true')
@@ -431,7 +431,7 @@ export function AddMeetingDialog({
         setLeadTypes(Array.isArray(d) ? d : [])
         setLeadTypesState('ready')
       })
-      .catch(() => { setLeadTypesState('error'); toast('Failed to load lead types', 'error') })
+      .catch(() => { setLeadTypesState('error'); toast('Failed to load account types', 'error') })
   }, [open])
 
   /*
@@ -549,7 +549,7 @@ export function AddMeetingDialog({
    */
   const targetGroups = useMemo(() => {
     const groups: SearchableSelectGroup[] = [
-      { heading: 'Leads & companies', icon: <Building2Icon />, options: entityOptions },
+      { heading: 'Accounts', icon: <Building2Icon />, options: entityOptions },
     ]
     if (peopleLoad.state === 'ready' && Object.keys(personOptions).length > 0) {
       groups.push({ heading: 'Contacts', icon: <UserIcon />, options: personOptions })
@@ -910,7 +910,7 @@ export function AddMeetingDialog({
                   {/* The action sits next to the control it extends. */}
                   <Button variant="ghost" size="sm" type="button" onClick={() => setMode('create')}>
                     <PlusIcon />
-                    Create new lead
+                    New account
                   </Button>
                 </div>
                 {entLoading || peopleLoad.state === 'loading' ? (
@@ -925,7 +925,7 @@ export function AddMeetingDialog({
                     groups={targetGroups}
                     value={target}
                     onValueChange={setTarget}
-                    placeholder="Search a lead, company or person"
+                    placeholder="Search an account or person"
                     emptyMessage="Nothing matches that search."
                   />
                 )}
@@ -941,7 +941,7 @@ export function AddMeetingDialog({
                 {peopleLoad.state === 'error' ? (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <InlineFieldError className="mt-0">
-                      The contacts could not be loaded, so only leads and companies are listed
+                      The contacts could not be loaded, so only accounts are listed
                       here. The meeting can still be logged against one.
                     </InlineFieldError>
                     <Button
@@ -957,13 +957,13 @@ export function AddMeetingDialog({
                   /* Kit §2.3 — helper text is `text-muted`. */
                   /* The list holds only the caller's own parties (`mine=1`),
                      so "none" is a normal state for a new rep, and the way
-                     forward is the Create new lead action beside the label. */
+                     forward is the New account action beside the label. */
                   <p className="text-meta text-text-muted">
                     {entities.length === 0 && people.length === 0
-                      ? 'You have no leads or companies of your own yet. Use Create new lead to add the one you met.'
+                      ? 'You have no accounts of your own yet. Use New account to add the one you met.'
                       : people.length > 0
-                        ? 'Pick your company, or the person you met.'
-                        : 'Pick the company you met.'}
+                        ? 'Pick your account, or the person you met.'
+                        : 'Pick the account you met.'}
                   </p>
                 )}
               </div>
@@ -981,7 +981,7 @@ export function AddMeetingDialog({
               */}
               {mustPickCompany && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="da-person-company">Which company?</Label>
+                  <Label htmlFor="da-person-company">Which account?</Label>
                   {personCompanies.length > SEARCHABLE_ABOVE ? (
                     <SearchableSelect
                       id="da-person-company"
@@ -990,12 +990,12 @@ export function AddMeetingDialog({
                       value={personCompanyId}
                       onValueChange={setPersonCompanyId}
                       placeholder="Search by name"
-                      emptyMessage="No company matches that search."
+                      emptyMessage="No account matches that search."
                     />
                   ) : (
                     <Select value={personCompanyId} onValueChange={v => setPersonCompanyId(String(v))}>
                       <SelectTrigger id="da-person-company" className="w-full max-w-none">
-                        <SelectValue placeholder="Select the company" />
+                        <SelectValue placeholder="Select the account" />
                       </SelectTrigger>
                       <SelectContent>
                         {personCompanies.map(c => (
@@ -1005,7 +1005,7 @@ export function AddMeetingDialog({
                     </Select>
                   )}
                   <p className="text-meta text-text-muted">
-                    This person is linked to more than one company, so the meeting has to say
+                    This person is linked to more than one account, so the meeting has to say
                     which one it was with.
                   </p>
                 </div>
@@ -1014,7 +1014,7 @@ export function AddMeetingDialog({
               {!!selectedPersonId && personCompanies.length === 0 && !individualMadeFor && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-light bg-surface-sunken px-3 py-2.5">
                   <p className="text-meta text-text-muted">
-                    This person is not linked to any company, so the meeting is logged against
+                    This person is not linked to any account, so the meeting is logged against
                     them alone. You can make them their own account instead.
                   </p>
                   <Button
@@ -1208,15 +1208,15 @@ export function AddMeetingDialog({
           ) : (
             <div className="space-y-4 rounded-lg border border-border-light p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-label font-medium text-text-primary">New lead</p>
+                <p className="text-label font-medium text-text-primary">New account</p>
                 <Button variant="ghost" size="sm" type="button" onClick={() => setMode('target')}>
                   <ArrowLeftIcon />
-                  Pick an existing lead
+                  Pick an existing account
                 </Button>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="da-np-name">Name</Label>
-                <Input id="da-np-name" className="max-w-none" value={npName} onChange={e => setNpName(e.target.value)} placeholder="Lead name" />
+                <Input id="da-np-name" className="max-w-none" value={npName} onChange={e => setNpName(e.target.value)} placeholder="Account name" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="da-np-mobile">Mobile</Label>
@@ -1248,7 +1248,7 @@ export function AddMeetingDialog({
                   Optional: "Not set" saves the lead untyped and logs the
                   meeting as 'Other'. */}
               <div className="space-y-1.5">
-                <Label htmlFor="da-np-type">Lead type</Label>
+                <Label htmlFor="da-np-type">Account type</Label>
                 <Select
                   items={{ [NO_LEAD_TYPE]: 'Not set', ...Object.fromEntries(leadTypes.map(t => [t.name, t.name])) }}
                   value={npType || NO_LEAD_TYPE}
@@ -1269,17 +1269,17 @@ export function AddMeetingDialog({
                   {noLeadTypes ? (
                     me?.permissions?.lead_types?.view ? (
                       <>
-                        Optional. No lead types have been set up yet; add them in{' '}
+                        Optional. No account types have been set up yet; add them in{' '}
                         <Link
                           href="/masters/lead-types"
                           className="text-primary underline underline-offset-2 outline-none hover:text-primary-hover focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring"
                         >
-                          Masters → Lead Types
+                          Masters → Account types
                         </Link>
                         . Without one, the meeting is logged as Other.
                       </>
                     ) : (
-                      'Optional. No lead types have been set up yet (an administrator can add them in Masters → Lead Types). Without one, the meeting is logged as Other.'
+                      'Optional. No account types have been set up yet (an administrator can add them in Masters → Account types). Without one, the meeting is logged as Other.'
                     )
                   ) : (
                     'Optional. Without one, the meeting is logged as Other.'

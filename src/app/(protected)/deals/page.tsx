@@ -112,7 +112,7 @@ const MOVE_TIMEOUT_MS = 15000
  * hunting for a company name the query never reads.
  */
 const SEARCH_HINT =
-  'Searches the opportunity name. Owner, stage, company and expected closing month are filters.'
+  'Searches the opportunity name. Owner, stage, account and expected closing month are filters.'
 
 /**
  * Local midnight today. The follow-up comparison is date-only on both sides:
@@ -208,7 +208,7 @@ function dealColumns(
     },
     {
       id: 'company',
-      header: 'Company',
+      header: 'Account',
       truncate: true,
       skeletonWidth: 'w-36',
       /* §4.1: a Deal may carry a Contact and no Company, so this is
@@ -390,7 +390,7 @@ function dealBoardCard(deal: DealRow, ageingLimit: number): BoardCard {
     columnId: deal.stage?.id ?? '',
     // A Deal with neither company nor contact is legal (§4.1), and the card
     // still has to say something in its loudest line.
-    title: deal.company?.name ?? deal.contact?.name ?? 'No company',
+    title: deal.company?.name ?? deal.contact?.name ?? 'No account',
     facts: [
       deal.name,
       <span key="value" className="flex items-center gap-3">
@@ -858,11 +858,11 @@ function DealsScreen() {
       ? [
           {
             id: 'company',
-            label: 'Company',
+            label: 'Account',
             kind: 'select' as const,
             searchable: companies.length > 6,
             options: {
-              '': 'Any company',
+              '': 'Any account',
               ...Object.fromEntries(companies.map(c => [c.id, c.name])),
             },
           },

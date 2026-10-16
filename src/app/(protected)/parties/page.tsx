@@ -296,7 +296,7 @@ function companyColumns({
     },
     {
       id: 'type',
-      header: 'Company Type',
+      header: 'Type',
       tier: 'hide-below-768',
       truncate: true,
       cellClassName: 'text-text-secondary',
@@ -568,7 +568,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     fetch('/api/masters/lead-types')
       .then(r => r.json())
       .then(d => setCompanyTypes(Array.isArray(d) ? d : []))
-      .catch(() => toast('Failed to load company types', 'error'))
+      .catch(() => toast('Failed to load account types', 'error'))
   }, [toast])
 
   /*
@@ -696,7 +696,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     },
     {
       id: 'type',
-      label: 'Company Type',
+      label: 'Account type',
       kind: 'select',
       /* Section 16.3: past about six options the menu needs a search, and
          company types run past six in a real tenant. */
@@ -754,20 +754,20 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     {
       id: 'incomplete',
       count: incompleteCount,
-      title: `${incompleteCount} ${incompleteCount === 1 ? 'lead is' : 'leads are'} incomplete`,
+      title: `${incompleteCount} ${incompleteCount === 1 ? 'account is' : 'accounts are'} incomplete`,
       detail: missingFieldSummary
         ? `Missing ${missingFieldSummary}. An order against one of these stays in Draft.`
         : 'An order against one of these stays in Draft.',
-      actionLabel: 'View incomplete leads',
+      actionLabel: 'View incomplete accounts',
       active: onlyIncomplete,
       onAction: () => { setOnlyIncomplete(true); setRefreshKey(k => k + 1) },
     },
     {
       id: 'no-deal',
       count: noDealCount,
-      title: `${noDealCount} ${noDealCount === 1 ? 'lead has' : 'leads have'} no opportunity`,
-      detail: 'Nothing in the pipeline is tied to these leads yet.',
-      actionLabel: 'View leads with no opportunity',
+      title: `${noDealCount} ${noDealCount === 1 ? 'account has' : 'accounts have'} no opportunity`,
+      detail: 'Nothing in the pipeline is tied to these accounts yet.',
+      actionLabel: 'View accounts with no opportunity',
       active: onlyNoDeal,
       onAction: () => { setOnlyNoDeal(true); setRefreshKey(k => k + 1) },
     },
@@ -783,13 +783,13 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
     <>
       {onlyIncomplete && (
         <QuickFilterChip
-          label="Showing incomplete leads only"
+          label="Showing incomplete accounts only"
           onClear={() => { setOnlyIncomplete(false); setRefreshKey(k => k + 1) }}
         />
       )}
       {onlyNoDeal && (
         <QuickFilterChip
-          label="Showing leads without an opportunity"
+          label="Showing accounts without an opportunity"
           onClear={() => { setOnlyNoDeal(false); setRefreshKey(k => k + 1) }}
         />
       )}
@@ -892,14 +892,14 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
       />
       </div>
 
-      <Modal title="Edit company" isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
+      <Modal title="Edit account" isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
         <BusinessPartnerFormFields
           hook={bp}
-          namePlaceholder="Company name"
+          namePlaceholder="Account name"
           showLeadStatus
           topSlot={
             <div>
-              <label htmlFor="company-type" className="block text-sm font-medium text-text-secondary mb-1">Company Type</label>
+              <label htmlFor="company-type" className="block text-sm font-medium text-text-secondary mb-1">Account type</label>
               <select id="company-type" name="type" value={bp.form.type} onChange={bp.F('type')}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
                 <option value="">Select type…</option>
@@ -932,7 +932,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the company permanently. A company that is already
+              This removes the account permanently. An account that is already
               referenced cannot be deleted — deactivate it instead, which keeps
               its history and takes it out of new entry.
             </AlertDialogDescription>
@@ -940,7 +940,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete}>
-              Delete company
+              Delete account
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1052,7 +1052,7 @@ function contactColumns({
     },
     {
       id: 'companies',
-      header: 'Companies',
+      header: 'Accounts',
       tier: 'hide-below-768',
       className: 'whitespace-nowrap',
       skeletonWidth: 'w-16',
@@ -1368,12 +1368,12 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
     },
     {
       id: 'linked',
-      label: 'Company link',
+      label: 'Account link',
       kind: 'select',
       options: {
         '': 'Any',
-        linked: 'Linked to a company',
-        unlinked: 'Not linked to any company',
+        linked: 'Linked to an account',
+        unlinked: 'Not linked to any account',
       },
     },
   ]
@@ -1385,8 +1385,8 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
     {
       id: 'unlinked',
       count: unlinkedCount,
-      title: `${unlinkedCount} ${unlinkedCount === 1 ? 'contact is' : 'contacts are'} not linked to any company`,
-      detail: "Missing a company link — a contact belongs to no lead until it is linked from a company's own page.",
+      title: `${unlinkedCount} ${unlinkedCount === 1 ? 'contact is' : 'contacts are'} not linked to any account`,
+      detail: "Missing an account link — a contact belongs to no account until it is linked from an account's own page.",
       actionLabel: 'View unlinked contacts',
       active: onlyUnlinked,
       onAction: () => { setOnlyUnlinked(true); setRefreshKey(k => k + 1) },
@@ -1395,7 +1395,7 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
 
   const banners = onlyUnlinked ? (
     <QuickFilterChip
-      label="Showing contacts without a company"
+      label="Showing contacts without an account"
       onClear={() => { setOnlyUnlinked(false); setRefreshKey(k => k + 1) }}
     />
   ) : null
@@ -1443,7 +1443,7 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
         searchHint={CONTACT_SEARCH_HINT}
         emptyYet={{
           heading: 'No contacts yet',
-          body: 'The people at those companies live here. Add one directly, or from the company page it belongs to — a contact may be linked to more than one company.',
+          body: 'The people at those accounts live here. Add one directly, or from the account page it belongs to — a contact may be linked to more than one account.',
           actionLabel: 'Add contact',
           onAction: canCreate ? () => setCreateOpen(true) : undefined,
           actionDisabledReason: !createKnown ? null : canCreate ? undefined : 'Only someone who can create contacts can add them',

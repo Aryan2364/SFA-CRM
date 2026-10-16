@@ -119,7 +119,7 @@ export const SOURCES = {
   },
   companies: {
     key: 'companies',
-    label: 'Companies',
+    label: 'Accounts',
     model: 'companies',
     section: 'companies',
     scopePath: ['owner_user_id'],

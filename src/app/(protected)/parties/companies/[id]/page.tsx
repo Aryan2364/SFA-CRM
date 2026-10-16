@@ -411,7 +411,7 @@ function CompanyDetail() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{company?.name ?? 'Company'}</BreadcrumbPage>
+            <BreadcrumbPage>{company?.name ?? 'Account'}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -423,7 +423,7 @@ function CompanyDetail() {
           {error === 'not-found' && (
             <EmptyState
               variant="failed"
-              heading="This company is not here"
+              heading="This account is not here"
               actionLabel="Go to Accounts"
               onAction={() => router.push(listHref)}
             >
@@ -434,18 +434,18 @@ function CompanyDetail() {
           {error === 'forbidden' && (
             <EmptyState
               variant="failed"
-              heading="You cannot open companies"
+              heading="You cannot open accounts"
               actionLabel="Go to Accounts"
               onAction={() => router.push(listHref)}
             >
-              Your role does not include viewing companies. An administrator can
+              Your role does not include viewing accounts. An administrator can
               change that under Settings, Access Control.
             </EmptyState>
           )}
           {error === 'failed' && (
             <EmptyState
               variant="failed"
-              heading="The company could not be loaded"
+              heading="The account could not be loaded"
               onAction={() => void load()}
             >
               The connection dropped while fetching it. Nothing has changed.
@@ -1059,7 +1059,7 @@ function ContactsCard({ contacts }: { contacts: CompanyContact[] }) {
          */
         <CardContent>
           <p className="text-body text-text-secondary">
-            No contacts are linked to this company yet. A contact is the person
+            No contacts are linked to this account yet. A contact is the person
             you deal with here — the name, the number and what they decide.
           </p>
         </CardContent>

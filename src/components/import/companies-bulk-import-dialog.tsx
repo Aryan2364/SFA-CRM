@@ -29,7 +29,7 @@ const CHECK_TIMEOUT_MS = 60_000
 const IMPORT_TIMEOUT_MS = 300_000
 /** Shown beside each verdict so a row can be recognised without the file. */
 const KEY_COLUMNS = ['Name', 'Kind', 'Mobile 1', 'GST Number', 'State']
-const PERM_REASON = 'Only someone who can create companies can import them'
+const PERM_REASON = 'Only someone who can create accounts can import them'
 
 async function withDeadline(input: string, init: RequestInit, ms: number) {
   const controller = new AbortController()
@@ -153,7 +153,7 @@ export function CompaniesBulkImportDialog({ open, onOpenChange, onImported }: {
         setFilter(initialFilter(data))
         const n = data.counts.created
         if (n > 0) {
-          toast(`${fmtNumber(n)} compan${n === 1 ? 'y' : 'ies'} imported${data.counts.skipped ? `; ${fmtNumber(data.counts.skipped)} skipped` : ''}`,
+          toast(`${fmtNumber(n)} account${n === 1 ? '' : 's'} imported${data.counts.skipped ? `; ${fmtNumber(data.counts.skipped)} skipped` : ''}`,
             data.counts.skipped ? 'warning' : 'success')
           // §10: an Individual row imports with no Self contact yet.
           if ((data as ImportResponse & { message?: string }).message) {
@@ -195,7 +195,7 @@ export function CompaniesBulkImportDialog({ open, onOpenChange, onImported }: {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent size="lg">
         <DialogHeader>
-          <DialogTitle>Bulk upload companies</DialogTitle>
+          <DialogTitle>Bulk upload accounts</DialogTitle>
           <DialogDescription>
             Every row is checked before anything is imported. Good rows are imported; rows with problems are skipped and listed.
           </DialogDescription>
@@ -278,7 +278,7 @@ export function CompaniesBulkImportDialog({ open, onOpenChange, onImported }: {
                 result.counts.created > 0 ? (
                   <Banner variant="success" className="shrink-0">
                     <CircleCheckIcon />
-                    <BannerTitle>{fmtNumber(result.counts.created)} compan{result.counts.created === 1 ? 'y' : 'ies'} imported</BannerTitle>
+                    <BannerTitle>{fmtNumber(result.counts.created)} account{result.counts.created === 1 ? '' : 's'} imported</BannerTitle>
                     {skipped > 0 && (
                       <BannerDescription>
                         {fmtNumber(skipped)} row{skipped === 1 ? ' was' : 's were'} skipped. Download them, fix the cells named in Problem, then upload that same file.
@@ -300,7 +300,7 @@ export function CompaniesBulkImportDialog({ open, onOpenChange, onImported }: {
                   <BannerDescription>
                     {skipped
                       ? 'Download the rows to fix, correct the cells named in Problem, then upload that same file.'
-                      : 'Every row in this file matches a company that is already in the system.'}
+                      : 'Every row in this file matches an account that is already in the system.'}
                   </BannerDescription>
                 </Banner>
               )}
@@ -342,10 +342,10 @@ export function CompaniesBulkImportDialog({ open, onOpenChange, onImported }: {
           {confirming ? (
             <>
               <p className="mr-auto text-body text-text-primary">
-                Import {fmtNumber(ready)} compan{ready === 1 ? 'y' : 'ies'}?{skipped ? ` ${fmtNumber(skipped)} will be skipped.` : ''}
+                Import {fmtNumber(ready)} account{ready === 1 ? '' : 's'}?{skipped ? ` ${fmtNumber(skipped)} will be skipped.` : ''}
               </p>
               <Button variant="secondary" onClick={() => setConfirming(false)}>Back</Button>
-              <Button onClick={handleImport}>Import {fmtNumber(ready)} compan{ready === 1 ? 'y' : 'ies'}</Button>
+              <Button onClick={handleImport}>Import {fmtNumber(ready)} account{ready === 1 ? '' : 's'}</Button>
             </>
           ) : (
             <>

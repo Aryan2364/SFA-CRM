@@ -286,21 +286,21 @@ const DIMENSION_LIST: DimensionDef[] = [
   // ── Party (§7.2) ────────────────────────────────────────────────────────
   {
     key: 'company',
-    label: 'Company',
+    label: 'Account',
     sort: 'value',
     requiresSection: 'companies',
     on: {
-      orders: company('orders', c => c.name, 'No company', true, ['entity_name']),
-      order_items: company('order_items', c => c.name, 'No company', true),
-      visits: company('visits', c => c.name, 'No company', true, ['entity_name']),
-      deals: company('deals', c => c.name, 'No company', true),
-      companies: company('companies', c => c.name, 'No company', true, ['name']),
-      follow_ups: company('follow_ups', c => c.name, 'No company', true),
+      orders: company('orders', c => c.name, 'No account', true, ['entity_name']),
+      order_items: company('order_items', c => c.name, 'No account', true),
+      visits: company('visits', c => c.name, 'No account', true, ['entity_name']),
+      deals: company('deals', c => c.name, 'No account', true),
+      companies: company('companies', c => c.name, 'No account', true, ['name']),
+      follow_ups: company('follow_ups', c => c.name, 'No account', true),
     },
   },
   {
     key: 'company_type',
-    label: 'Company Type',
+    label: 'Account Type',
     sort: 'value',
     requiresSection: 'companies',
     on: {

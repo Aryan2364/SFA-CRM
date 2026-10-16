@@ -171,7 +171,7 @@ export function PlanLineDialog({
             {partyField}
             {!hasParty && (
               <p className="text-meta text-text-muted">
-                Choose the company or contact this visit is for.
+                Choose the account or contact this visit is for.
               </p>
             )}
           </div>
