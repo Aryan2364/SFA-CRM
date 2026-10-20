@@ -1,69 +1,30 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import CrudPage, { Column, masterLocks } from '@/components/ui/CrudPage'
-import Modal from '@/components/ui/Modal'
-import SearchableSelect from '@/components/ui/SearchableSelect'
-import { useCrud } from '@/hooks/useCrud'
-import { useMe } from '@/hooks/useMe'
-import { useToast } from '@/contexts/ToastContext'
+import { MasterNamePage, type MasterRow } from '@/components/masters/master-name-page'
+import type { ListColumn } from '@/components/templates/list-page'
 
-const COLS: Column[] = [
-  { key: 'name', label: 'Name' },
-  { key: 'state', label: 'State', render: r => (r.states as { name: string } | null)?.name ?? '' },
-]
+const stateColumn: ListColumn<MasterRow> = {
+  id: 'state',
+  header: 'State',
+  tier: 'hide-below-1024',
+  truncate: true,
+  cellClassName: 'text-text-secondary',
+  cell: row => (row.states as { name: string } | null)?.name ?? '—',
+}
 
 export default function DistrictsPage() {
-  const crud = useCrud('/api/masters/districts')
-  const me = useMe()
-  const { toast } = useToast()
-  // The real permission map, never a role name — Administrators get every
-  // section from /api/auth/me. Denied actions show disabled with a reason.
-  const locks = masterLocks(me, 'districts', 'districts')
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
-  const [name, setName] = useState(''); const [stateId, setStateId] = useState('')
-  const [states, setStates] = useState<{ value: string; label: string }[]>([])
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/masters/states').then(r => r.json()).then((d: { id: string; name: string }[]) =>
-      setStates(d.map(s => ({ value: s.id, label: s.name })))).catch(() => toast('Failed to load states. Please refresh.', 'error'))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function openAdd() { setEditing(null); setName(''); setStateId(''); setOpen(true) }
-  function openEdit(row: Record<string, unknown>) { setEditing(row); setName(String(row.name)); setStateId(String(row.state_id)); setOpen(true) }
-
-  async function handleSave() {
-    if (!name.trim() || !stateId) return
-    setSaving(true)
-    const ok = editing
-      ? await crud.update(editing.id as string, { name: name.trim(), state_id: stateId })
-      : await crud.create({ name: name.trim(), state_id: stateId })
-    setSaving(false)
-    if (ok !== false && ok !== null) setOpen(false)
-  }
-
   return (
-    <>
-      <CrudPage title="Districts" backHref="/masters" columns={COLS} rows={crud.rows} allRowsCount={crud.allRows.length}
-        isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
-        loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
-        page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={openAdd}
-        onEdit={openEdit}
-        onDelete={r => crud.remove(r.id as string)} deleteMode="hard" />
-      <Modal title={editing ? 'Edit District' : 'Add District'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
-        <div>
-          <p className="block text-sm font-medium text-text-secondary mb-1">State <span className="text-danger">*</span></p>
-          <SearchableSelect value={stateId} onChange={setStateId} options={states} placeholder="Select state…" />
-        </div>
-        <div>
-          <label htmlFor="district-name" className="block text-sm font-medium text-text-secondary mb-1">District Name <span className="text-danger">*</span></label>
-          <input id="district-name" name="name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Enter district name"
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-        </div>
-      </Modal>
-    </>
+    <MasterNamePage
+      title="Districts"
+      noun={{ one: 'district', many: 'districts' }}
+      apiPath="/api/masters/districts"
+      section="districts"
+      nameLabel="District Name"
+      namePlaceholder="Enter district name"
+      parentField={{ key: 'state_id', label: 'State', fetchUrl: '/api/masters/states' }}
+      extraColumns={[stateColumn]}
+      deleteMode="hard"
+      emptyBody="Districts sit under a state in the location hierarchy."
+    />
   )
 }

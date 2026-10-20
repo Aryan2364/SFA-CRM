@@ -67,7 +67,9 @@ function PaginationContent({ className, ...props }: React.ComponentProps<"ul">) 
   return (
     <ul
       data-slot="pagination-content"
-      className={cn("flex items-center gap-1", className)}
+      // gap-2, not gap-1: 9 rule 4 keeps controls 8px apart so their
+      // 44px touch extensions never overlap.
+      className={cn("flex items-center gap-2", className)}
       {...props}
     />
   )
@@ -85,8 +87,8 @@ function PaginationItem({ ...props }: React.ComponentProps<"li">) {
  * is allowed to leave with it.
  */
 const controlClasses =
-  "inline-flex h-control min-w-control cursor-pointer items-center justify-center gap-1 " +
-  "px-2 text-body text-text-secondary transition-colors " +
+  "tap-area inline-flex h-control min-w-control cursor-pointer items-center justify-center gap-1 " +
+  "px-2 text-body text-text-secondary transition-[color] duration-(--duration-fast) ease-enter " +
   "hover:text-text-primary active:text-text-primary " +
   /* `focus-visible:[outline-style:solid]` is not belt and braces - see
      the long note in `button.tsx`, which every control in this kit
@@ -101,8 +103,8 @@ type PaginationLinkProps = {
 } & React.ComponentProps<"a">
 
 /**
- * The current page is body-strong in `primary` - the one loud thing on
- * a bar that is otherwise a footnote.
+ * The current page is body-strong in `primary-text` (11.1.1) - the one
+ * loud thing on a bar that is otherwise a footnote.
  *
  * AN `a` ONLY WHERE THERE IS SOMEWHERE TO GO. An anchor without `href`
  * is not focusable and not reachable by keyboard, so a control that
@@ -122,7 +124,7 @@ function PaginationLink({
     "data-active": isActive,
     className: cn(
       controlClasses,
-      isActive && "font-medium text-primary hover:text-primary",
+      isActive && "font-medium text-primary-text hover:text-primary-text",
       className
     ),
   }

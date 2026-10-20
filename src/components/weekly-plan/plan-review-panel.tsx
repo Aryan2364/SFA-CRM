@@ -19,7 +19,8 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import StatusBadge from '@/components/ui/StatusBadge'
+import { useUnsavedChanges } from '@/components/ui/unsaved-changes'
+import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
 import { useToast } from '@/contexts/ToastContext'
 import { fmtAmount, fmtDate, fmtDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -382,6 +383,12 @@ export function PlanReviewPanel({
 
   const ownerName = plan?.owner?.name ?? 'this plan'
 
+  const saveNoteUnsaved = useUnsavedChanges({
+    changed: editNote.trim().length > 0,
+    noun: 'note',
+    mode: 'create',
+  })
+
   return (
     <>
       <Dialog
@@ -402,7 +409,7 @@ export function PlanReviewPanel({
             </DialogDescription>
             {plan && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <StatusBadge status={plan.status} />
+                <StatusBadge vocabulary={WEEKLY_PLAN_STATUS} status={plan.status} />
                 <span className="text-label text-text-secondary">
                   {plan.weekly_plan_items.length} line
                   {plan.weekly_plan_items.length === 1 ? '' : 's'}
@@ -741,10 +748,11 @@ export function PlanReviewPanel({
       */}
       <Dialog
         open={saveOpen}
-        onOpenChange={open => {
+        onOpenChange={saveNoteUnsaved.guard(open => {
           if (!open && !busy) setSaveOpen(false)
-        }}
+        })}
       >
+        {saveNoteUnsaved.warning}
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Save changes to this plan</DialogTitle>

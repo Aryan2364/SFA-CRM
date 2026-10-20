@@ -232,47 +232,52 @@ export function ContactDialog({
 
     const targetCompanyId = companyId ?? pickedCompanyId
 
-    const res = await fetch('/api/contacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: form.name.trim(),
-        // `mobile` is NOT NULL in the database but optional in this form — a
-        // blank number joins to null, and the fallback stores '' rather than
-        // sending null (the route does the same with `trimmed(mobile) ?? ''`).
-        mobile: joinPhone(mobileCode, form.mobile) ?? '',
-        alternate_mobile: joinPhone(altCode, form.alternate_mobile),
-        whatsapp: joinPhone(waCode, waNumber),
-        landline: form.landline.trim() || null,
-        email: form.email.trim() || null,
-        designation: form.designation.trim() || null,
-        contact_type_id: form.contact_type_id || null,
-        owner_user_id: ownerValue || null,
-        notes: form.notes.trim() || null,
-        // §3.4 is plural on the wire even when it is one company here — and
-        // EMPTY when the user picked none, which the route already accepts.
-        company_ids: targetCompanyId ? [targetCompanyId] : [],
-        ...(markPrimary && targetCompanyId
-          ? { primary_company_id: targetCompanyId }
-          : {}),
-      }),
-    })
-    const data = await res.json().catch(() => ({}))
-    setSaving(false)
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          // `mobile` is NOT NULL in the database but optional in this form — a
+          // blank number joins to null, and the fallback stores '' rather than
+          // sending null (the route does the same with `trimmed(mobile) ?? ''`).
+          mobile: joinPhone(mobileCode, form.mobile) ?? '',
+          alternate_mobile: joinPhone(altCode, form.alternate_mobile),
+          whatsapp: joinPhone(waCode, waNumber),
+          landline: form.landline.trim() || null,
+          email: form.email.trim() || null,
+          designation: form.designation.trim() || null,
+          contact_type_id: form.contact_type_id || null,
+          owner_user_id: ownerValue || null,
+          notes: form.notes.trim() || null,
+          // §3.4 is plural on the wire even when it is one company here — and
+          // EMPTY when the user picked none, which the route already accepts.
+          company_ids: targetCompanyId ? [targetCompanyId] : [],
+          ...(markPrimary && targetCompanyId
+            ? { primary_company_id: targetCompanyId }
+            : {}),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
 
-    if (!res.ok) {
-      // A server-side field message belongs on the field, not in a toast.
-      setErrors({ form: (data as { error?: string }).error ?? 'Could not save this contact.' })
-      return
+      if (!res.ok) {
+        // A server-side field message belongs on the field, not in a toast.
+        setErrors({ form: (data as { error?: string }).error ?? 'Could not save this contact.' })
+        return
+      }
+
+      const created = data as CreatedContact
+      // Saved; only the landline may not be, until the database has the column
+      // (src/lib/party-landline.ts).
+      const warning = (data as { warning?: string }).warning
+      if (warning) toast(warning, 'warning')
+      onCreated({ id: created.id, name: created.name, mobile: created.mobile })
+      onOpenChange(false)
+    } catch {
+      setErrors({ form: 'The connection dropped. Nothing was saved.' })
+    } finally {
+      setSaving(false)
     }
-
-    const created = data as CreatedContact
-    // Saved; only the landline may not be, until the database has the column
-    // (src/lib/party-landline.ts).
-    const warning = (data as { warning?: string }).warning
-    if (warning) toast(warning, 'warning')
-    onCreated({ id: created.id, name: created.name, mobile: created.mobile })
-    onOpenChange(false)
   }
 
   return (

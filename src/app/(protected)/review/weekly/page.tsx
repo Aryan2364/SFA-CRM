@@ -12,6 +12,15 @@ import { JournalBox } from '@/components/journal/JournalBox'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableRowHeader,
+  TableCell,
+} from '@/components/ui/table'
 import { fmtAmount, fmtNumber } from '@/lib/format'
 
 type WeeklyReview = {
@@ -147,7 +156,7 @@ export default function WeeklyReviewPage() {
           <Button variant="secondary" size="icon" onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label="Next week">
             <ChevronRightIcon className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" onClick={() => setWeekStart(mondayOf(new Date().toISOString().slice(0, 10)))}>
+          <Button variant="secondary" onClick={() => setWeekStart(mondayOf(new Date().toISOString().slice(0, 10)))}>
             This week
           </Button>
         </div>
@@ -190,35 +199,35 @@ export default function WeeklyReviewPage() {
             {/* Day-wise breakdown */}
             <Card>
               <CardHeader><CardTitle>Day-wise</CardTitle></CardHeader>
-              <CardContent className="overflow-x-auto py-4">
-                <table className="w-full min-w-[720px] text-body">
-                  <thead>
-                    <tr className="border-b border-border-light text-left text-caption text-text-secondary">
-                      <th className="py-2 pr-3">Day</th>
-                      <th className="py-2 pr-3">Planned</th>
-                      <th className="py-2 pr-3">Meetings</th>
-                      <th className="py-2 pr-3">In meetings</th>
-                      <th className="py-2 pr-3">Not in meetings</th>
-                      <th className="py-2 pr-3">Orders</th>
-                      <th className="py-2 pr-3">Order value</th>
-                      <th className="py-2 pr-3">Expenses</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <CardContent className="py-4">
+                <Table containerClassName="overflow-x-auto">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-grid-head">Day</TableHead>
+                      <TableHead numeric className="w-col-count">Planned</TableHead>
+                      <TableHead numeric className="w-col-count">Meetings</TableHead>
+                      <TableHead numeric className="w-col-count">In meetings</TableHead>
+                      <TableHead numeric className="w-col-count">Not in meetings</TableHead>
+                      <TableHead numeric className="w-col-count">Orders</TableHead>
+                      <TableHead numeric className="w-col-amount">Order value</TableHead>
+                      <TableHead numeric className="w-col-amount">Expenses</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {data.dayWise.map(d => (
-                      <tr key={d.date} className="border-b border-border-light last:border-0">
-                        <td className="py-2 pr-3 font-medium">{fmtDayLabel(d.date)}</td>
-                        <td className="py-2 pr-3">{fmtNumber(d.plannedGoal)}</td>
-                        <td className="py-2 pr-3">{fmtNumber(d.achievedMeetings)}</td>
-                        <td className="py-2 pr-3">{fmtHours(d.meetingSeconds)}</td>
-                        <td className="py-2 pr-3">{fmtHours(d.nonMeetingSeconds)}</td>
-                        <td className="py-2 pr-3">{fmtNumber(d.ordersCount)}</td>
-                        <td className="py-2 pr-3">{fmtAmount(d.ordersValue)}</td>
-                        <td className="py-2 pr-3">{fmtAmount(d.expenseTotal)}</td>
-                      </tr>
+                      <TableRow key={d.date}>
+                        <TableRowHeader frozen>{fmtDayLabel(d.date)}</TableRowHeader>
+                        <TableCell numeric>{fmtNumber(d.plannedGoal)}</TableCell>
+                        <TableCell numeric>{fmtNumber(d.achievedMeetings)}</TableCell>
+                        <TableCell numeric>{fmtHours(d.meetingSeconds)}</TableCell>
+                        <TableCell numeric>{fmtHours(d.nonMeetingSeconds)}</TableCell>
+                        <TableCell numeric>{fmtNumber(d.ordersCount)}</TableCell>
+                        <TableCell numeric>{fmtAmount(d.ordersValue)}</TableCell>
+                        <TableCell numeric>{fmtAmount(d.expenseTotal)}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
 

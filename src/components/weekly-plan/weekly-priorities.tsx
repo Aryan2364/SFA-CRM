@@ -3,6 +3,7 @@
 import { ChevronDownIcon, PlusIcon, XIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 
 /**
  * F14 — "Upcoming week I want to Achieve", after the board took the screen.
@@ -90,7 +91,7 @@ export function WeeklyPriorities({
         </button>
 
         {canEdit && open && (
-          <Button variant="ghost" size="sm" onClick={onAdd} className="shrink-0">
+          <Button variant="secondary" size="sm" onClick={onAdd} className="shrink-0">
             <PlusIcon />
             Add
           </Button>
@@ -113,8 +114,7 @@ export function WeeklyPriorities({
           <div className="max-h-40 space-y-2 overflow-y-auto px-4 pt-1 pb-4">
             {rows.map((row, i) => (
               <div key={row.key} className="flex items-center gap-2.5">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={row.is_done}
                   /*
                    * Ticking is allowed in EVERY status, unlike everything else
@@ -123,13 +123,13 @@ export function WeeklyPriorities({
                    * canEdit would lock the checklist exactly when it is for.
                    */
                   disabled={!row.text.trim()}
-                  onChange={() => onToggleDone(row.key)}
+                  onCheckedChange={() => onToggleDone(row.key)}
                   aria-label={
                     row.text.trim()
                       ? `Mark "${row.text.trim()}" done`
                       : 'Point not written yet'
                   }
-                  className="size-[18px] shrink-0 cursor-pointer rounded border-border accent-primary disabled:cursor-default disabled:opacity-40"
+                  className="shrink-0"
                 />
                 <input
                   type="text"

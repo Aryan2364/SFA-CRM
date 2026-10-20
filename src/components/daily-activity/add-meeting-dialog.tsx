@@ -20,10 +20,7 @@ import {
 import { InlineFieldError } from '@/components/ui/inline-field-error'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  SearchableSelect,
-  type SearchableSelectGroup,
-} from '@/components/ui/searchable-select'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import {
   Select,
   SelectContent,
@@ -547,14 +544,23 @@ export function AddMeetingDialog({
    * in the second case the message below the field says so, because an absent
    * group and an empty one must not read the same.
    */
-  const targetGroups = useMemo(() => {
-    const groups: SearchableSelectGroup[] = [
-      { heading: 'Accounts', icon: <Building2Icon />, options: entityOptions },
-    ]
-    if (peopleLoad.state === 'ready' && Object.keys(personOptions).length > 0) {
-      groups.push({ heading: 'Contacts', icon: <UserIcon />, options: personOptions })
+  /**
+   * KIT GAP (see docs/kit-audit/kit-gaps.md): the kit's `searchable-select.tsx`
+   * takes a flat `options: Record<string, string>` and has no headed-group
+   * concept (`SearchableSelectGroup` doesn't exist in the kit). Until the kit
+   * adds grouping, the two groups are flattened into one list with the group
+   * name folded into each label, so the account/contact distinction still
+   * reads without needing a kit API this component doesn't have.
+   */
+  const targetOptions = useMemo(() => {
+    const flat: Record<string, string> = {}
+    for (const [value, label] of Object.entries(entityOptions)) flat[value] = label
+    if (peopleLoad.state === 'ready') {
+      for (const [value, label] of Object.entries(personOptions)) {
+        flat[value] = `${label} (contact)`
+      }
     }
-    return groups
+    return flat
   }, [entityOptions, personOptions, peopleLoad.state])
 
   const selectedCompanyId = target.startsWith(COMPANY_PREFIX)
@@ -922,7 +928,7 @@ export function AddMeetingDialog({
                   <SearchableSelect
                     id="da-target"
                     className="max-w-none"
-                    groups={targetGroups}
+                    options={targetOptions}
                     value={target}
                     onValueChange={setTarget}
                     placeholder="Search an account or person"

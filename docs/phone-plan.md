@@ -266,7 +266,7 @@ GST: `src/lib/gst-setting.ts` (`getGstRequiredForOrders(tenantId)` — firm-wide
 - **The account creation form asks Company/Individual at the very top, defaulting to Company.** Resolves Open Q8.
 - **"Reorder" copies the last order client-side (no new API).** The phone reads the last order's lines and pre-fills a new order, which is saved through the existing `POST /api/orders` (the server re-prices every line). Closes the "Reorder last order" gap under Proposed extras.
 - **`/daily-activity` full screen stays desktop-only.** It has no phone list view. Phone reaches meetings through Today and `/daily-activity/new`. The account detail page has no "Meetings" row, because no API lists or counts one account's meetings.
-- **30-day phone sessions: PENDING owner approval. Not built yet.** Sessions still last `SESSION_MAX_AGE_DAYS` (default 7) on every device.
+- **30-day phone sessions: approved by the owner 2026-10-20, built.** A sign-in from a phone (`getRequestLayout()`: layout cookie, then Sec-CH-UA-Mobile, then UA) lasts `PHONE_SESSION_MAX_AGE_DAYS` (default 30); desktop and SuperAdmin keep `SESSION_MAX_AGE_DAYS` (default 7).
 
 ### Phone screens that exist
 

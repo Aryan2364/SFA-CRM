@@ -161,6 +161,9 @@ export type FollowUpItem = {
   mode: string
   notes: string | null
   due_date: string
+  /** "HH:MM" (24h), or `null` when no time was set (or the column is not yet
+   *  available — see `src/lib/next-meeting-time.ts`). */
+  due_time: string | null
   visit_id: string | null
 }
 
@@ -174,6 +177,8 @@ export type NextMeetingItem = {
   name: string
   type: string | null
   next_follow_up_date: string
+  /** "HH:MM" (24h), or `null` — see `FollowUpItem.due_time`. */
+  next_follow_up_time: string | null
 }
 
 /**
@@ -223,6 +228,14 @@ export function formatDuration(secs: number) {
 
 export function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+}
+
+/** "HH:MM" (24h, as stored) -> "h:MM AM/PM" — the next-meeting due_time display. */
+export function formatHHMM(hhmm: string) {
+  const [h, m] = hhmm.split(':').map(Number)
+  const meridiem = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h % 12 === 0 ? 12 : h % 12
+  return `${hour12}:${String(m).padStart(2, '0')} ${meridiem}`
 }
 
 /**

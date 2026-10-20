@@ -1,83 +1,40 @@
 'use client'
 
-import { useState } from 'react'
-import CrudPage, { Column, masterLocks } from '@/components/ui/CrudPage'
-import Modal from '@/components/ui/Modal'
-import { useCrud } from '@/hooks/useCrud'
-import { useMe } from '@/hooks/useMe'
+import { MasterNamePage, type MasterRow } from '@/components/masters/master-name-page'
+import { Badge } from '@/components/ui/badge'
 
-const TEMP_COLORS: Record<string, string> = {
-  Cold: 'bg-blue-50 text-blue-700',
-  Warm: 'bg-amber-50 text-amber-700',
-  Hot:  'bg-red-50 text-red-700',
+/**
+ * Section 2.4: status colour, not a hardcoded hex per value. The kit's
+ * badge is a closed 4-colour system (neutral/success/warning/danger) with
+ * no "info" or "cold-blue" row, so Cold reads neutral rather than
+ * inventing a fifth colour.
+ */
+const TEMP_VARIANT: Record<string, 'neutral' | 'success' | 'warning' | 'danger'> = {
+  Cold: 'neutral',
+  Warm: 'warning',
+  Hot: 'danger',
 }
 
-const COLS: Column[] = [
-  { key: 'name', label: 'Temperature', render: r => {
-    const v = r.name as string
-    const cls = TEMP_COLORS[v] ?? 'bg-gray-100 text-gray-600'
-    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{v}</span>
-  }},
-]
+function temperatureCell(row: MasterRow) {
+  const name = String(row.name ?? '')
+  return <Badge variant={TEMP_VARIANT[name] ?? 'neutral'}>{name}</Badge>
+}
 
 export default function LeadTemperaturesPage() {
-  const crud = useCrud('/api/masters/lead-temperatures')
-  const me = useMe()
-  // The real permission map, never a role name — Administrators get every
-  // section from /api/auth/me. Denied actions show disabled with a reason.
-  const locks = masterLocks(me, 'lead_temperatures', 'lead temperatures', 'create')
-
-  const [open, setOpen]       = useState(false)
-  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
-  const [name, setName]       = useState('')
-  const [saving, setSaving]   = useState(false)
-
-  function openAdd() { setName(''); setEditing(null); setOpen(true) }
-  function openEdit(row: Record<string, unknown>) { setName(String(row.name ?? '')); setEditing(row); setOpen(true) }
-
-  async function handleSave() {
-    if (!name.trim()) return
-    setSaving(true)
-    const body = {
-      name: name.trim(),
-      sort_order: editing ? editing.sort_order : crud.allRows.length,
-      // Carried explicitly: the route treats a missing key as `true`, so an
-      // edit would otherwise silently reactivate a deactivated row.
-      ...(editing ? { is_active: editing.is_active } : {}),
-    }
-    const ok = editing ? await crud.update(editing.id as string, body) : await crud.create(body)
-    setSaving(false)
-    if (ok !== false && ok !== null) setOpen(false)
-  }
-
-  // One PUT per moved row, one toast, one refetch; the order is put back if
-  // any of them fails. `sort_order` is assigned by the hook.
-  function handleReorder(newRows: Record<string, unknown>[]) {
-    return crud.reorder(newRows, row => ({ name: row.name, is_active: row.is_active }))
-  }
-
   return (
-    <>
-      <CrudPage
-        title="Lead Temperatures" backHref="/masters" columns={COLS}
-        rows={crud.rows} allRowsCount={crud.allRows.length}
-        isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
-        loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
-        page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={openAdd}
-        onEdit={openEdit}
-        onToggleActive={(r, v) => crud.update(r.id as string, { name: r.name, sort_order: r.sort_order, is_active: v })}
-        onDelete={r => crud.remove(r.id as string)} deleteMode="soft"
-        onReorder={handleReorder}
-      />
-      <Modal title={editing ? 'Edit Temperature' : 'Add Temperature'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
-        <div>
-          <label htmlFor="lead-temperature-name" className="block text-sm font-medium text-text-secondary mb-1">Temperature Name <span className="text-danger">*</span></label>
-          <input id="lead-temperature-name" name="name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Cold, Warm, Hot…"
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring"
-            autoFocus />
-        </div>
-      </Modal>
-    </>
+    <MasterNamePage
+      title="Lead Temperatures"
+      noun={{ one: 'temperature', many: 'temperatures' }}
+      apiPath="/api/masters/lead-temperatures"
+      section="lead_temperatures"
+      addAction="create"
+      nameLabel="Temperature Name"
+      namePlaceholder="e.g. Cold, Warm, Hot…"
+      nameColumnHeader="Temperature"
+      nameCell={temperatureCell}
+      deleteMode="soft"
+      reorder
+      emptyBody="Lead temperatures describe how warm a lead currently is."
+    />
   )
 }

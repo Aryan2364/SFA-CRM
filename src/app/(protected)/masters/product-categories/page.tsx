@@ -1,50 +1,18 @@
 'use client'
 
-import { useState } from 'react'
-import CrudPage, { Column, masterLocks } from '@/components/ui/CrudPage'
-import Modal from '@/components/ui/Modal'
-import { useCrud } from '@/hooks/useCrud'
-import { useMe } from '@/hooks/useMe'
-
-const COLS: Column[] = [{ key: 'name', label: 'Category Name' }]
+import { MasterNamePage } from '@/components/masters/master-name-page'
 
 export default function ProductCategoriesPage() {
-  const crud = useCrud('/api/masters/product-categories')
-  const me = useMe()
-  // The real permission map, never a role name — Administrators get every
-  // section from /api/auth/me. Denied actions show disabled with a reason.
-  const locks = masterLocks(me, 'product_categories', 'product categories')
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
-  const [name, setName] = useState(''); const [saving, setSaving] = useState(false)
-
-  function openAdd() { setEditing(null); setName(''); setOpen(true) }
-  function openEdit(row: Record<string, unknown>) { setEditing(row); setName(String(row.name)); setOpen(true) }
-
-  async function handleSave() {
-    if (!name.trim()) return
-    setSaving(true)
-    const ok = editing ? await crud.update(editing.id as string, { name: name.trim() }) : await crud.create({ name: name.trim() })
-    setSaving(false)
-    if (ok !== false && ok !== null) setOpen(false)
-  }
-
   return (
-    <>
-      <CrudPage title="Product Categories" backHref="/masters" columns={COLS} rows={crud.rows} allRowsCount={crud.allRows.length}
-        isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
-        loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
-        page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={openAdd}
-        onEdit={openEdit}
-        onDelete={r => crud.remove(r.id as string)} deleteMode="hard" />
-      <Modal title={editing ? 'Edit Category' : 'Add Category'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
-        <div>
-          <label htmlFor="product-category-name" className="block text-sm font-medium text-text-secondary mb-1">Category Name <span className="text-danger">*</span></label>
-          <input id="product-category-name" name="name" type="text" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSave()}
-            placeholder="Enter category name" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-        </div>
-      </Modal>
-    </>
+    <MasterNamePage
+      title="Product Categories"
+      noun={{ one: 'category', many: 'categories' }}
+      apiPath="/api/masters/product-categories"
+      section="product_categories"
+      nameLabel="Category Name"
+      namePlaceholder="Enter category name"
+      deleteMode="hard"
+      emptyBody="Product categories group sub-categories and products."
+    />
   )
 }

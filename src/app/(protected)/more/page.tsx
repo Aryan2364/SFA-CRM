@@ -7,6 +7,8 @@ import { CalendarIcon, ChevronRightIcon, DownloadIcon, LogOutIcon, ReceiptIcon, 
 import { cn } from '@/lib/utils'
 import { useLayout } from '@/lib/layout'
 import { invalidateMeCache, useMe } from '@/hooks/useMe'
+import { BottomSheet } from '@/components/ui/bottom-sheet'
+import { Button } from '@/components/ui/button'
 
 /** package.json's own version — the one source, so this never drifts from the build. */
 import pkg from '../../../../package.json'
@@ -134,33 +136,17 @@ export default function MorePage() {
 
       <p className="px-1 text-center text-meta text-text-muted">RGB SFA v{pkg.version}</p>
 
-      {iosSheetOpen ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Install app"
-          className="fixed inset-0 z-[--z-shell] flex items-end bg-black/40"
-          onClick={() => setIosSheetOpen(false)}
-        >
-          <div
-            className="w-full rounded-t-2xl bg-surface p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)]"
-            onClick={event => event.stopPropagation()}
-          >
-            <p className="text-card-heading font-medium text-text-primary">Install RGB SFA</p>
-            <ol className="mt-3 list-decimal space-y-2 pl-5 text-body text-text-primary">
-              <li>Tap the Share button in Safari&apos;s toolbar.</li>
-              <li>Scroll down and tap &quot;Add to Home Screen&quot;.</li>
-            </ol>
-            <button
-              type="button"
-              className="mt-4 h-11 w-full rounded-lg bg-primary text-body font-medium text-primary-foreground"
-              onClick={() => setIosSheetOpen(false)}
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <BottomSheet
+        open={iosSheetOpen}
+        onOpenChange={setIosSheetOpen}
+        title="Install RGB SFA"
+        footer={<Button onClick={() => setIosSheetOpen(false)}>Got it</Button>}
+      >
+        <ol className="list-decimal space-y-2 pl-5 text-body text-text-primary">
+          <li>Tap the Share button in Safari&apos;s toolbar.</li>
+          <li>Scroll down and tap &quot;Add to Home Screen&quot;.</li>
+        </ol>
+      </BottomSheet>
     </div>
   )
 }

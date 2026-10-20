@@ -96,6 +96,7 @@ import {
   USER_STATUS,
 } from '@/components/status-badge'
 import { SharedWithCard } from '@/components/sharing/shared-with-card'
+import { PersonModeChoice } from '@/components/parties/person-mode-choice'
 import { useToast } from '@/contexts/ToastContext'
 import { useMe, type Me } from '@/hooks/useMe'
 import { EMPTY, fmtDate } from '@/lib/format'
@@ -106,6 +107,8 @@ import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { RecordSummary, type KeyFact } from '@/components/ui/record-summary'
 import { ActionBar } from '@/components/ui/action-bar'
 import { PhoneContactActionsSheet } from '@/components/ui/contact-actions'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { fmtDateTime } from '@/lib/format'
 
 // ─────────────────────────────────────────────────────────────
 // The wire shape
@@ -118,6 +121,18 @@ import { PhoneContactActionsSheet } from '@/components/ui/contact-actions'
 // ─────────────────────────────────────────────────────────────
 
 type NamedRef = { id?: string; name: string }
+
+/** A row from `GET /api/daily-activity?companyId=`, see `VISIT_SELECT`. */
+type AccountMeeting = {
+  id: string
+  visit_type: string
+  entity_name: string
+  visit_date: string
+  start_time: string | null
+  status: string | null
+  /** `VISIT_SELECT` always includes it; absent only on an older cached shape. */
+  notes?: string | null
+}
 
 type CompanyContact = {
   id: string
@@ -235,6 +250,19 @@ type Company = {
  */
 const COMPANY_REQUIRED_FIELDS =
   'Primary Address, City, State, Pincode and GST Number'
+
+/**
+ * Line 2 of a "Recent activity" row: the first line of the meeting's own
+ * notes when there are any, since that is what actually tells the rep
+ * something ("discussed pricing on SKU-4"). `VISIT_SELECT` carries `notes`
+ * on every meeting row, so the fallback (no joined user name in this
+ * payload) is the meeting's status rather than a name we don't have.
+ */
+function meetingSubline(m: AccountMeeting): string {
+  const firstLine = m.notes?.split('\n').map(l => l.trim()).find(l => l.length > 0)
+  if (firstLine) return firstLine
+  return m.status || 'Logged'
+}
 /** The same list for a firm that does not require GST (Settings › System). */
 const COMPANY_REQUIRED_FIELDS_NO_GST = 'Primary Address, City, State and Pincode'
 
@@ -356,6 +384,12 @@ function PhoneAccountDetail({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
+              disabled={!(me.permissions?.companies?.edit ?? false)}
+              onClick={() => router.push(`/parties/companies/${id}/edit`)}
+            >
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
               disabled={!(me.permissions?.deals?.create ?? false)}
               onClick={() => router.push(`/deals/new?account=${id}`)}
             >
@@ -380,6 +414,29 @@ function PhoneAccountDetail({
 
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false)
   const [addressSheetOpen, setAddressSheetOpen] = useState(false)
+  const [meetingsSheetOpen, setMeetingsSheetOpen] = useState(false)
+  const [meetings, setMeetings] = useState<AccountMeeting[]>([])
+  const [meetingsLoading, setMeetingsLoading] = useState(true)
+  // Failed is its own state: an empty list would read as "no meetings".
+  const [meetingsFailed, setMeetingsFailed] = useState(false)
+  const [meetingsTry, setMeetingsTry] = useState(0)
+
+  useEffect(() => {
+    if (!id) return
+    let live = true
+    setMeetingsLoading(true)
+    setMeetingsFailed(false)
+    fetch(`/api/daily-activity?companyId=${id}`, { cache: 'no-store' })
+      .then(res => (res.ok ? res.json() : Promise.reject(res)))
+      .then((rows: AccountMeeting[]) => {
+        if (!live) return
+        if (Array.isArray(rows)) setMeetings(rows)
+        else setMeetingsFailed(true)
+      })
+      .catch(() => { if (live) setMeetingsFailed(true) })
+      .finally(() => { if (live) setMeetingsLoading(false) })
+    return () => { live = false }
+  }, [id, meetingsTry])
 
   if (loading) {
     return <CompanySkeleton />
@@ -425,6 +482,11 @@ function PhoneAccountDetail({
   ]
 
   const canLogMeeting = me ? Boolean(me.permissions?.meetings?.create) : undefined
+  const canEditAccount = me ? Boolean(me.permissions?.companies?.edit) : undefined
+  const missingForOrders = (company.completeness_missing ?? '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
 
   return (
     <div className="flex flex-col gap-5 pb-24">
@@ -471,16 +533,118 @@ function PhoneAccountDetail({
         ) : null}
       </div>
 
-      <RelatedRow
-        label="Contacts"
-        count={linksLoading ? undefined : links.length}
-        href={`/parties/contacts?account=${id}`}
-      />
-      <RelatedRow label="Opportunities" href={`/deals?account=${id}`} />
-      <RelatedRow label="Orders" href={`/orders?account=${id}`} />
-      {/* No Meetings row: /daily-activity is desktop-only (docs/phone-plan.md,
-          Decisions) and no API lists or counts one account's meetings, so a
-          row here could only be a dead end. Log meeting below is the way on. */}
+      {!company.is_complete && missingForOrders.length > 0 ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-warning-bg border border-warning-border px-3 py-2">
+          <p className="text-label text-warning">
+            Missing for orders: <strong className="font-medium">{missingForOrders.join(', ')}</strong>
+          </p>
+          <PermissionTooltip
+            allowed={canEditAccount !== false}
+            reason="Only someone who can edit accounts can add these details"
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={canEditAccount === false}
+              onClick={() => router.push(`/parties/companies/${id}/edit`)}
+            >
+              Edit
+            </Button>
+          </PermissionTooltip>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col divide-y divide-border-light rounded-lg border border-border-light bg-surface">
+        <RelatedRow
+          label="Contacts"
+          count={linksLoading ? undefined : links.length}
+          href={`/parties/contacts?account=${id}`}
+          plain
+        />
+        <RelatedRow label="Opportunities" href={`/deals?account=${id}`} plain />
+        <RelatedRow label="Orders" href={`/orders?account=${id}`} plain />
+        <RelatedRow
+          label="Meetings"
+          count={meetingsLoading || meetingsFailed ? undefined : meetings.length}
+          onClick={() => setMeetingsSheetOpen(true)}
+          plain
+        />
+      </div>
+
+      {meetingsFailed ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border-light bg-surface px-3 py-2">
+          <p className="text-body text-text-primary">Couldn&apos;t load meetings.</p>
+          <Button variant="secondary" size="sm" onClick={() => setMeetingsTry(n => n + 1)}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      {meetings.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-label font-medium text-text-secondary">Recent activity</h2>
+            <button
+              type="button"
+              className="text-label font-medium text-primary"
+              onClick={() => setMeetingsSheetOpen(true)}
+            >
+              See all
+            </button>
+          </div>
+          <div className="flex flex-col divide-y divide-border-light rounded-lg border border-border-light bg-surface">
+            {meetings.slice(0, 3).map(m => (
+              <Link
+                key={m.id}
+                href={`/daily-activity/meeting/${m.id}`}
+                className="flex min-h-11 items-center justify-between gap-2 px-3 py-2 active:bg-surface-control"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-body text-text-primary">Meeting</span>
+                  <span className="truncate text-label text-text-secondary">{meetingSubline(m)}</span>
+                </span>
+                <span className="shrink-0 text-label text-text-secondary">{fmtDate(m.visit_date)}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <Sheet open={meetingsSheetOpen} onOpenChange={setMeetingsSheetOpen}>
+        <SheetContent side="bottom">
+          <SheetHeader>
+            <SheetTitle>Meetings</SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-col divide-y divide-border-light overflow-y-auto">
+            {meetingsFailed ? (
+              <div className="flex flex-col items-center gap-3 px-4 py-6">
+                <p className="text-body text-text-primary">Couldn&apos;t load meetings.</p>
+                <Button variant="secondary" size="sm" onClick={() => setMeetingsTry(n => n + 1)}>
+                  Retry
+                </Button>
+              </div>
+            ) : meetings.length === 0 ? (
+              <p className="px-4 py-6 text-center text-body text-text-secondary">
+                No meetings logged with this account yet.
+              </p>
+            ) : (
+              meetings.map(m => (
+                <Link
+                  key={m.id}
+                  href={`/daily-activity/meeting/${m.id}`}
+                  className="flex min-h-11 flex-col gap-0.5 px-4 py-3 active:bg-surface-control"
+                  onClick={() => setMeetingsSheetOpen(false)}
+                >
+                  <span className="text-body font-medium text-text-primary">{m.visit_type}</span>
+                  <span className="text-label text-text-secondary">
+                    {m.start_time ? fmtDateTime(m.start_time) : fmtDate(m.visit_date)}
+                  </span>
+                </Link>
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <ActionBar>
         <Button
@@ -498,18 +662,51 @@ function PhoneAccountDetail({
   )
 }
 
-function RelatedRow({ label, count, href }: { label: string; count?: number; href: string }) {
-  return (
-    <Link
-      href={href}
-      className="flex min-h-11 items-center justify-between rounded-lg border border-border-light bg-surface px-3 py-2 text-body font-medium text-text-primary active:bg-surface-control"
-    >
+/**
+ * One row of the account's single grouped "related" list — Contacts,
+ * Opportunities, Orders, Meetings. `plain` renders without its own border
+ * (used inside the shared `divide-y` wrapper); without it, the row still
+ * works standalone. Either a navigable `href` or an `onClick` (Meetings
+ * opens a bottom sheet instead of a route, since there is no phone list for
+ * one account's meetings).
+ */
+function RelatedRow({
+  label,
+  count,
+  href,
+  onClick,
+  plain,
+}: {
+  label: string
+  count?: number
+  href?: string
+  onClick?: () => void
+  plain?: boolean
+}) {
+  const className = cn(
+    'flex min-h-11 items-center justify-between px-3 py-2 text-body font-medium text-text-primary active:bg-surface-control',
+    !plain && 'rounded-lg border border-border-light bg-surface',
+  )
+  const content = (
+    <>
       <span>{label}</span>
       <span className="flex items-center gap-1 text-text-secondary">
         {count !== undefined ? count : ''}
         <span aria-hidden>›</span>
       </span>
-    </Link>
+    </>
+  )
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {content}
+      </Link>
+    )
+  }
+  return (
+    <button type="button" onClick={onClick} className={className}>
+      {content}
+    </button>
   )
 }
 
@@ -536,15 +733,19 @@ function CompanyDetail() {
   const [links, setLinks] = useState<CompanyLink[]>([])
   const [roles, setRoles] = useState<ContactRole[]>([])
   const [linksLoading, setLinksLoading] = useState(true)
+  const [linksFailed, setLinksFailed] = useState(false)
 
   const loadLinks = useCallback(async () => {
     if (!id) return
     setLinksLoading(true)
+    setLinksFailed(false)
     try {
       const res = await fetch(`/api/companies/${id}/links`, { cache: 'no-store' })
       if (res.ok) setLinks((await res.json()) as CompanyLink[])
+      else setLinksFailed(true)
     } catch {
-      // The People card below shows its own empty text; nothing to add here.
+      // The People card shows a failed state with Retry, not an empty list.
+      setLinksFailed(true)
     } finally {
       setLinksLoading(false)
     }
@@ -638,7 +839,7 @@ function CompanyDetail() {
         loading={loading}
         load={load}
         links={links}
-        linksLoading={linksLoading}
+        linksLoading={linksLoading || linksFailed}
         me={me}
         router={router}
       />
@@ -865,6 +1066,8 @@ function CompanyDetail() {
                 kind={company.account_kind ?? 'Company'}
                 links={links}
                 loading={linksLoading}
+                failed={linksFailed}
+                onRetry={() => void loadLinks()}
                 roles={roles}
                 canEdit={canEditCompanies}
                 onChanged={() => void Promise.all([load(), loadLinks()])}
@@ -1040,6 +1243,8 @@ function PeopleCard({
   kind,
   links,
   loading,
+  failed,
+  onRetry,
   roles,
   canEdit,
   onChanged,
@@ -1049,6 +1254,9 @@ function PeopleCard({
   kind: AccountKind
   links: CompanyLink[]
   loading: boolean
+  /** The links read failed: shown as its own state, never as "no one linked". */
+  failed: boolean
+  onRetry: () => void
   roles: ContactRole[]
   /** Tri-state, straight from `useMe()`: null while `/api/auth/me` has not
    *  answered yet. Every control below reads it as "not known yet", never as
@@ -1143,6 +1351,13 @@ function PeopleCard({
       {loading ? (
         <CardContent>
           <Skeleton className="h-16 w-full" />
+        </CardContent>
+      ) : failed ? (
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <p className="text-body text-text-primary">Couldn&apos;t load the people for this account.</p>
+          <Button variant="secondary" size="sm" onClick={onRetry}>
+            Retry
+          </Button>
         </CardContent>
       ) : ordered.length === 0 ? (
         <CardContent>
@@ -1557,24 +1772,12 @@ function KindChangeDialog({
         <div className="flex flex-col gap-4">
           {targetKind === 'Individual' ? (
             <>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant={mode === 'existing' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setMode('existing')}
-                >
-                  Existing contact
-                </Button>
-                <Button
-                  type="button"
-                  variant={mode === 'new' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setMode('new')}
-                >
-                  New person
-                </Button>
-              </div>
+              <PersonModeChoice
+                value={mode}
+                onChange={setMode}
+                existingLabel="Existing contact"
+                newLabel="New person"
+              />
               {mode === 'existing' ? (
                 <div className="flex flex-col gap-1.5">
                   <Label>Self contact</Label>
@@ -1754,6 +1957,7 @@ function AddPersonDialog({
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ id: string; name: string; mobile: string | null }[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchFailed, setSearchFailed] = useState(false)
   const [contactId, setContactId] = useState('')
   const [newName, setNewName] = useState('')
   const [newMobile, setNewMobile] = useState('')
@@ -1781,13 +1985,14 @@ function AddPersonDialog({
     if (q.length < 2) { setResults([]); return }
     let live = true
     setSearching(true)
+    setSearchFailed(false)
     const timer = setTimeout(() => {
       fetch(`/api/contacts?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
-        .then(res => (res.ok ? res.json() : []))
+        .then(res => (res.ok ? res.json() : Promise.reject(res)))
         .then((rows: { id: string; name: string; mobile: string | null }[]) => {
           if (live) setResults(rows.filter(r => !existingContactIds.includes(r.id)))
         })
-        .catch(() => { if (live) setResults([]) })
+        .catch(() => { if (live) { setResults([]); setSearchFailed(true) } })
         .finally(() => { if (live) setSearching(false) })
     }, 300)
     return () => { live = false; clearTimeout(timer) }
@@ -1887,7 +2092,9 @@ function AddPersonDialog({
               {searching && <p className="text-label text-text-secondary">Searching…</p>}
               {!searching && query.trim().length >= 2 && (
                 <ul className="max-h-48 overflow-y-auto rounded-lg border border-border-light">
-                  {results.length === 0 ? (
+                  {searchFailed ? (
+                    <li className="px-3 py-2 text-label text-danger">Couldn&apos;t search contacts. Edit the search to try again.</li>
+                  ) : results.length === 0 ? (
                     <li className="px-3 py-2 text-label text-text-secondary">No matches.</li>
                   ) : (
                     results.map(r => (

@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { Count } from "@/components/ui/badge"
 import {
   Banner,
   BannerAction,
@@ -671,7 +672,7 @@ export default function KitchenSinkPage() {
             <Button variant="secondary">
               <FilterIcon />
               Filter
-              <Badge variant="primary">2</Badge>
+              <Count value={2} />
             </Button>
           </Row>
           <Caption>Icons are 16px in a button and sit 4px from their label.</Caption>
@@ -770,7 +771,7 @@ export default function KitchenSinkPage() {
               Overdue
             </Badge>
             <Badge>Draft</Badge>
-            <Badge variant="primary">12</Badge>
+            <Count value={12} />
           </Row>
           <Caption>
             Neutral is the default: a notification or a count is neither

@@ -51,7 +51,54 @@ export async function GET(req: NextRequest) {
   // is half a fix.
   if (!await checkPermission(user, 'meetings', 'view')) return forbidden()
   if (!user.userId) return NextResponse.json([])
+  // Phone Activity search (§41.5): a free-text query searches this caller's
+  // own meetings across EVERY date, not just one day — entity name or notes,
+  // case-insensitive. Mutually exclusive with `date`.
+  const q = req.nextUrl.searchParams.get('q')?.trim() ?? ''
   const date = req.nextUrl.searchParams.get('date') ?? businessDate()
+  // Account detail phone screen's "Meetings" row (§3.2): every meeting ever
+  // logged against one account, newest first — a account-centric view, not
+  // "my day", so it deliberately does NOT narrow to `user.userId` by default
+  // the way the plain daily-entry read does below. Mutually exclusive with
+  // `q`/`date`.
+  const companyId = req.nextUrl.searchParams.get('companyId')?.trim() ?? ''
+  if (companyId) {
+    const tid = getTenantId()
+    const miss = await firstForeignTenantRef([
+      { value: companyId, label: 'Account',
+        find: cid => prisma.companies.findFirst({ where: { id: cid, tenant_id: tid }, select: { id: true } }) },
+    ])
+    if (miss) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+    const ids = await scopedUserIds(user, 'meetings')
+    try {
+      const data = await prisma.daily_visits.findMany({
+        where: {
+          tenant_id: tid,
+          ...scopeWhere(ids),
+          entity_id: companyId,
+        },
+        select: VISIT_SELECT,
+        orderBy: { created_at: 'desc' },
+        take: 50,
+      })
+      const rows = serialize(data, 'daily_visits') as (Record<string, unknown> & { id: string })[]
+      const contacts = await readVisitContacts(tid, rows.map(r => r.id))
+      const withContacts = attachVisitContacts(rows, contacts)
+      const attendeesByVisit = await listAttendeesForVisits(tid, rows.map(r => r.id))
+      const withAttendees = withContacts.map(row => {
+        const list = attendeesByVisit.get((row as { id: string }).id) ?? []
+        if (list.length === 0) return row
+        const main = list.find(a => a.is_main) ?? null
+        return {
+          ...row,
+          attendees_summary: { main_name: main?.name ?? list[0].name, others: Math.max(0, list.length - 1) },
+        }
+      })
+      return NextResponse.json(withAttendees)
+    } catch (err) {
+      return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    }
+  }
   // Daily Activity is where the caller ENTERS their own day, not where they
   // review anyone else's (that is /review/[userId], on /api/review/*). So the
   // default target is Self whatever the role's scope — an Administrator's
@@ -68,13 +115,20 @@ export async function GET(req: NextRequest) {
       where: {
         tenant_id: tid,
         ...scopeWhere(ids),
-        // visit_date is @db.Date.
-        visit_date: new Date(date),
+        ...(q
+          ? {
+              OR: [
+                { entity_name: { contains: q, mode: 'insensitive' } },
+                { notes: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : { visit_date: new Date(date) }), // visit_date is @db.Date.
       },
       // Explicit, not the default whole row: see VISIT_SELECT for why an
       // unselected read breaks the moment the client learns about contact_id.
       select: VISIT_SELECT,
       orderBy: { created_at: 'asc' },
+      ...(q ? { take: 25 } : {}),
     })
     const rows = serialize(data, 'daily_visits') as (Record<string, unknown> & { id: string })[]
     // One extra query for the whole day's meetings, not one per row. Null when

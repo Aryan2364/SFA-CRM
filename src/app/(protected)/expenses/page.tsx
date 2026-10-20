@@ -81,6 +81,10 @@ export default function ExpensesPage() {
   const [search, setSearch] = useState('')
   const [state, setState] = useState<PhoneListState>('loading')
   const [rows, setRows] = useState<Expense[]>([])
+  // Counts for the chip the user is NOT currently viewing (§41.5 rules 20-21
+  // want a real count on every chip, not just the active one) — fetched
+  // separately since the main list only ever holds one range at a time.
+  const [otherCount, setOtherCount] = useState(0)
 
   const today = useMemo(() => todayLocal(), [])
   const weekStart = useMemo(() => startOfWeek(today), [today])
@@ -109,6 +113,17 @@ export default function ExpensesPage() {
     }
     void load()
   }, [layout, router, load])
+
+  // Background-only: the chip for the range NOT being viewed still needs a
+  // real count, not a misleading 0.
+  useEffect(() => {
+    if (layout === 'desktop') return
+    const otherFrom = range === 'week' ? monthStart : weekStart
+    fetch(`/api/expenses?from=${otherFrom}&to=${today}`)
+      .then(r => (r.ok ? r.json() : []))
+      .then(data => setOtherCount(Array.isArray(data) ? data.length : 0))
+      .catch(() => setOtherCount(0))
+  }, [layout, range, weekStart, monthStart, today])
 
   if (layout === 'desktop') return null
 
@@ -144,8 +159,8 @@ export default function ExpensesPage() {
           value: range,
           onChange: value => setRange((value as RangeKey) ?? 'week'),
           chips: [
-            { value: 'week', label: 'This week', count: range === 'week' ? rows.length : 0 },
-            { value: 'month', label: 'This month', count: range === 'month' ? rows.length : 0 },
+            { value: 'week', label: 'This week', count: range === 'week' ? rows.length : otherCount },
+            { value: 'month', label: 'This month', count: range === 'month' ? rows.length : otherCount },
           ],
         }}
         add={{

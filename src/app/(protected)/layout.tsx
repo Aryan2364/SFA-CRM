@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 
 import { AppShell } from '@/components/shell/app-shell'
@@ -64,9 +64,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // label is used, falling back to the product name for screens reached
   // one tap further in (which also get a back arrow instead of the tab bar).
   if (layout === 'phone') {
+    // Today is the phone's home (§41.15 rule 1). Sign-in and the logo send
+    // people to "/", the desktop dashboard, which is not a phone tab: it
+    // would open with no tab bar and a back arrow that leads to /login.
+    if (pathname === '/') return <PhoneHomeRedirect />
     const tab = PHONE_TABS.find(item => item.href === pathname)
     return <PhoneShell title={tab?.label ?? 'RGB SFA'}>{children}</PhoneShell>
   }
 
   return <AppShell>{children}</AppShell>
+}
+
+function PhoneHomeRedirect() {
+  const router = useRouter()
+  useEffect(() => {
+    router.replace('/today')
+  }, [router])
+  return null
 }

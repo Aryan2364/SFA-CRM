@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionTabs } from '@/components/ui/section-tabs'
-import StatusBadge from '@/components/ui/StatusBadge'
+import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
 import { ListPage, type ListColumn } from '@/components/templates/list-page'
 import { PlanReviewPanel } from '@/components/weekly-plan/plan-review-panel'
 import type { QueueResponse, QueueRow } from '@/components/weekly-plan/approval-types'
@@ -115,7 +115,7 @@ function columns(
           save a second line on a few; this way the rare row stacks.
         */
         <span className="flex flex-wrap items-center gap-1.5">
-          <StatusBadge status={row.status} />
+          <StatusBadge vocabulary={WEEKLY_PLAN_STATUS} status={row.status} />
           {row.reopen_requested && <Badge variant="warning">Reopen</Badge>}
         </span>
       ),

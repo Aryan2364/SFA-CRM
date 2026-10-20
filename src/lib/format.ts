@@ -172,3 +172,54 @@ export function fmtTime(iso: DateInput): string {
   if (!date) return EMPTY
   return format(date, TIME_FORMAT)
 }
+
+/**
+ * Kit-compatible wrappers (`date-picker.tsx` / `time-picker.tsx`): unlike
+ * `fmtDate`/`fmtTime`/`parseApiDate` above (which read/write the API's
+ * `DateInput` wire format), these take/return a plain `Date` already in
+ * hand — the picker components manage their own `Date` state and only need
+ * display-format in/out.
+ */
+export function formatDate(value: Date | string | null | undefined): string {
+  if (value === null || value === undefined) return EMPTY
+  const date = value instanceof Date ? value : parseApiDate(value)
+  if (!date || !isValid(date)) return EMPTY
+  return format(date, DATE_FORMAT)
+}
+
+export function parseDate(text: string): Date | null {
+  const parsed = parse(text.trim(), DATE_FORMAT, new Date())
+  return isValid(parsed) ? parsed : null
+}
+
+export function formatTime(value: Date | string | null | undefined): string {
+  if (value === null || value === undefined) return EMPTY
+  const date = value instanceof Date ? value : parseApiDate(value)
+  if (!date || !isValid(date)) return EMPTY
+  return format(date, TIME_FORMAT)
+}
+
+/** Kit-compatible wrapper: `DD Mon YYYY, h:mm A`, from a `Date | string` already in hand. */
+export function formatDateTime(value: Date | string | null | undefined): string {
+  if (value === null || value === undefined) return EMPTY
+  const date = value instanceof Date ? value : parseApiDate(value)
+  if (!date || !isValid(date)) return EMPTY
+  return format(date, DATE_TIME_FORMAT)
+}
+
+/**
+ * Kit-compatible wrapper for `approval-select.tsx`/`phone-list.tsx`: Indian
+ * grouping, no decimals, from a plain `number` already in hand (never
+ * `EMPTY` — these two kit components always pass a real count).
+ */
+export function formatNumber(n: number): string {
+  return numberFormatter.format(n)
+}
+
+/**
+ * Kit-compatible wrapper: "1 task" / "2 tasks" — `approval-select.tsx`'s
+ * `formatCount(n, noun)`.
+ */
+export function formatCount(n: number, noun: { one: string; many: string }): string {
+  return `${formatNumber(n)} ${n === 1 ? noun.one : noun.many}`
+}

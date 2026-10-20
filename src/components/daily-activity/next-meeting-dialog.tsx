@@ -15,26 +15,62 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
-import { toDateStr } from './types'
+import { TimePicker, type TimeValue } from '@/components/ui/time-picker'
+import { formatHHMM, toDateStr } from './types'
 
 type OpenDeal = { id: string; name: string }
-type CurrentNextMeeting = { source: 'deal' | 'company'; due_date: string; deal_id: string | null; deal_name: string | null }
+type CurrentNextMeeting = {
+  source: 'deal' | 'company'
+  due_date: string
+  due_time: string | null
+  deal_id: string | null
+  deal_name: string | null
+}
+
+/** "HH:MM" (24h) -> the TimePicker's 12-hour shape. */
+function hhmmToTimeValue(hhmm: string | null): TimeValue | undefined {
+  if (!hhmm) return undefined
+  const [h, m] = hhmm.split(':').map(Number)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return undefined
+  return { hour: h % 12 === 0 ? 12 : h % 12, minute: m, meridiem: h >= 12 ? 'PM' : 'AM' }
+}
+
+/** The TimePicker's 12-hour shape -> "HH:MM" (24h), for the API and for comparing against "now". */
+function timeValueToHHMM(value: TimeValue | undefined): string | null {
+  if (!value) return null
+  let hour24 = value.hour % 12
+  if (value.meridiem === 'PM') hour24 += 12
+  return `${String(hour24).padStart(2, '0')}:${String(value.minute).padStart(2, '0')}`
+}
+
+function businessNowHHMM(): string {
+  // The browser's own local clock — the dialog lives on the rep's phone,
+  // which runs IST like the server's business calendar.
+  const now = new Date()
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+}
 
 /**
  * "Set next meeting" — one dialog for both places it is opened from:
  *
- *   - `prompt` — right after Stop: quick choices plus Skip, closing with
- *     nothing saved on Skip.
+ *   - `prompt` — right after Stop: "Tomorrow"/"Next week" are shortcuts that
+ *     only FILL the date field below; nothing saves until "Save" is pressed.
+ *     Skip closes with nothing saved.
  *   - `manage` — the "Set next meeting" button, always available later
  *     (meeting page, Completed card): shows what is currently set, if
  *     anything, with Change (the same form) and Remove.
  *
+ * The date is always shown and editable with the kit `DatePicker`; the time
+ * is optional (`TimePicker`, blank allowed). Past dates are refused, and a
+ * time on today must still be ahead of now.
+ *
  * All reading and writing goes through `GET`/`PUT`/`DELETE
  * /api/daily-activity/[visitId]/next-meeting` — see that route for how the
- * date is stored (an Opportunity's `deal_follow_ups` row, or
- * `companies.next_follow_up_date` when none is picked).
+ * date and time are stored (an Opportunity's `deal_follow_ups` row, or
+ * `companies.next_follow_up_date`/`next_follow_up_time` when none is
+ * picked).
  *
  * On phone the same content and the same calls sit in a bottom sheet
  * (FRONTEND_RULES_PHONE §41.8 rule 10: a small dialog becomes a sheet), so
@@ -60,8 +96,10 @@ export function NextMeetingDialog({
   const [openDeals, setOpenDeals] = useState<OpenDeal[]>([])
   const [current, setCurrent] = useState<CurrentNextMeeting | null>(null)
   const [editing, setEditing] = useState(mode === 'prompt')
-  const [date, setDate] = useState('')
+  const [date, setDate] = useState<Date | undefined>(undefined)
+  const [time, setTime] = useState<TimeValue | undefined>(undefined)
   const [dealId, setDealId] = useState<string>('')
+  const [dateError, setDateError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -74,7 +112,8 @@ export function NextMeetingDialog({
       setOpenDeals(Array.isArray(d.open_deals) ? d.open_deals : [])
       setCurrent(d.next_meeting ?? null)
       if (d.next_meeting) {
-        setDate(d.next_meeting.due_date)
+        setDate(new Date(`${d.next_meeting.due_date}T00:00:00`))
+        setTime(hhmmToTimeValue(d.next_meeting.due_time))
         setDealId(d.next_meeting.deal_id ?? '')
       }
       setLoading(false)
@@ -82,19 +121,35 @@ export function NextMeetingDialog({
     return () => { cancelled = true }
   }, [visitId])
 
-  async function save(dueDate: string, deal: string) {
+  function validate(d: Date | undefined, t: TimeValue | undefined): string | null {
+    if (!d) return 'A date is required'
+    const dateStr = toDateStr(d)
+    const today = toDateStr(new Date())
+    if (dateStr < today) return 'The next meeting must be today or later'
+    if (dateStr === today) {
+      const hhmm = timeValueToHHMM(t)
+      if (hhmm && hhmm <= businessNowHHMM()) return 'That time has already passed today'
+    }
+    return null
+  }
+
+  async function save(dueDate: Date, dueTime: TimeValue | undefined, deal: string) {
+    const err = validate(dueDate, dueTime)
+    if (err) { setDateError(err); return }
+    setDateError(null)
     setSaving(true)
     try {
       const r = await fetch(`/api/daily-activity/${visitId}/next-meeting`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ due_date: dueDate, deal_id: deal || null }),
+        body: JSON.stringify({ due_date: toDateStr(dueDate), due_time: timeValueToHHMM(dueTime), deal_id: deal || null }),
       })
+      const data = await r.json().catch(() => ({}))
       if (!r.ok) {
-        toast((await r.json()).error ?? 'Could not set the next meeting', 'error')
+        toast(data.error ?? 'Could not set the next meeting', 'error')
         return
       }
-      toast('Next meeting set', 'success')
+      toast(data.warning ?? 'Next meeting set', data.warning ? 'warning' : 'success')
       onSaved?.()
       onClose()
     } finally {
@@ -118,10 +173,13 @@ export function NextMeetingDialog({
     }
   }
 
-  function quick(days: number) {
+  /** "Tomorrow"/"Next week" only FILL the date — nothing saves here. */
+  function fill(days: number) {
     const d = new Date()
     d.setDate(d.getDate() + days)
-    void save(toDateStr(d), dealId)
+    d.setHours(0, 0, 0, 0)
+    setDate(d)
+    setDateError(null)
   }
 
   const title = mode === 'prompt' ? 'Next meeting?' : 'Set next meeting'
@@ -137,7 +195,7 @@ export function NextMeetingDialog({
       {!editing && current && (
         <div className="flex flex-col gap-1 rounded-lg border border-border-light bg-surface-secondary px-3 py-2">
           <p className="text-body text-text-primary">
-            Next meeting: {fmtShort(current.due_date)}
+            Next meeting: {fmtShort(current.due_date, current.due_time)}
             {current.deal_name ? ` · ${current.deal_name}` : ''}
           </p>
         </div>
@@ -151,23 +209,35 @@ export function NextMeetingDialog({
         <>
           {mode === 'prompt' && (
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" className={phone ? 'flex-1' : undefined} disabled={saving} onClick={() => quick(1)}>
+              <Button variant="secondary" className={phone ? 'flex-1' : undefined} disabled={saving} onClick={() => fill(1)}>
                 Tomorrow
               </Button>
-              <Button variant="secondary" className={phone ? 'flex-1' : undefined} disabled={saving} onClick={() => quick(7)}>
+              <Button variant="secondary" className={phone ? 'flex-1' : undefined} disabled={saving} onClick={() => fill(7)}>
                 Next week
               </Button>
             </div>
           )}
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="next-meeting-date">Date</Label>
-            <Input
+            <Label htmlFor="next-meeting-date" required>Date</Label>
+            {date && (
+              <p className="text-label text-text-secondary">{fmtLong(date)}</p>
+            )}
+            <DatePicker
               id="next-meeting-date"
-              type="date"
               value={date}
-              min={toDateStr(new Date())}
-              onChange={e => setDate(e.target.value)}
+              invalid={Boolean(dateError)}
+              onValueChange={d => { setDate(d); setDateError(null) }}
+            />
+            {dateError && <p className="text-label text-danger">{dateError}</p>}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="next-meeting-time">Time (optional)</Label>
+            <TimePicker
+              id="next-meeting-time"
+              value={time}
+              onValueChange={setTime}
             />
           </div>
 
@@ -199,7 +269,7 @@ export function NextMeetingDialog({
     <Button variant="secondary" disabled={saving} onClick={remove}>Remove</Button>
   )
   const saveButton = !accountRequired && editing && (
-    <Button disabled={saving || !date} onClick={() => void save(date, dealId)}>
+    <Button disabled={saving || !date} onClick={() => date && void save(date, time, dealId)}>
       Save
     </Button>
   )
@@ -247,6 +317,13 @@ export function NextMeetingDialog({
   )
 }
 
-function fmtShort(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+/** "Thu, 23 Oct" (+ " · 11:30 AM" when a time is set) — the manage-mode summary line. */
+function fmtShort(dateStr: string, timeStr: string | null) {
+  const d = new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
+  return timeStr ? `${d} · ${formatHHMM(timeStr)}` : d
+}
+
+/** "Thursday, 23 Oct" — shown above the date picker while editing. */
+function fmtLong(date: Date) {
+  return date.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })
 }

@@ -15,6 +15,7 @@ import { invalidateMeCache, useMe } from '@/hooks/useMe'
 // The same minimum /api/auth/change-password enforces.
 import { MIN_PASSWORD_LENGTH } from '@/lib/password-policy'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
+import { useUnsavedChanges } from '@/components/ui/unsaved-changes'
 
 /**
  * The signed-in user's own account: who they are, read-only, and a change of
@@ -86,6 +87,19 @@ function ChangePasswordCard() {
      is hidden again rather than left showing (section 32). */
   const [formKey, setFormKey] = useState(0)
 
+  /*
+   * Section 11.3 rule 10: this form records an action with no natural
+   * noun (nothing exists to save until it is submitted), so it is a
+   * "create" form — "Leave this form?" / "What you have filled in will
+   * be lost." Leaving via a link, the phone back arrow, or the tab close
+   * while either field holds anything asks first.
+   */
+  const unsaved = useUnsavedChanges({
+    changed: currentPassword !== '' || newPassword !== '',
+    noun: 'form',
+    mode: 'create',
+  })
+
   function newPasswordError(value: string) {
     return value.length > 0 && value.length < MIN_PASSWORD_LENGTH
       ? `Enter at least ${MIN_PASSWORD_LENGTH} characters.`
@@ -135,6 +149,7 @@ function ChangePasswordCard() {
 
   return (
     <Card className="min-w-0">
+      {unsaved.warning}
       <form key={formKey} onSubmit={submit} noValidate>
         <CardHeader>
           <CardTitle>Change password</CardTitle>
@@ -148,7 +163,10 @@ function ChangePasswordCard() {
             </Banner>
           )}
 
-          <div>
+          {/* Section 17 rule 2: a single-line field never exceeds 480px —
+              except on phone, where section 41.7 rule 1 drops the cap and
+              every field runs the full content width. */}
+          <div className="max-w-field-max">
             <Label htmlFor="current-password" required>
               Current password
             </Label>
@@ -168,7 +186,7 @@ function ChangePasswordCard() {
             <InlineFieldError>{fieldErrors.currentPassword}</InlineFieldError>
           </div>
 
-          <div>
+          <div className="max-w-field-max">
             <Label htmlFor="new-password" required>
               New password
             </Label>
@@ -195,7 +213,9 @@ function ChangePasswordCard() {
           </div>
         </CardContent>
         <CardFooter>
-          <Button type="submit" disabled={saving}>
+          {/* Full width on phone (§41.7: Save fixed/full-width at the bottom
+              of a one-column form); reverts to an inline button on desktop. */}
+          <Button type="submit" disabled={saving} className="w-full sm:w-auto">
             {saving ? 'Changing…' : 'Change password'}
           </Button>
         </CardFooter>

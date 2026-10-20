@@ -20,6 +20,9 @@ import { cn } from "@/lib/utils"
  * Section 11.3 rule 6: the error appears below the field and the field
  * border turns danger red - pass `aria-invalid` to the field itself to
  * get the border.
+ *
+ * It sits 8px (space-2) below its field, the same gap as a label above
+ * one (section 5.2), so the error reads as part of that field.
  */
 function InlineFieldError({
   className,
@@ -32,7 +35,7 @@ function InlineFieldError({
     <p
       data-slot="inline-field-error"
       role="alert"
-      className={cn("mt-1.5 text-label text-danger", className)}
+      className={cn("mt-2 text-label text-danger", className)}
       {...props}
     >
       {children}

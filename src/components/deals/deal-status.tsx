@@ -381,7 +381,24 @@ export function DealCloseDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next, eventDetails) => {
+        /*
+         * Closing is irreversible (see file header), so this dialog behaves
+         * like a confirmation despite being built on dialog.tsx, which
+         * normally closes on Escape/backdrop (kit section 24 rule 3): only
+         * an explicit close (the X button or Cancel, both DialogClose) is
+         * honoured. Logged as a kit gap — dialog.tsx has no dismissible
+         * prop for a form-body confirmation like this one.
+         */
+        if (!next && (eventDetails.reason === 'escape-key' || eventDetails.reason === 'outside-press')) {
+          eventDetails.cancel()
+          return
+        }
+        onOpenChange(next)
+      }}
+    >
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Mark as {word}?</DialogTitle>

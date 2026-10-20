@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { CommentBox } from '@/components/ui/comment-box'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 
 type Remark = {
@@ -76,10 +77,8 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
   const [remarks, setRemarks] = useState<Remark[]>([])
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
-  const [sending, setSending] = useState(false)
   const [replyTo, setReplyTo] = useState<Remark | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const load = useCallback(async () => {
     if (!contextId) return
@@ -109,9 +108,15 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
     }
   }, [loading, remarks.length])
 
+  /**
+   * CommentBox's onSend contract (Wave 8B): throw an Error whose message
+   * is the toast; the box keeps the text on a failed send. A success
+   * clears `body` and `replyTo` itself, from here — CommentBox never
+   * clears its own value.
+   */
   async function handleSend() {
-    if (!body.trim()) return
-    setSending(true)
+    const text = body.trim()
+    if (!text) return
     const r = await fetch('/api/remarks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -119,24 +124,16 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
         context_type: contextType,
         context_id: contextId,
         parent_remark_id: replyTo?.id ?? null,
-        body: body.trim(),
+        body: text,
       }),
     })
     if (!r.ok) {
-      toast((await r.json()).error ?? 'Failed to send', 'error')
-    } else {
-      setBody('')
-      setReplyTo(null)
-      load()
+      const e = await r.json().catch(() => ({}))
+      throw new Error((e as { error?: string }).error ?? 'Failed to send')
     }
-    setSending(false)
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      handleSend()
-    }
+    setBody('')
+    setReplyTo(null)
+    load()
   }
 
   async function handleEditSave(id: string, newBody: string) {
@@ -228,7 +225,7 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
                 <RemarkBubble
                   remark={remark}
                   contextType={contextType}
-                  onReply={() => { setReplyTo(remark); textareaRef.current?.focus() }}
+                  onReply={() => setReplyTo(remark)}
                   onEditSave={handleEditSave}
                   onDelete={handleDelete}
                 />
@@ -266,26 +263,16 @@ export default function RemarksPanel({ isOpen, onClose, contextType, contextId, 
           </div>
         )}
 
-        {/* Compose */}
-        <div className="px-4 py-3 border-t border-border-light bg-surface shrink-0">
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={textareaRef}
-              value={body}
-              onChange={e => setBody(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Write a remark... (Ctrl+Enter to send)"
-              rows={2}
-              className="flex-1 border border-border-light rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-ring focus:border-transparent"
-            />
-            <button onClick={handleSend} disabled={sending || !body.trim()}
-              className="w-10 h-10 bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-foreground rounded-xl flex items-center justify-center transition shrink-0">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        {/* Compose — kit CommentBox (Wave 8B): Enter sends on desktop
+            (Shift+Enter for a new line), the panel's layout decides phone
+            vs desktop styling itself. Replaces the hand-rolled
+            textarea+send button; same POST, same body. */}
+        <CommentBox
+          value={body}
+          onChange={setBody}
+          onSend={handleSend}
+          placeholder="Write a remark…"
+        />
       </div>
     </>
   )

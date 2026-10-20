@@ -13,6 +13,17 @@ import {
 import type { OperationSection } from '@/lib/permissions'
 import { LoadError } from '@/components/ui/load-error'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 type UserEntry = { id: string; name: string }
 type VisibilityEntry = { id: string; target_user_id: string; name: string }
@@ -442,10 +453,14 @@ function RolesPermissions() {
     setSelectedRole(newRole)
   }
 
+  const [deleting, setDeleting] = useState(false)
+
   async function handleDeleteRole(role: Role) {
     if (role.is_system) return
+    setDeleting(true)
     const r = await fetch(`/api/settings/roles/${role.id}`, { method: 'DELETE' })
     const data = await r.json()
+    setDeleting(false)
     if (!r.ok) { toast(data.error ?? 'Failed to delete role', 'error'); return }
     setDeleteConfirm(null)
     setRoles(prev => prev.filter(ro => ro.id !== role.id))
@@ -464,7 +479,7 @@ function RolesPermissions() {
           <span className="text-xs font-normal text-text-muted uppercase tracking-wide">Roles</span>
           <button
             onClick={() => setShowNewRole(v => !v)}
-            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            className="text-xs text-primary hover:text-primary-hover font-medium"
           >
             + New
           </button>
@@ -505,22 +520,58 @@ function RolesPermissions() {
                 <span className="text-[10px] bg-surface-control text-text-muted px-1.5 py-0.5 rounded-full">System</span>
               )}
               {!role.is_system && selectedRole?.id === role.id && (
-                deleteConfirm === role.id ? (
-                  <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => handleDeleteRole(role)} className="text-[10px] text-danger font-medium">Yes</button>
-                    <button onClick={() => setDeleteConfirm(null)} className="text-[10px] text-text-muted">No</button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={e => { e.stopPropagation(); setDeleteConfirm(role.id) }}
-                    className="text-text-muted hover:text-danger text-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete role"
-                  >×</button>
-                )
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        onClick={e => { e.stopPropagation(); setDeleteConfirm(role.id) }}
+                        className="text-text-muted hover:text-danger text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                      >×</button>
+                    }
+                  />
+                  <TooltipContent>Delete role</TooltipContent>
+                </Tooltip>
               )}
             </div>
           ))}
         </div>
+
+        {/* Section 15: irreversible action, so this opens instead of an
+            inline Yes/No. The route itself still blocks the delete (409)
+            when users hold the role — the dialog states the consequence,
+            the route enforces it. */}
+        <AlertDialog
+          open={deleteConfirm !== null}
+          onOpenChange={o => { if (!o && !deleting) setDeleteConfirm(null) }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {(() => {
+                  const role = roles.find(r => r.id === deleteConfirm)
+                  return role ? `Delete the "${role.name}" role?` : 'Delete this role?'
+                })()}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the role and its permission grants permanently and cannot be
+                undone. Anyone currently holding this role must be moved to another role
+                first — the role cannot be deleted while people still hold it.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  const role = roles.find(r => r.id === deleteConfirm)
+                  if (role) handleDeleteRole(role)
+                }}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete role'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
       {/* Right: Permissions table */}
@@ -600,29 +651,35 @@ function RolesPermissions() {
                               </>
                             ) : (<>
                             <td className="px-3 py-2.5 text-center">
-                              <button
-                                onClick={() => toggleAll(s.key, !allOn)}
-                                disabled={locked}
-                                title={allOn ? 'Deselect all' : partial ? 'Select all' : 'Select all'}
-                                className={`w-5 h-5 rounded flex items-center justify-center border transition-colors focus:outline-none disabled:cursor-default ${
-                                  allOn
-                                    ? 'bg-primary border-primary-border text-primary-foreground'
-                                    : partial
-                                    ? 'bg-primary-subtle border-primary-border text-primary'
-                                    : 'bg-surface border-border hover:border-primary-border'
-                                }`}
-                              >
-                                {allOn && (
-                                  <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
-                                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                )}
-                                {partial && (
-                                  <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
-                                    <path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                  </svg>
-                                )}
-                              </button>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <button
+                                      onClick={() => toggleAll(s.key, !allOn)}
+                                      disabled={locked}
+                                      className={`w-5 h-5 rounded flex items-center justify-center border transition-colors focus:outline-none disabled:cursor-default ${
+                                        allOn
+                                          ? 'bg-primary border-primary-border text-primary-foreground'
+                                          : partial
+                                          ? 'bg-primary-subtle border-primary-border text-primary'
+                                          : 'bg-surface border-border hover:border-primary-border'
+                                      }`}
+                                    >
+                                      {allOn && (
+                                        <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                                          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                      )}
+                                      {partial && (
+                                        <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                                          <path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                        </svg>
+                                      )}
+                                    </button>
+                                  }
+                                />
+                                <TooltipContent>{allOn ? 'Deselect all' : 'Select all'}</TooltipContent>
+                              </Tooltip>
                             </td>
                             {(['view', 'create', 'edit', 'delete'] as const).map(action => (
                               <td key={action} className="px-3 py-2.5 text-center">
@@ -899,11 +956,17 @@ function ReportingSchema({ preselectedUserId }: { preselectedUserId: string | nu
                 <span className="text-success text-xs">✓</span>
                 <Avatar name={entry.name} />
                 <span className="text-sm font-medium flex-1 truncate">{entry.name}</span>
-                <button
-                  onClick={() => handleRemove(entry)}
-                  className="text-text-muted group-hover:text-danger hover:text-danger text-base leading-none ml-1 transition-colors"
-                  title="Remove"
-                >×</button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        onClick={() => handleRemove(entry)}
+                        className="text-text-muted group-hover:text-danger hover:text-danger text-base leading-none ml-1 transition-colors"
+                      >×</button>
+                    }
+                  />
+                  <TooltipContent>Remove</TooltipContent>
+                </Tooltip>
               </div>
             ))}
           </div>
@@ -1005,8 +1068,8 @@ function OrgChart() {
           <div className="flex flex-wrap gap-3">
             {filteredStandalone.map(u => (
               <div key={u.id} className="w-36 rounded-lg overflow-hidden border border-border-light shadow-sm opacity-75">
-                <div className="bg-gray-500 px-3 py-1.5 text-center">
-                  <p className="text-[11px] font-medium text-white truncate">{u.role || 'No Role'}</p>
+                <div className="bg-surface-control px-3 py-1.5 text-center">
+                  <p className="text-[11px] font-medium text-text-primary truncate">{u.role || 'No Role'}</p>
                 </div>
                 <div className="bg-surface px-3 py-2 text-center">
                   <p className="text-xs text-text-secondary font-medium truncate">{u.name}</p>
@@ -1033,7 +1096,7 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
     <div className="flex flex-col items-center">
       {/* Card */}
       <div className={`w-40 rounded-lg overflow-hidden shadow-sm border-2 transition-all ${
-        isMatch ? 'border-yellow-400 shadow-yellow-100' : 'border-blue-700'
+        isMatch ? 'border-warning' : 'border-primary-border'
       }`}>
         <div className="bg-primary-pressed px-3 py-2 text-center">
           <p className="text-[11px] font-medium text-primary-foreground leading-tight truncate">{node.role || 'No Role'}</p>
@@ -1050,13 +1113,19 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
           <div className="w-px h-4 bg-surface-control" />
 
           {/* Collapse toggle */}
-          <button
-            onClick={() => setOpen(o => !o)}
-            className="w-5 h-5 rounded-full border border-border bg-surface flex items-center justify-center text-text-muted text-xs hover:border-primary-border hover:text-primary transition-colors z-10 leading-none"
-            title={open ? 'Collapse' : 'Expand'}
-          >
-            {open ? '−' : '+'}
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  onClick={() => setOpen(o => !o)}
+                  className="w-5 h-5 rounded-full border border-border bg-surface flex items-center justify-center text-text-muted text-xs hover:border-primary-border hover:text-primary transition-colors z-10 leading-none"
+                >
+                  {open ? '−' : '+'}
+                </button>
+              }
+            />
+            <TooltipContent>{open ? 'Collapse' : 'Expand'}</TooltipContent>
+          </Tooltip>
 
           {open && (
             <>
@@ -1100,6 +1169,10 @@ function OrgNodeCard({ node, highlight }: { node: OrgNode; highlight: string }) 
 // ─────────────────────────────────────────────────────────────────
 // Shared UI primitives
 // ─────────────────────────────────────────────────────────────────
+// Deliberate exception (kit-conformance audit, docs/kit-audit/admin-pages.md):
+// the kit's token system has no "N distinct but harmonious colours for people
+// initials" set, so this stays raw Tailwind until the kit (globals.css, which
+// this file does not own) adds one. Not a drive-by invention of new tokens.
 const AVATAR_COLORS = [
   'bg-blue-500', 'bg-purple-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500',
 ]

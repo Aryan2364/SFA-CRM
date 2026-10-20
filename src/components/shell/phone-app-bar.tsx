@@ -45,23 +45,26 @@ export type PhoneAppBarConfig = {
   menu?: React.ReactNode
 }
 
-type ContextValue = {
-  config: PhoneAppBarConfig | null
-  setConfig: (config: PhoneAppBarConfig | null) => void
-}
+// Two contexts on purpose: pages that set the bar read only the (stable)
+// setter, so a change to the bar does not re-render the page that set it.
+// With one context, the page re-rendered on its own setConfig, rebuilt its
+// actions, set them again, and looped forever, freezing every tap.
+type SetConfig = (config: PhoneAppBarConfig | null) => void
 
-const PhoneAppBarContext = React.createContext<ContextValue | null>(null)
+const PhoneAppBarStateContext = React.createContext<PhoneAppBarConfig | null>(null)
+const PhoneAppBarSetContext = React.createContext<SetConfig | null>(null)
 
-/** Mounted once by PhoneShell, around both the header and `children`. */
 export function PhoneAppBarProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = React.useState<PhoneAppBarConfig | null>(null)
-  const value = React.useMemo(() => ({ config, setConfig }), [config])
-  return React.createElement(PhoneAppBarContext.Provider, { value }, children)
+  return React.createElement(
+    PhoneAppBarSetContext.Provider,
+    { value: setConfig },
+    React.createElement(PhoneAppBarStateContext.Provider, { value: config }, children)
+  )
 }
 
-/** Read by PhoneShell. Returns null when no page below it has registered a config. */
 export function usePhoneAppBarState(): PhoneAppBarConfig | null {
-  return React.useContext(PhoneAppBarContext)?.config ?? null
+  return React.useContext(PhoneAppBarStateContext)
 }
 
 /**
@@ -69,11 +72,15 @@ export function usePhoneAppBarState(): PhoneAppBarConfig | null {
  * See the module doc above for a full example.
  */
 export function usePhoneAppBar(config: PhoneAppBarConfig) {
-  const ctx = React.useContext(PhoneAppBarContext)
+  const setConfig = React.useContext(PhoneAppBarSetContext)
   const { title, back, actions, menu } = config
   React.useEffect(() => {
-    if (!ctx) return
-    ctx.setConfig({ title, back, actions, menu })
-    return () => ctx.setConfig(null)
-  }, [ctx, title, back, actions, menu])
+    if (!setConfig) return
+    setConfig({ title, back, actions, menu })
+  }, [setConfig, title, back, actions, menu])
+  // Cleared only when the page leaves, not between its own updates.
+  React.useEffect(() => {
+    if (!setConfig) return
+    return () => setConfig(null)
+  }, [setConfig])
 }

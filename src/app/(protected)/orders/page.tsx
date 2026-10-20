@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { PlusIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
+import { CalendarIcon, PlusIcon, SquareArrowOutUpRightIcon, UserIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
@@ -23,6 +23,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { PhoneList, PhoneListRow } from '@/components/ui/phone-list'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLayout } from '@/lib/layout'
 import { fmtAmount, fmtDate, fmtQty } from '@/lib/format'
 import { ORDER_STATUSES, type DiscountType, type OrderStatus } from '@/lib/order-math'
@@ -81,6 +83,22 @@ type OrderDetail = OrderRow & {
 }
 
 type TeamMember = { id: string; name: string }
+
+/**
+ * Direct vs Meeting is provenance, not a status, so it does not claim a
+ * status colour (§2.4's closed set) and does not borrow the chart palette
+ * either (§21: chart tokens are for charts). One shared `neutral` `Badge`,
+ * told apart by its icon alone — the same shape used for every other
+ * non-status categorical pair in this app.
+ */
+function OrderSourceBadge({ source }: { source: OrderRow['order_source'] }) {
+  return (
+    <Badge>
+      {source === 'direct' ? <UserIcon /> : <CalendarIcon />}
+      {source === 'direct' ? 'Direct' : 'Meeting'}
+    </Badge>
+  )
+}
 
 /** The drawer's status picker. Two words and no third (§4.10). */
 const DETAIL_STATUS_OPTIONS: Record<string, string> = Object.fromEntries(
@@ -144,21 +162,14 @@ function OrderDetailDrawer({ order, canEdit, onClose, onStatusChange }: {
   }
 
   return (
-    <>
-      <div className="fixed inset-0 bg-(--backdrop) z-40" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-screen w-[480px] max-w-full bg-surface shadow-2xl border-l border-border-light z-50 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border-light shrink-0">
-          <div>
-            <h3 className="font-medium text-text-primary">
-              {order.entity_name ?? (order.visit_id ? 'Meeting Order' : 'Direct Order')}
-            </h3>
-            <p className="text-xs text-text-muted mt-0.5">{fmtDate(order.order_date)}</p>
-          </div>
-          <button onClick={onClose} className="text-text-muted hover:text-text-secondary w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-control">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
+    <Sheet open onOpenChange={next => !next && onClose()}>
+      <SheetContent side="right" className="w-[480px] max-w-full gap-0">
+        <SheetHeader>
+          <SheetTitle>
+            {order.entity_name ?? (order.visit_id ? 'Meeting Order' : 'Direct Order')}
+          </SheetTitle>
+          <p className="text-xs text-text-muted mt-0.5">{fmtDate(order.order_date)}</p>
+        </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           {/* Meta */}
@@ -177,9 +188,7 @@ function OrderDetailDrawer({ order, canEdit, onClose, onStatusChange }: {
             </div>
             <div>
               <span className="text-xs text-text-muted block mb-0.5">Source</span>
-              <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${order.order_source === 'direct' ? 'bg-chart-1 text-primary-foreground' : 'bg-chart-2 text-primary-foreground'}`}>
-                {order.order_source === 'direct' ? 'Direct' : 'Meeting'}
-              </span>
+              <OrderSourceBadge source={order.order_source} />
             </div>
           </div>
 
@@ -223,7 +232,7 @@ function OrderDetailDrawer({ order, canEdit, onClose, onStatusChange }: {
                 allowed={canEdit !== false}
                 reason="Only someone who can edit orders can change the status"
               >
-                <div className="w-40">
+                <div className="w-field-min">
                   <OptionSelect
                     id="order-detail-status"
                     options={DETAIL_STATUS_OPTIONS}
@@ -316,8 +325,8 @@ function OrderDetailDrawer({ order, canEdit, onClose, onStatusChange }: {
             </div>
           </div>
         </div>
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   )
 }
 
@@ -473,20 +482,10 @@ function orderColumns(onOpen: (id: string) => void): ListColumn<OrderRow>[] {
       tier: 'hide-below-1024',
       className: 'whitespace-nowrap',
       skeletonWidth: 'w-16',
-      /* Not a status, so not a status colour. These two are the
-         categorical pair this screen already carried, left as they
-         were — see status-badge.tsx for what IS status here. */
-      cell: order => (
-        <Badge
-          className={
-            order.order_source === 'direct'
-              ? 'border-chart-1 bg-chart-1 text-primary-foreground'
-              : 'border-chart-2 bg-chart-2 text-primary-foreground'
-          }
-        >
-          {order.order_source === 'direct' ? 'Direct' : 'Meeting'}
-        </Badge>
-      ),
+      /* Not a status, so not a status colour (§2.4) — and not the chart
+         palette either, which §21 reserves for charts. One shared
+         `OrderSourceBadge`, told apart by icon alone. */
+      cell: order => <OrderSourceBadge source={order.order_source} />,
     },
     {
       id: 'actions',

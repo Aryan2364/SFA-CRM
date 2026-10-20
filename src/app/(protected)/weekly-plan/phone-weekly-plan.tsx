@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import StatusBadge from '@/components/ui/StatusBadge'
+import { Button } from '@/components/ui/button'
 
 /**
  * Phone Weekly plan — READ-ONLY (owner decision, docs/phone-plan.md §3):
@@ -73,14 +74,23 @@ export function PhoneWeeklyPlan() {
 
   usePhoneAppBar({ title: 'Weekly plan', back: '/more' })
 
+  const [attempt, setAttempt] = useState(0)
+  const retry = useCallback(() => setAttempt(a => a + 1), [])
+
   useEffect(() => {
     let cancelled = false
     async function load() {
       setState('loading')
       try {
-        const res = await fetch(`/api/weekly-plans/my?weekStart=${monday}`)
+        const res = await fetch(`/api/weekly-plans/my?weekStart=${monday}`, {
+          signal: AbortSignal.timeout(20000),
+        })
         if (!res.ok) throw new Error('failed')
         const data = await res.json()
+        // null is a real answer (no plan yet); anything else must be a plan.
+        if (data !== null && (typeof data !== 'object' || Array.isArray(data) || 'error' in data)) {
+          throw new Error('unexpected shape')
+        }
         if (cancelled) return
         setPlan(data)
         setState('ready')
@@ -92,7 +102,7 @@ export function PhoneWeeklyPlan() {
     return () => {
       cancelled = true
     }
-  }, [monday])
+  }, [monday, attempt])
 
   const days = Array.from({ length: 7 }, (_, i) => toStr(addDays(mondayOf(new Date()), i)))
   const itemsByDay = new Map<string, PlanItem[]>()
@@ -114,6 +124,7 @@ export function PhoneWeeklyPlan() {
         <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
           <p className="text-body font-medium text-text-primary">The plan could not be loaded</p>
           <p className="text-body text-text-muted">Check your connection and try again.</p>
+          <Button variant="secondary" onClick={retry} className="min-h-11">Try again</Button>
         </div>
       ) : !plan ? (
         <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">

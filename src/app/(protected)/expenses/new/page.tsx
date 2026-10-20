@@ -1,14 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 import { useLayout } from '@/lib/layout'
 import { useToast } from '@/contexts/ToastContext'
+import { loadList } from '@/lib/load-list'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { PhoneForm, PhoneFormField, PhoneFormMore, usePhoneFormGuard } from '@/components/ui/phone-form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
 import { StaticPickerSheetField, type PickerOption } from '@/components/ui/picker-sheet'
 import { PhotoCapture, uploadExpensePhoto, type CapturedPhoto } from '@/components/ui/photo-capture'
 
@@ -17,6 +19,15 @@ import { PhotoCapture, uploadExpensePhoto, type CapturedPhoto } from '@/componen
  * (gated `expenses:create`), fields per `src/app/api/expenses/route.ts`:
  * required `expense_date` (defaults to today, must be <= today),
  * `category`, `amount`; optional `notes`, `photo_url`.
+ *
+ * `?date=YYYY-MM-DD` prefills the date — Daily Activity's Expenses tab
+ * passes the day it is already looking at, so adding from there does not
+ * silently file against today instead.
+ *
+ * `?id=<uuid>` switches this same screen into "Edit expense" (round 2):
+ * loads the row through the same date-scoped probe the detail screen uses
+ * (there is no single-expense GET), then saves through `PUT
+ * /api/expenses/[id]` instead of POST.
  *
  * There is no standalone desktop equivalent — expenses are added from
  * Daily Activity's Expenses tab — so desktop visits of this phone-only
@@ -37,22 +48,30 @@ export default function NewExpensePage() {
   const { layout } = useLayout()
   const router = useRouter()
   const { toast } = useToast()
+  const searchParams = useSearchParams()
+  const editId = searchParams.get('id')
+  const dateParam = searchParams.get('date')
 
   const [categories, setCategories] = useState<Category[]>([])
   const [category, setCategory] = useState<PickerOption | null>(null)
+  // A failed category load is its own state, not an empty picker.
+  const [catFailed, setCatFailed] = useState(false)
+  const [catTry, setCatTry] = useState(0)
   const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(todayLocal())
+  const [date, setDate] = useState(dateParam ?? todayLocal())
   const [notes, setNotes] = useState('')
   const [photos, setPhotos] = useState<CapturedPhoto[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadingExisting, setLoadingExisting] = useState(Boolean(editId))
+  const [savedOnce, setSavedOnce] = useState(false)
 
-  const changed = Boolean(category || amount || notes || photos.length > 0 || date !== todayLocal())
+  const changed = Boolean(category || amount || notes || photos.length > 0 || date !== (dateParam ?? todayLocal()))
   const { requestLeave, warning } = usePhoneFormGuard(changed)
 
   usePhoneAppBar({
-    title: 'Add expense',
-    back: '/expenses',
+    title: editId ? 'Edit expense' : 'Add expense',
+    back: editId ? `/expenses/${editId}` : '/expenses',
   })
 
   useEffect(() => {
@@ -60,16 +79,46 @@ export default function NewExpensePage() {
       router.replace('/daily-activity')
       return
     }
-    fetch('/api/masters/expense-categories')
-      .then(r => r.json())
-      .then(data => setCategories(Array.isArray(data) ? data : []))
-      .catch(() => setCategories([]))
-  }, [layout, router])
+    let live = true
+    setCatFailed(false)
+    loadList<Category>('/api/masters/expense-categories').then(res => {
+      if (!live) return
+      if (res.ok) setCategories(res.data)
+      else setCatFailed(true)
+    })
+    return () => { live = false }
+  }, [layout, router, catTry])
+
+  // Edit mode: load the existing row through the same date-scoped probe the
+  // detail screen uses (there is no single-expense GET route).
+  useEffect(() => {
+    if (!editId) return
+    let live = true
+    const from = dateParam ?? '2000-01-01'
+    const to = dateParam ?? '2100-01-01'
+    fetch(`/api/expenses?from=${from}&to=${to}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(r)))
+      .then((rows: { id: string; expense_date: string; category: string; amount: number; notes: string | null }[]) => {
+        if (!live) return
+        const row = rows.find(r => r.id === editId)
+        if (!row) {
+          setError('This expense could not be found.')
+          return
+        }
+        setCategory({ id: row.category, label: row.category })
+        setAmount(String(row.amount))
+        setDate(row.expense_date)
+        setNotes(row.notes ?? '')
+      })
+      .catch(() => setError('This expense could not be loaded.'))
+      .finally(() => { if (live) setLoadingExisting(false) })
+    return () => { live = false }
+  }, [editId, dateParam])
 
   if (layout === 'desktop') return null
 
   function goBack() {
-    requestLeave(() => router.push('/expenses'))
+    requestLeave(() => router.push(editId ? `/expenses/${editId}` : '/expenses'))
   }
 
   async function save() {
@@ -97,15 +146,15 @@ export default function NewExpensePage() {
 
     setSaving(true)
     try {
-      const res = await fetch('/api/expenses', {
-        method: 'POST',
+      const res = await fetch(editId ? `/api/expenses/${editId}` : '/api/expenses', {
+        method: editId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           expense_date: date,
           category: category.label,
           amount: amountNum,
           notes: notes.trim() || undefined,
-          photo_url: photoUrl,
+          ...(editId ? {} : { photo_url: photoUrl }),
         }),
       })
       if (!res.ok) {
@@ -113,8 +162,17 @@ export default function NewExpensePage() {
         setError(failure.error ?? 'Could not save the expense. Try again.')
         return
       }
+      if (editId) {
+        toast('Expense updated.', 'success')
+        router.push(`/expenses/${editId}`)
+        return
+      }
       toast('Expense saved.', 'success')
-      router.push('/expenses')
+      setSavedOnce(true)
+      setCategory(null)
+      setAmount('')
+      setNotes('')
+      setPhotos([])
     } catch {
       setError('Could not save the expense. Check your connection and try again.')
     } finally {
@@ -132,10 +190,20 @@ export default function NewExpensePage() {
         ← Back
       </button>
 
+      {savedOnce && !editId ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-success-border bg-success-bg px-3 py-2">
+          <p className="text-body text-success">Expense saved.</p>
+          <Button variant="secondary" onClick={() => router.push('/expenses')}>
+            Done
+          </Button>
+        </div>
+      ) : null}
+
+      {loadingExisting ? <p className="text-body text-text-muted">Loading…</p> : null}
       {error ? <p className="text-body text-danger">{error}</p> : null}
 
       <PhoneForm saving={saving} onSave={save} changed={changed}>
-        <PhoneFormField label="Category">
+        <PhoneFormField label="Category" required>
           <StaticPickerSheetField
             label="Category"
             placeholder="Select category"
@@ -143,9 +211,17 @@ export default function NewExpensePage() {
             onChange={setCategory}
             options={categories.map(c => ({ id: c.id, label: c.name }))}
           />
+          {catFailed ? (
+            <div className="mt-2 flex items-center gap-3">
+              <p className="text-label text-danger">Couldn&apos;t load categories.</p>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setCatTry(n => n + 1)}>
+                Retry
+              </Button>
+            </div>
+          ) : null}
         </PhoneFormField>
 
-        <PhoneFormField label="Amount">
+        <PhoneFormField label="Amount" required>
           <Input
             type="number"
             inputMode="decimal"
@@ -158,7 +234,7 @@ export default function NewExpensePage() {
           />
         </PhoneFormField>
 
-        <PhoneFormField label="Date">
+        <PhoneFormField label="Date" required>
           <Input
             type="date"
             value={date}

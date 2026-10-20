@@ -71,6 +71,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DatePicker } from '@/components/ui/date-picker'
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -307,7 +308,7 @@ function FollowUpRow({
         {isNext && (
           <Tooltip>
             <TooltipTrigger render={<span className="inline-flex" />}>
-              <Badge variant="primary">Next up</Badge>
+              <Badge variant="neutral">Next up</Badge>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               The earliest open follow-up — this is the one shown on the Opportunities list.
@@ -730,9 +731,7 @@ export function FollowUpsSection({
           />
 
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setEditing(null)}>
-              Cancel
-            </Button>
+            <DialogClose render={<Button variant="secondary">Cancel</Button>} />
             <Button disabled={saving} onClick={() => void saveForm()}>
               {saving ? 'Saving…' : editing === 'new' ? 'Add follow-up' : 'Save changes'}
             </Button>
@@ -770,9 +769,7 @@ export function FollowUpsSection({
           />
 
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setPromptAfter(null)}>
-              Not now
-            </Button>
+            <DialogClose render={<Button variant="secondary">Not now</Button>} />
             <Button disabled={promptSaving} onClick={() => void scheduleNext()}>
               {promptSaving ? 'Scheduling…' : 'Schedule it'}
             </Button>

@@ -1,10 +1,10 @@
 'use client'
 
 import * as React from 'react'
-import { CheckIcon, PlusIcon, SearchIcon } from 'lucide-react'
+import { CheckIcon, ChevronLeftIcon, PlusIcon, SearchIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetBody, SheetTitle } from '@/components/ui/sheet'
 
 /**
  * Phone foundation — FRONTEND_RULES_PHONE.md §41.8 rule 7: select and
@@ -38,13 +38,40 @@ type SheetShellProps = {
 function PickerSheetShell({ open, onOpenChange, title, children }: SheetShellProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[100dvh] rounded-none">
-        <SheetHeader className="shrink-0 border-b border-border-light">
-          <SheetTitle>{title}</SheetTitle>
+      {/*
+        Built on sheet.tsx's own full-height bottom sheet (`fullHeight`),
+        so this gets the kit's history/back behaviour for free: Android
+        back (and a swipe down on the header/handle) closes the sheet
+        through onOpenChange via SheetContent's useLayerEntries, the same
+        as every other sheet in the app.
+
+        showCloseButton={false}: the default close control is a 32px
+        ("icon-sm") button in a bare top-right corner, easy to miss on a
+        full-height sheet — the owner's "no way back" report. This header
+        gives it a 44px, explicitly-labelled back control instead
+        (FRONTEND_RULES_PHONE.md §41.8): a back chevron + "Close" text, full
+        tap height, left-aligned like a nav bar's back button. Kept on
+        purpose (owner decision) even though SheetContent's own close
+        button would otherwise satisfy rule 6.
+      */}
+      <SheetContent side="bottom" fullHeight className="rounded-none gap-0" showCloseButton={false}>
+        <SheetHeader className="shrink-0 flex-row items-center gap-2 border-b border-border-light p-0">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => onOpenChange(false)}
+            className="flex h-11 min-w-11 items-center gap-1 px-3 text-body font-medium text-text-primary active:bg-surface-control"
+          >
+            <ChevronLeftIcon aria-hidden className="size-[22px]" />
+            Close
+          </button>
+          <SheetTitle className="min-w-0 flex-1 truncate pr-3 text-center">{title}</SheetTitle>
+          {/* Balances the back control so the title stays centered. */}
+          <span className="min-w-11" aria-hidden />
         </SheetHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
+        <SheetBody className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
           {children}
-        </div>
+        </SheetBody>
       </SheetContent>
     </Sheet>
   )

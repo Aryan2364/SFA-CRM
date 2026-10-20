@@ -89,27 +89,32 @@ function PhoneNewContact() {
     if (saving) return
     if (!validate()) return
     setSaving(true)
-    const res = await fetch('/api/contacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: name.trim(),
-        mobile: mobile.trim() || undefined,
-        email: email.trim() || undefined,
-        designation: designation.trim() || undefined,
-        notes: notes.trim() || undefined,
-        ...(account ? { company_ids: [account.id], primary_company_id: account.id } : {}),
-      }),
-    })
-    const data = await res.json().catch(() => ({}))
-    setSaving(false)
-    if (!res.ok) {
-      setErrors({ form: (data as { error?: string }).error ?? 'Could not save this contact.' })
-      return
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          mobile: mobile.trim() || undefined,
+          email: email.trim() || undefined,
+          designation: designation.trim() || undefined,
+          notes: notes.trim() || undefined,
+          ...(account ? { company_ids: [account.id], primary_company_id: account.id } : {}),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErrors({ form: (data as { error?: string }).error ?? 'Could not save this contact.' })
+        return
+      }
+      toast('Contact saved.')
+      const created = data as { id: string }
+      router.push(account ? `/parties/companies/${account.id}` : `/parties/contacts/${created.id}`)
+    } catch {
+      setErrors({ form: 'The connection dropped. Nothing was saved.' })
+    } finally {
+      setSaving(false)
     }
-    toast('Contact saved.')
-    const created = data as { id: string }
-    router.push(account ? `/parties/companies/${account.id}` : `/parties/contacts/${created.id}`)
   }
 
   return (
@@ -135,12 +140,12 @@ function PhoneNewContact() {
             />
           </PhoneFormField>
 
-          <PhoneFormField label="Name" hint={errors.name}>
+          <PhoneFormField label="Name" required hint={errors.name}>
             <Input value={name} onChange={e => setName(e.target.value)} aria-invalid={Boolean(errors.name)} />
           </PhoneFormField>
 
           <PhoneFormField label="Mobile" hint={errors.mobile}>
-            <Input inputMode="numeric" value={mobile} onChange={e => setMobile(e.target.value)} aria-invalid={Boolean(errors.mobile)} />
+            <Input type="tel" inputMode="numeric" value={mobile} onChange={e => setMobile(e.target.value)} aria-invalid={Boolean(errors.mobile)} />
           </PhoneFormField>
 
           <PhoneFormMore summary="More details">

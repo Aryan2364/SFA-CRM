@@ -20,6 +20,8 @@ import {
 import { EllipsisIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useLayout } from "@/lib/layout"
+import { BandScope, bandClasses, useBandLevel } from "@/components/ui/header-band"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -120,22 +122,6 @@ type BoardColumn = {
    * rendered. Section 35.4: a column showing 25 of 48 says so.
    */
   total: number
-  /**
-   * One control belonging to THIS column, rendered in its header beside
-   * the total - an add button on a board whose columns are days, say.
-   *
-   * It lives here rather than above the board because the board is the
-   * horizontal scroll container: anything rendered as a sibling stays
-   * put while the columns slide under it, so a per-column control
-   * outside would drift away from the column it belongs to on the first
-   * sideways scroll.
-   *
-   * Optional, and omitting it renders exactly what this component
-   * rendered before the prop existed. Keep it to ONE small control:
-   * the header is 44px of a 280px column and it already carries the
-   * label and the count.
-   */
-  action?: React.ReactNode
 }
 
 type BoardCard = {
@@ -166,8 +152,9 @@ type BoardCard = {
    * disabled, the card is not draggable, and the reason is given
    * through `PermissionTooltip`, because a disabled control carries
    * `pointer-events-none` and can never show a tooltip of its own.
-   * States who may do it: "Only an administrator can move a closed
-   * deal", never "You do not have permission".
+   * States who may do it, by permission and never by role (26.2):
+   * "Only people allowed to move closed deals can do this", never "You
+   * do not have permission".
    */
   moveDisabledReason?: string
 }
@@ -360,15 +347,29 @@ function Board({
     return map
   }, [cards])
 
+  const motion = useBoardMotion()
+
   /*
-   * A small distance before a drag begins, so a press on the handle
-   * that turns out to be a click is still a click. Without it, the
-   * keyboard sensor and the pointer sensor fight over the same press.
+   * Section 35.6.1: a press that moves --drag-threshold (5px) or more is
+   * a drag; less is a click and opens the record. Read from the token
+   * rather than written here, so the one value lives in globals.css.
+   * Without a threshold the keyboard sensor and the pointer sensor
+   * fight over the same press.
    */
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: motion.dragThreshold },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: boardKeyboardCoordinates,
+      /*
+       * Instant, not dnd-kit's default smooth. A smooth scroll still
+       * running when the next arrow arrives makes that press measure a
+       * board in motion and land a column short, so a keyboard user
+       * crossing a wide board loses presses. Section 5.6 has no board
+       * scroll in its list of motion either.
+       */
+      scrollBehavior: "instant",
       /*
        * Space picks a card up; Enter is left alone so it still opens
        * the record (section 11.6). dnd-kit binds both by default, which
@@ -517,7 +518,19 @@ function Board({
         an overlay rendered inside one would be cut off at its edge the
         moment the card left it - which is every drag that matters.
       */}
-      <DragOverlay>
+      {/*
+        Section 5.6: a dropped card settles into place at the medium
+        duration, easing in. Under reduce motion there is no settle at
+        all - the card is simply where it landed.
+      */}
+      <DragOverlay
+        zIndex={motion.overlayLayer}
+        dropAnimation={
+          motion.reduce
+            ? null
+            : { duration: motion.settleMs, easing: motion.settleEasing }
+        }
+      >
         {draggingCard ? (
           <BoardCardView
             card={draggingCard}
@@ -549,83 +562,101 @@ function BoardColumnView({
   renderCard: (card: BoardCard) => React.ReactNode
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: COLUMN_ID(column.id) })
+  const level = useBandLevel()
 
   return (
-    <section
-      ref={setNodeRef}
-      data-slot="board-column"
-      /*
-       * Section 35.6: the column a card would land in is tinted
-       * `primary-subtle`. It is the same token, meaning the same
-       * thing, as a selected row in section 2.2 - this is the one that
-       * is chosen. The whole column is tinted rather than a thin line
-       * drawn somewhere in it, because the drop is addressed to the
-       * column and an indicator narrower than the target promises a
-       * precision the action does not have.
-       */
-      data-drop-target={isOver || undefined}
-      aria-label={`${column.label}, ${column.total} records`}
-      className={cn(
-        "flex h-full min-h-0 w-board-column shrink-0 flex-col rounded-xl border bg-surface-sunken",
-        // Not `transition-colors`: that utility includes outline-color,
-        // which breaks the card's `:has()` focus ring below. Named
-        // properties only, here and on the card.
-        "border-border-light transition-[background-color,border-color]",
-        "data-[drop-target]:border-primary-border data-[drop-target]:bg-primary-subtle",
-      )}
-    >
-      {/*
-        Outside the scroller rather than sticky inside it: the
-        guarantee section 35.4 asks for is that scrolling a long column
-        never leaves its cards unlabelled, and a header that is not in
-        the scrolling box cannot scroll away at all.
-      */}
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-light px-3 py-3">
-        {/*
-          `flex-1` so the label takes the slack and the count stays hard
-          against the right edge once a third child joins it. With two
-          children `justify-between` did that on its own; with three it
-          would have stranded the action in the middle of the header.
-          A column with no action renders exactly as before.
-        */}
-        <p className="min-w-0 flex-1 text-body font-medium text-text-primary">
-          <Truncate>{column.label}</Truncate>
-        </p>
-        {/* The true total, never the rendered count (35.4). */}
-        <p className="shrink-0 text-meta text-text-muted tabular-nums">
-          {column.total}
-        </p>
-        {column.action}
-      </header>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-        {cards.length === 0 ? (
-          /*
-           * Section 35.9. An empty COLUMN is not an empty SCREEN:
-           * section 13's heading, line and action repeated across seven
-           * columns is six invitations to create a record in a stage
-           * nobody asked about. One muted line - and still never a
-           * blank area.
-           */
-          <p className="px-1 py-2 text-label text-text-muted">
-            {emptyColumnLabel}
-          </p>
-        ) : (
-          cards.map(renderCard)
+    // Section 36.4: the column is a banded region, so a Card rendered
+    // by renderCard takes the accent form rather than a second band.
+    <BandScope>
+      <section
+        ref={setNodeRef}
+        data-slot="board-column"
+        /*
+         * Section 35.6: the column a card would land in is tinted
+         * `primary-subtle`. It is the same token, meaning the same
+         * thing, as a selected row in section 2.2 - this is the one that
+         * is chosen. The whole column is tinted rather than a thin line
+         * drawn somewhere in it, because the drop is addressed to the
+         * column and an indicator narrower than the target promises a
+         * precision the action does not have.
+         */
+        data-drop-target={isOver || undefined}
+        aria-label={`${column.label}, ${column.total} records`}
+        className={cn(
+          "flex h-full min-h-0 w-board-column shrink-0 flex-col rounded-xl border bg-surface-sunken",
+          // Not `transition-colors`: that utility includes outline-color,
+          // which breaks the card's `:has()` focus ring below. Named
+          // properties only, here and on the card.
+          "border-border-light transition-[background-color,border-color] duration-(--duration-fast)",
+          "data-[drop-target]:border-primary-border data-[drop-target]:bg-primary-subtle",
         )}
+      >
+        {/*
+          Outside the scroller rather than sticky inside it: the
+          guarantee section 35.4 asks for is that scrolling a long column
+          never leaves its cards unlabelled, and a header that is not in
+          the scrolling box cannot scroll away at all.
+        */}
+        <header
+          className={cn(
+            "flex shrink-0 items-center justify-between gap-2 px-3 py-3",
+            // Section 36: the column header is a brand band. It already
+            // satisfied 36.2's two tests before the section existed - it
+            // labels the cards beneath it and spans the column.
+            bandClasses(level),
+          )}
+        >
+          <p className="min-w-0 text-body font-medium">
+            <Truncate>{column.label}</Truncate>
+          </p>
+          {/*
+            The true total, never the rendered count (35.4).
 
-        {hasMore ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="w-full"
-            onClick={onLoadMore}
+            The conditional is the one place in the kit a band's level
+            reaches a CHILD's colour rather than being inherited: a count
+            is the quieter half of the pair either way, and the token
+            that says so differs by ground. Section 2.3 - the neutral
+            text tokens are measured on white and mean nothing on brand.
+          */}
+          <p
+            className={cn(
+              "shrink-0 text-meta tabular-nums",
+              level <= 1 ? "text-on-brand-muted" : "text-text-muted",
+            )}
           >
-            Load more
-          </Button>
-        ) : null}
-      </div>
-    </section>
+            {column.total}
+          </p>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+          {cards.length === 0 ? (
+            /*
+             * Section 35.9. An empty COLUMN is not an empty SCREEN:
+             * section 13's heading, line and action repeated across every
+             * column is an invitation to create a record in a stage
+             * nobody asked about. One muted line - and still never a
+             * blank area.
+             */
+            <p className="px-1 py-2 text-label text-text-muted">
+              {emptyColumnLabel}
+            </p>
+          ) : (
+            cards.map(renderCard)
+          )}
+
+          {hasMore ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              onClick={onLoadMore}
+            >
+              Load more
+            </Button>
+          ) : null}
+        </div>
+      </section>
+    </BandScope>
   )
 }
 
@@ -671,7 +702,10 @@ function BoardCardView({
   }, [isDragging])
 
   const controls = (
-    <div className="relative z-10 flex shrink-0 items-center gap-1">
+    // `relative` and no z-index: it comes after the title's stretched
+    // hit area in the markup, so as a positioned sibling it already
+    // paints above it (section 5.5 rule 5: no z-index numbers here).
+    <div className="relative flex shrink-0 items-center gap-1">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -719,8 +753,8 @@ function BoardCardView({
        * The whole card is the drag source - press and move anywhere on
        * it. There is no separate grip: a handle is a second control to
        * find, and on a card this size it competes with the two that
-       * carry meaning. The 4px activation distance is what keeps a
-       * press that turns out to be a click a click.
+       * carry meaning. The --drag-threshold activation distance is what
+       * keeps a press that turns out to be a click a click.
        *
        * The listeners sit here rather than on the title button because
        * a keydown inside the card bubbles to this element, so focus on
@@ -739,7 +773,8 @@ function BoardCardView({
             }
       }
       className={cn(
-        "relative flex flex-col gap-2 rounded-xl border border-border-light bg-surface p-3",
+        // Section 5.4: a card, so --shadow-card at rest.
+        "relative flex flex-col gap-2 rounded-xl border border-border-light bg-surface p-3 shadow-card",
         /*
          * NOT `transition-colors`, and this is load-bearing rather than
          * fussy. That utility transitions `outline-color` along with
@@ -748,8 +783,8 @@ function BoardCardView({
          * `currentColor` - black - instead of `primary-ring`, and it
          * stays there. Measured in Chrome on this kit: with
          * `transition-colors` the focused card's outline reads
-         * rgb(23,23,23) after 700ms; with the transition narrowed to
-         * the background it reads rgb(42,111,108) immediately.
+         * text-primary after 700ms; with the transition narrowed to
+         * the background it reads primary-ring immediately.
          *
          * It is the quiet kind of wrong. A ring still appears, so the
          * screen looks correct and nothing errors - the ring is simply
@@ -758,20 +793,26 @@ function BoardCardView({
          * through `focus-visible:` on itself rather than through
          * `:has()` on a parent.
          */
-        "transition-[background-color]",
+        // box-shadow is named with the background for the 5.4 rule 3
+        // rise, still not `transition-colors`.
+        "transition-[background-color,box-shadow] duration-(--duration-fast)",
         // Section 11.6: the whole card is clickable, so the whole card
-        // carries the states (section 6.4).
-        onOpenCard && "hover:bg-surface-control active:bg-surface-control-pressed",
+        // carries the states (section 6.4), and it rises from
+        // --shadow-card to --shadow-menu on hover (5.4 rule 3) - the one
+        // shadow in the system that changes on hover.
+        onOpenCard &&
+          "hover:bg-surface-control hover:shadow-menu active:bg-surface-control-pressed",
         // The ring belongs to the card, not to the title button inside
         // it: a keyboard user needs to see which CARD is focused, and a
         // ring around three words of text does not say that.
-        "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary-ring",
+        "has-[:focus-visible]:outline-2 has-[:focus-visible]:[outline-style:solid] has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary-ring",
         // The card left behind while its copy follows the pointer. It
         // stays in place rather than being removed, so the column does
         // not reflow under the drag.
         "data-[dragging]:opacity-40",
         canMove && !overlay && "cursor-grab active:cursor-grabbing",
-        overlay && "cursor-grabbing shadow-lg",
+        // The copy that follows the pointer floats highest (5.4).
+        overlay && "cursor-grabbing shadow-dialog",
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -843,8 +884,58 @@ function BoardCardView({
 }
 
 /**
- * Section 35.3: the board is offered at 768px and above, and below that
- * the view switcher shows list and card only.
+ * The board's motion and layer values, read from the tokens in
+ * globals.css rather than restated here (sections 5.5, 5.6 and 35.6.1):
+ * the drag threshold, the settle duration and easing of a dropped card,
+ * and the layer the dragged copy floats in. dnd-kit
+ * takes them as numbers and strings, not as CSS, so they are read once
+ * from the root's computed style.
+ *
+ * Read in the state initialiser: on the server there is no document and
+ * nothing is draggable, so the placeholder values are never used; on
+ * the client the initialiser runs during hydration with the real ones.
+ * None of them is rendered, so there is nothing to mismatch.
+ *
+ * `reduce` follows prefers-reduced-motion live: under it the settle is
+ * removed entirely (5.6 rule 3).
+ */
+function useBoardMotion() {
+  const [tokens] = React.useState(() => {
+    if (typeof window === "undefined") {
+      return { dragThreshold: 0, settleMs: 0, settleEasing: "linear", overlayLayer: 0 }
+    }
+    const style = getComputedStyle(document.documentElement)
+    const read = (name: string) => style.getPropertyValue(name).trim()
+    const ms = (value: string) =>
+      value.endsWith("ms") ? parseFloat(value) : parseFloat(value) * 1000
+    return {
+      dragThreshold: parseFloat(read("--drag-threshold")),
+      settleMs: ms(read("--duration-medium")),
+      settleEasing: read("--ease-enter"),
+      // The dragged copy floats with the popover layer (5.5) rather
+      // than at dnd-kit's own default of 999, a z-index number no token
+      // governs.
+      overlayLayer: parseInt(read("--z-popover"), 10),
+    }
+  })
+
+  const [reduce, setReduce] = React.useState(false)
+  React.useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const readQuery = () => setReduce(query.matches)
+    readQuery()
+    query.addEventListener("change", readQuery)
+    return () => query.removeEventListener("change", readQuery)
+  }, [])
+
+  return { ...tokens, reduce }
+}
+
+/**
+ * Section 35.3: the board is offered in the desktop layout at 768px and
+ * above. Below 768px in the desktop layout the view switcher shows list
+ * and card only; in the phone layout the board becomes one status at a
+ * time (section 41.5), never a squeezed board.
  *
  * It lives here rather than in each screen so the rule has one
  * implementation. The only thing a board does is show the stages side
@@ -854,23 +945,23 @@ function BoardCardView({
  * that is not an error state: nothing failed, a view is simply not
  * offered at this width.
  *
+ * It does not measure anything itself. useLayout() is the one place
+ * that measures the screen (section 41.2 rule 2), and this asks it.
+ *
  * It reports `false` on the server and until the first effect runs, so
  * the markup matches on both sides of hydration. A switcher rendering
  * the board button one frame late is invisible; a hydration mismatch is
  * not.
  */
 function useBoardAvailable() {
-  const [available, setAvailable] = React.useState(false)
+  const { layout, band } = useLayout()
+  const [mounted, setMounted] = React.useState(false)
 
-  React.useEffect(() => {
-    const query = window.matchMedia("(min-width: 768px)")
-    const read = () => setAvailable(query.matches)
-    read()
-    query.addEventListener("change", read)
-    return () => query.removeEventListener("change", read)
-  }, [])
+  // Flipping a flag once after mount is the point of this effect; there
+  // is no earlier moment that is not also the server render.
+  React.useEffect(() => setMounted(true), [])
 
-  return available
+  return mounted && layout === "desktop" && band !== "narrow"
 }
 
 export {

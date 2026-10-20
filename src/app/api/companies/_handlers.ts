@@ -206,6 +206,27 @@ export async function POST(req: NextRequest) {
           checkEmail(personEmail),
         )
         if (personBad) return NextResponse.json({ error: personBad }, { status: 400 })
+        // Before creating a brand-new contact, check whether a contact with
+        // this exact mobile already exists and is already the Self contact
+        // of another Individual account — otherwise two phone submissions
+        // of the same person (no "existing contact" picked) silently create
+        // two contacts and two accounts instead of surfacing the same 409
+        // the self_contact_id branch above gives.
+        if (personMobile) {
+          const existingContact = await prisma.contacts.findFirst({
+            where: { tenant_id: tid, mobile: personMobile },
+            select: { id: true },
+          })
+          if (existingContact) {
+            const existingSelfAccount = await findSelfAccountForContact(tid, existingContact.id)
+            if (existingSelfAccount) {
+              return NextResponse.json(
+                { error: 'This person is already the Self contact of another account.', existing_account_id: existingSelfAccount },
+                { status: 409 }
+              )
+            }
+          }
+        }
         const person = await prisma.contacts.create({
           data: {
             tenant_id: tid,

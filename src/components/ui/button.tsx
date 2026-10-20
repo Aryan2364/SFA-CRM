@@ -6,29 +6,51 @@ import { cn } from "@/lib/utils"
 
 /**
  * Section 6.
- * Four levels: primary, secondary, ghost, danger, plus `in-field`.
- * Exactly one primary button per screen or per dialog; everything
- * else is secondary. Ghost is allowed only for icon-only buttons
- * inside a toolbar, which is why it still carries a fill and a
- * border - a button the user cannot see is a button is broken.
+ * Four levels: primary, secondary, ghost, danger, plus `in-field` and
+ * `on-brand`.
+ * Exactly one primary button per screen or per dialog; every other
+ * button with a text label is secondary, and carries the brand in its
+ * text and icon (primary-text) so the one filled primary still stands
+ * out (6.1 rule 2).
  *
- * `in-field` is section 6.3.1: an icon button INSIDE an input, a
- * select or any other bordered field. It is the one variant with no
- * fill and no border, because the field around it already is the
- * visible container and a bordered button inside a bordered input
- * draws a box inside a box. It is NOT a general-purpose quiet button
- * - used anywhere else it is exactly the invisible control section
- * 6.1 rule 4 forbids. Same shape as the calendar day cell: a control
- * nested inside another container does not bring its own border.
+ * `ghost` is the quiet icon-only button of section 6.3, everywhere: no
+ * fill and no border at rest. Its icon, tooltip, hover fill and focus
+ * ring make it readable as a control (6.1 rule 4). It is for icon-only
+ * buttons ONLY - a text label on it is the word-with-no-edge that 6.1
+ * rule 5 forbids.
+ *
+ * `in-field` is section 6.3.1: the same quiet button INSIDE an input, a
+ * select or any other bordered field, with its focus ring inset so the
+ * field does not clip it.
+ *
+ * `on-brand` is section 6.3.2: the same quiet button ON a section 36
+ * header band, its colours reversed for the brand ground. With a text
+ * label (a text size) it also draws a 1px on-brand-muted border, so a
+ * word on the band still has a visible edge (6.1 rule 5) - see
+ * compoundVariants.
  *
  * Height is fixed at 36 / 32 / 40. Width grows with the label,
  * height never does, so two buttons on different screens are always
- * the same height.
+ * the same height. On a touch screen `tap-area` grows the TAP area to
+ * 44px without changing what the user sees (9 rule 4). In the phone
+ * layout all three sizes are 44px visibly (41.9 rule 2); that is a token
+ * value in globals.css, not a class here (41.9 rule 3).
+ *
+ * `loading` is section 14 rule 2's one loading state - disabled, aria-busy,
+ * "Saving" (or the caller's words), at an unchanged width. No screen builds its own.
  */
 const buttonVariants = cva(
   [
-    "group/button inline-flex shrink-0 cursor-pointer items-center justify-center gap-1",
-    "rounded-lg border whitespace-nowrap transition-colors select-none",
+    "group/button tap-area inline-flex shrink-0 cursor-pointer items-center justify-center gap-1",
+    "rounded-lg border whitespace-nowrap select-none",
+    /*
+     * Section 5.6: hover and pressed change colour at the fast duration.
+     * The property list is explicit rather than transition-colors,
+     * because transition-colors also animates outline-color and the
+     * focus ring is never animated - it appears at once, in
+     * primary-ring, not fading in from the text colour.
+     */
+    "transition-[background-color,border-color,color] duration-(--duration-fast)",
     /*
      * SECTION 6.4'S FOCUS RING, AND THE THIRD CLASS IS NOT OPTIONAL.
      *
@@ -62,12 +84,25 @@ const buttonVariants = cva(
       variant: {
         primary:
           "border-primary bg-primary font-medium text-primary-foreground hover:border-primary-hover hover:bg-primary-hover active:border-primary-pressed active:bg-primary-pressed",
+        /*
+         * Section 6.1 rule 3: the hover is a neutral fill, never
+         * primary-subtle - that colour means "selected".
+         */
         secondary:
-          "border-border bg-surface text-text-primary hover:bg-surface-control active:bg-surface-control-pressed",
-        ghost:
-          "border-border bg-surface-control text-text-primary hover:border-border-strong hover:bg-surface-control-hover active:border-border-strong active:bg-surface-control-pressed",
+          "border-primary-border bg-surface text-primary-text hover:bg-surface-control active:bg-surface-control-pressed",
+        /*
+         * Section 6.3. The disabled line overrides the base's
+         * surface-sunken fill and border-light border: a disabled quiet
+         * button stays quiet, and only its icon drops to text-muted.
+         */
+        ghost: [
+          "border-transparent bg-transparent text-text-secondary",
+          "hover:bg-surface-control hover:text-text-primary",
+          "active:bg-surface-control-pressed active:text-text-primary",
+          "disabled:border-transparent disabled:bg-transparent disabled:text-text-muted",
+        ].join(" "),
         danger:
-          "border-danger bg-danger font-medium text-primary-foreground hover:border-danger-hover hover:bg-danger-hover active:border-danger-pressed active:bg-danger-pressed",
+          "border-danger bg-danger font-medium text-on-danger hover:border-danger-hover hover:bg-danger-hover active:border-danger-pressed active:bg-danger-pressed",
         /*
          * Section 6.3.1. All four states plus focus, moved from the
          * border to the background:
@@ -91,16 +126,71 @@ const buttonVariants = cva(
           "disabled:border-transparent disabled:bg-transparent disabled:text-text-muted",
           "focus-visible:outline-offset-0",
         ].join(" "),
+        /*
+         * Section 6.3.2 - an icon button ON a section 36 header band.
+         * The SAME rule as in-field with a different container: the
+         * band is the visible ground, so the control brings no fill
+         * and no border of its own. A pale surface-control chip on a
+         * dark brand band is the box-inside-a-box fault with the
+         * contrast turned up.
+         *
+         * THE FOCUS RING CHANGES COLOUR AND THAT IS NOT COSMETIC.
+         * primary-ring is a mid-tone of the brand, so on a primary
+         * ground it is very nearly the ground - a ring that vanishes
+         * on exactly the surface it was specified for. A keyboard
+         * user has no pointer and no other signal, so the ring
+         * reverses to on-brand with everything else on the band.
+         *
+         * disabled: overrides the base, which sets a surface-sunken
+         * fill and a border-light border - both of which are white-ish
+         * and would show as a pale chip on the band.
+         */
+        "on-brand": [
+          "border-transparent bg-transparent text-on-brand",
+          "hover:bg-on-brand-hover active:bg-on-brand-pressed",
+          "disabled:border-transparent disabled:bg-transparent disabled:text-on-brand-muted",
+          "focus-visible:outline-on-brand focus-visible:outline-offset-0",
+        ].join(" "),
       },
       size: {
         default: "h-control px-4 text-body",
         sm: "h-control-sm px-3 text-label",
         lg: "h-control-lg px-4 text-body",
         icon: "size-control p-0",
-        "icon-sm": "size-control-sm p-0",
+        /*
+         * The icon button INSIDE a field (6.2's exception, 6.3.1): 32px
+         * on desktop, 36px on phone (41.9 rule 2). Its own token, not
+         * size-control-sm - that is the small BUTTON's height, which the
+         * phone raises to 44px, and a 44px button does not fit inside a
+         * 44px field. For an icon button anywhere else, use `icon`.
+         */
+        "icon-sm": "size-icon-in-field p-0",
         "icon-lg": "size-control-lg p-0",
       },
     },
+    compoundVariants: [
+      /*
+       * A TEXT button on a brand band: the phone app bar's Select (41.4
+       * rule 4, 41.6 rule 14; stage 4 decision 1). 6.3.2 defines only icon
+       * buttons there, and a word with neither fill nor border reads as
+       * plain text (6.1 rule 5), so a text-sized on-brand button draws a
+       * 1px on-brand-muted border - in every state, disabled included,
+       * so it never loses its edge. Its fills (on-brand-hover and
+       * on-brand-pressed) and its on-brand focus ring are the variant's,
+       * unchanged.
+       *
+       * Text sizes only: the icon sizes keep the quiet, borderless 6.3.2
+       * button exactly as before. `size={null}` (a caller sizing the
+       * button itself) matches neither, and stays borderless too. No
+       * desktop screen puts a text button on a band, so desktop renders
+       * as it did.
+       */
+      {
+        variant: "on-brand",
+        size: ["default", "sm", "lg"],
+        className: "border-on-brand-muted disabled:border-on-brand-muted",
+      },
+    ],
     defaultVariants: {
       variant: "primary",
       size: "default",
@@ -108,7 +198,54 @@ const buttonVariants = cva(
   }
 )
 
-type ButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVariants>
+/** The button's own words (37.6): one place, so a product's strings file replaces them. */
+const BUTTON_TEXT = {
+  /** The words of a button that is saving (14 rule 2), unless the caller gives its own. */
+  saving: "Saving",
+} as const
+
+/*
+ * The two labels of a loading button share one grid cell, so the button
+ * is always as wide as the wider of the two and never changes width when
+ * the work starts or ends (the hand-built versions grew or shrank with
+ * their words). The one not in use is `invisible`: it keeps its space,
+ * takes no clicks, and is left out of the accessible name, so a screen
+ * reader hears "Save customer" at rest and "Saving" while it works.
+ *
+ * `gap-1` repeats the button's own: an icon to its label is 4px (23).
+ * `min-w-0` lets the label wrap where a container allows it (the phone's
+ * action bar, 41.6 rule 8) rather than push the button wider.
+ */
+const LOADING_STACK = "grid min-w-0 place-items-center"
+const LOADING_LAYER = "col-start-1 row-start-1 inline-flex min-w-0 items-center justify-center gap-1"
+
+type ButtonProps = ButtonPrimitive.Props &
+  VariantProps<typeof buttonVariants> & {
+    /**
+     * Section 14 rule 2: the action is under way. While true the button is
+     * disabled, so it cannot be pressed twice, carries aria-busy, and reads
+     * `loadingLabel`. Its width does not change. No icon moves: the owner
+     * set the state as disabled, aria-busy and the words.
+     *
+     * Leave it out on a button that never works in the background. Pass it
+     * - `loading={saving}`, true or false - on one that does, from its
+     * first render: the two labels are laid out together, so the width is
+     * settled before the first press.
+     *
+     * For buttons with a text label; on an icon-only size it only
+     * disables and marks busy, since no words fit. Busy is never shown as
+     * refused: keep the permission in `disabled` (and in PermissionTooltip's
+     * `allowed`) and the work in `loading`; a busy button never gains a
+     * reason (26).
+     */
+    loading?: boolean
+    /**
+     * The words while it works: "Saving" unless given. A button whose
+     * action is not a save names its own ("Signing in", "Approving"),
+     * from the caller's strings (37.6).
+     */
+    loadingLabel?: string
+  }
 
 /**
  * `forwardRef` IS LOAD-BEARING. It is not tidiness and it is not
@@ -133,7 +270,7 @@ type ButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVariants>
  * with opacity:0 - invisible, while `aria-expanded` says "true". The
  * tooltip does not appear at all, and dialogs mount without moving
  * focus into themselves. Measured on React 18.3.1 before this ref
- * existed; see `react-compat-harness`.
+ * existed; see `_kit-only/react-compat-harness`.
  *
  * The declared element type is `HTMLButtonElement` because that is what
  * this renders by default. A caller using `render` to become something
@@ -141,9 +278,22 @@ type ButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVariants>
  */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   function Button(
-    { className, variant = "primary", size = "default", ...props },
+    {
+      className,
+      variant = "primary",
+      size = "default",
+      loading,
+      loadingLabel = BUTTON_TEXT.saving,
+      disabled,
+      children,
+      "aria-busy": ariaBusy,
+      ...props
+    },
     ref
   ) {
+    const busy = loading === true
+    // An icon-only button has no room for words: it keeps its icon.
+    const stacked = loading !== undefined && !String(size).startsWith("icon")
     return (
       <ButtonPrimitive
         ref={ref}
@@ -152,7 +302,21 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-size={size}
         className={cn(buttonVariants({ variant, size, className }))}
         {...props}
-      />
+        // The NATIVE disabled, as for any disabled button: the kit's
+        // :disabled styling applies (6.4), and the browser itself refuses
+        // the second press and the form's Enter-to-submit.
+        disabled={busy ? true : disabled}
+        aria-busy={busy ? true : ariaBusy}
+      >
+        {!stacked ? (
+          children
+        ) : (
+          <span className={LOADING_STACK}>
+            <span className={cn(LOADING_LAYER, busy && "invisible")}>{children}</span>
+            <span className={cn(LOADING_LAYER, !busy && "invisible")}>{loadingLabel}</span>
+          </span>
+        )}
+      </ButtonPrimitive>
     )
   }
 )

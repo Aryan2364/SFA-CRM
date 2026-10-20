@@ -2,15 +2,18 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { ChevronLeftIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { useMe, invalidateMeCache } from '@/hooks/useMe'
+import { useMeStatus } from '@/hooks/useMe'
 import { ConnectionBanner } from '@/components/ui/connection-banner'
 import { PHONE_TABS, visiblePhoneTabs, type PhoneTab } from './phone-tabs'
 import { usePhoneTabBadge } from './phone-tab-badges'
 import { PhoneAppBarProvider, usePhoneAppBarState } from './phone-app-bar'
+import { PhoneAppBar } from './app-bar'
+import { PhoneLeaveGuardProvider, useGuardedNavigate, useInterceptLeave } from './phone-leave-guard'
+import { usePermissionRefresh } from './use-permission-refresh'
 import { useKeyboardInset } from '@/lib/use-keyboard-inset'
 
 /**
@@ -48,9 +51,11 @@ export function PhoneShell({
 }) {
   return (
     <PhoneAppBarProvider>
-      <PhoneShellInner title={title} actions={actions}>
-        {children}
-      </PhoneShellInner>
+      <PhoneLeaveGuardProvider>
+        <PhoneShellInner title={title} actions={actions}>
+          {children}
+        </PhoneShellInner>
+      </PhoneLeaveGuardProvider>
     </PhoneAppBarProvider>
   )
 }
@@ -65,8 +70,9 @@ function PhoneShellInner({
   children: ReactNode
 }) {
   const pathname = usePathname()
-  const router = useRouter()
-  const me = useMe()
+  const navigate = useGuardedNavigate()
+  const { me, retry } = useMeStatus()
+  usePermissionRefresh(retry)
   const tabs = visiblePhoneTabs(me)
   const topLevel = PHONE_TABS.some(tab => tab.href === pathname)
   const keyboardOpen = useKeyboardInset()
@@ -82,7 +88,13 @@ function PhoneShellInner({
   // still shows no arrow; a registered config WITH `back` always shows one,
   // even if the route happens to also be a tab root.
   const showBack = barConfig ? Boolean(barConfig.back) : !topLevel
-  const backHref = barConfig?.back
+  // A screen that names no back target goes to the tab it sits under, never
+  // router.back(): straight after sign-in the previous history entry is
+  // /login, so "back" would leave the app.
+  const backHref =
+    barConfig?.back ??
+    PHONE_TABS.find(tab => pathname.startsWith(`${tab.href}/`))?.href ??
+    '/today'
 
   // Tab bar hides, not just scrolls under, while the keyboard covers it
   // (§41.4 rule 19 / §41.7 rule 4) — otherwise it sits uselessly behind
@@ -90,33 +102,40 @@ function PhoneShellInner({
   const showTabBar = topLevel && !keyboardOpen
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-surface-sunken">
-      <header
-        className="shrink-0 bg-primary text-primary-foreground"
-        style={{
-          paddingTop: 'var(--safe-top)',
-          paddingLeft: 'var(--safe-left)',
-          paddingRight: 'var(--safe-right)',
-        }}
-      >
-        <div className="flex h-[--h-app-bar] items-center gap-2 px-2">
-          {showBack ? (
+    <div
+      className="flex h-dvh flex-col overflow-hidden bg-surface-sunken"
+      // An ActionBar on a tab root (Today's "+ Log meeting") sits on top of
+      // the tab bar, not underneath it; it reads these two values.
+      style={
+        {
+          '--tab-bar-offset': showTabBar ? 'calc(var(--h-tab-bar) + var(--safe-bottom))' : '0px',
+          '--action-bar-safe': showTabBar ? '0px' : 'var(--safe-bottom)',
+        } as React.CSSProperties
+      }
+    >
+      <PhoneAppBar
+        title={resolvedTitle}
+        leading={
+          showBack ? (
             <button
               type="button"
               aria-label="Back"
-              onClick={() => (backHref ? router.push(backHref) : router.back())}
+              onClick={() => navigate(backHref)}
               className="flex size-11 shrink-0 items-center justify-center rounded-lg active:bg-white/10"
             >
-              <ChevronLeftIcon className="size-6" />
+              <ChevronLeftIcon className="size-[22px]" />
             </button>
-          ) : (
-            <div className="size-11" aria-hidden />
-          )}
-          <h1 className="min-w-0 flex-1 truncate text-[20px] font-medium">{resolvedTitle}</h1>
-          {resolvedActions ? <div className="flex shrink-0 items-center gap-1">{resolvedActions}</div> : null}
-          {resolvedMenu}
-        </div>
-      </header>
+          ) : null
+        }
+        actions={
+          resolvedActions || resolvedMenu ? (
+            <>
+              {resolvedActions}
+              {resolvedMenu}
+            </>
+          ) : null
+        }
+      />
 
       <main className="flex-1 overflow-y-auto px-4 pt-4" style={{ paddingBottom: showTabBar ? 'calc(var(--h-tab-bar) + var(--safe-bottom) + 16px)' : '16px' }}>
         <ConnectionBanner className="mb-4" />
@@ -137,11 +156,13 @@ function PhoneTabBar({
   pathname: string
   userId: string | undefined
 }) {
+  const intercept = useInterceptLeave()
   if (tabs.length < 2) return null
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-[--z-shell] flex border-t border-border-light bg-surface"
+      data-fixed-bottom="tab-bar"
+      className="fixed inset-x-0 bottom-0 z-(--z-shell) flex border-t border-border-light bg-surface"
       style={{
         height: 'calc(var(--h-tab-bar) + var(--safe-bottom))',
         paddingBottom: 'var(--safe-bottom)',
@@ -150,25 +171,48 @@ function PhoneTabBar({
       }}
     >
       {tabs.map(tab => (
-        <PhoneTabBadged key={tab.href} tab={tab} active={tab.href === pathname} userId={userId} />
+        <PhoneTabBadged key={tab.href} tab={tab} active={tab.href === pathname} userId={userId} intercept={intercept} />
       ))}
     </nav>
   )
 }
 
 /** Reads the count the tab's own screen published (phone-tab-badges.ts). */
-function PhoneTabBadged({ tab, active, userId }: { tab: PhoneTab; active: boolean; userId: string | undefined }) {
+function PhoneTabBadged({
+  tab,
+  active,
+  userId,
+  intercept,
+}: {
+  tab: PhoneTab
+  active: boolean
+  userId: string | undefined
+  intercept: (href: string) => boolean
+}) {
   const badge = usePhoneTabBadge(tab.href, userId)
-  return <PhoneTabItem tab={tab} active={active} badge={badge} />
+  return <PhoneTabItem tab={tab} active={active} badge={badge} intercept={intercept} />
 }
 
-function PhoneTabItem({ tab, active, badge }: { tab: PhoneTab; active: boolean; badge?: number }) {
+function PhoneTabItem({
+  tab,
+  active,
+  badge,
+  intercept,
+}: {
+  tab: PhoneTab
+  active: boolean
+  badge?: number
+  intercept: (href: string) => boolean
+}) {
   const Icon = tab.icon
   const count = badge && badge > 0 ? (badge > 99 ? '99+' : String(badge)) : null
   return (
     <Link
       href={tab.href}
-      onClick={() => invalidateMeCache()}
+      onClick={event => {
+        // A form with unsaved changes asks before the tab opens.
+        if (!active && intercept(tab.href)) event.preventDefault()
+      }}
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 transition-colors duration-150 active:bg-surface-control',

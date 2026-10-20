@@ -17,15 +17,33 @@ import { LAYOUT_COOKIE, type Layout } from './layout-shared'
  */
 export async function getInitialLayout(): Promise<Layout> {
   const cookieStore = await cookies()
-  const saved = cookieStore.get(LAYOUT_COOKIE)?.value
+  const headerStore = await headers()
+  return guessLayout(
+    cookieStore.get(LAYOUT_COOKIE)?.value,
+    headerStore.get('sec-ch-ua-mobile'),
+    headerStore.get('user-agent'),
+  )
+}
+
+/**
+ * The same guess for a route handler, read straight off the request. Used at
+ * sign-in to choose the session lifetime (phones get PHONE_SESSION_MAX_AGE_DAYS).
+ */
+export function getRequestLayout(req: Request & { cookies?: { get(name: string): { value: string } | undefined } }): Layout {
+  return guessLayout(
+    req.cookies?.get(LAYOUT_COOKIE)?.value,
+    req.headers.get('sec-ch-ua-mobile'),
+    req.headers.get('user-agent'),
+  )
+}
+
+function guessLayout(saved: string | undefined, mobileHint: string | null, userAgent: string | null): Layout {
   if (saved === 'phone' || saved === 'desktop') return saved
 
-  const headerStore = await headers()
-  const mobileHint = headerStore.get('sec-ch-ua-mobile')
   if (mobileHint === '?1') return 'phone'
   if (mobileHint === '?0') return 'desktop'
 
-  const ua = headerStore.get('user-agent') ?? ''
+  const ua = userAgent ?? ''
   // A tablet's UA also matches /Mobi/ on some devices, but the measured
   // correction on load (§41.2 rule 3) fixes a wrong guess once; this is
   // only ever the FIRST paint.

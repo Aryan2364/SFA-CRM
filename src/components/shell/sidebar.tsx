@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect } from 'react'
 import { Boxes } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { invalidateMeCache, useMe } from '@/hooks/useMe'
+import { useMeStatus } from '@/hooks/useMe'
 
+import { usePermissionRefresh } from './use-permission-refresh'
 import { activeHref, visibleNavItems, type NavItem } from './nav'
 
 /**
@@ -34,17 +34,14 @@ type SidebarProps = {
 
 export function Sidebar({ expanded, onNavigate }: SidebarProps) {
   const pathname = usePathname()
-  const me = useMe()
+  const { me, retry } = useMeStatus()
 
   /*
-   * Carried over from the sidebar this replaces: drop the cached
-   * permissions on every navigation so a role change takes effect on the
-   * next mount rather than at the next full page load. A user whose
-   * access was just revoked should not keep a door open in the rail.
+   * Kit section 26: refresh permissions when the tab regains focus, not on
+   * every navigation (which made controls flash "not known yet"). A revoked
+   * role closes the door at the next focus; a 403 is handled where it lands.
    */
-  useEffect(() => {
-    invalidateMeCache()
-  }, [pathname])
+  usePermissionRefresh(retry)
 
   const items = visibleNavItems(me)
   const active = activeHref(pathname, items)

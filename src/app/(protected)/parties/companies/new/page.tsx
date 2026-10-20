@@ -92,6 +92,8 @@ import { Label } from '@/components/ui/label'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { AccountKindChoice } from '@/components/parties/account-kind-choice'
+import { PersonModeChoice } from '@/components/parties/person-mode-choice'
 import { useToast } from '@/contexts/ToastContext'
 import { checkEmail, checkGstin, checkLandline, checkMobile, checkPincode } from '@/lib/validation'
 import { cn } from '@/lib/utils'
@@ -409,65 +411,73 @@ export default function NewCompanyPage() {
     const realAddresses = addresses.filter(a => !isEmptyAddress(a))
     const primaryAddress = realAddresses.find(a => a.is_primary) ?? realAddresses[0]
 
-    const res = await fetch('/api/companies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: form.name.trim() || null,
-        account_kind: kind,
-        // Exactly one of these, and only for Individual — never both.
-        ...(kind === 'Individual' && personMode === 'existing' && selfContact
-          ? { self_contact_id: selfContact.id }
-          : {}),
-        ...(kind === 'Individual' && personMode === 'new'
-          ? {
-              self_new_person: {
-                name: newPerson.name.trim(),
-                mobile: newPerson.mobile.trim() || undefined,
-                email: newPerson.email.trim() || undefined,
-              },
-            }
-          : {}),
-        // Blank stays blank — the route stores '' for "no type".
-        type: form.type || null,
-        industry_id: form.industry_id || null,
-        owner_user_id: ownerValue || null,
-        mobile_1: form.mobile_1.trim() || null,
-        mobile_2: form.mobile_2.trim() || null,
-        landline: form.landline.trim() || null,
-        email: form.email.trim() || null,
-        website: form.website.trim() || null,
-        gst_number: form.gst_number.trim() || null,
-        description: form.description.trim() || null,
-        /*
-         * ⚠️ The primary address is MIRRORED onto the company row as well as
-         * written to `company_addresses`.
-         *
-         * `companies` still carries the legacy flat address columns, and
-         * screens read them today — the Parties list's District column is
-         * `row.districts.name`, off `companies.district_id`. Writing only the
-         * new table would blank that column for every company created here
-         * while leaving the seeded ones populated, which reads as a broken
-         * list rather than as a migration in progress.
-         *
-         * So both are written and the new table is the one completeness and
-         * the Company page read. De-duplicating them means retiring the flat
-         * columns across every reader, which is its own task — recorded, not
-         * smuggled in here.
-         */
-        ...(primaryAddress
-          ? {
-              address: primaryAddress.address_line.trim() || null,
-              pincode: primaryAddress.pincode.trim() || null,
-              state_id: primaryAddress.state_id || null,
-              district_id: primaryAddress.district_id || null,
-              taluka_id: primaryAddress.taluka_id || null,
-              village_id: primaryAddress.village_id || null,
-            }
-          : {}),
-      }),
-    })
-    const data = await res.json().catch(() => ({}))
+    let res: Response
+    let data: unknown
+    try {
+      res = await fetch('/api/companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim() || null,
+          account_kind: kind,
+          // Exactly one of these, and only for Individual — never both.
+          ...(kind === 'Individual' && personMode === 'existing' && selfContact
+            ? { self_contact_id: selfContact.id }
+            : {}),
+          ...(kind === 'Individual' && personMode === 'new'
+            ? {
+                self_new_person: {
+                  name: newPerson.name.trim(),
+                  mobile: newPerson.mobile.trim() || undefined,
+                  email: newPerson.email.trim() || undefined,
+                },
+              }
+            : {}),
+          // Blank stays blank — the route stores '' for "no type".
+          type: form.type || null,
+          industry_id: form.industry_id || null,
+          owner_user_id: ownerValue || null,
+          mobile_1: form.mobile_1.trim() || null,
+          mobile_2: form.mobile_2.trim() || null,
+          landline: form.landline.trim() || null,
+          email: form.email.trim() || null,
+          website: form.website.trim() || null,
+          gst_number: form.gst_number.trim() || null,
+          description: form.description.trim() || null,
+          /*
+           * ⚠️ The primary address is MIRRORED onto the company row as well as
+           * written to `company_addresses`.
+           *
+           * `companies` still carries the legacy flat address columns, and
+           * screens read them today — the Parties list's District column is
+           * `row.districts.name`, off `companies.district_id`. Writing only the
+           * new table would blank that column for every company created here
+           * while leaving the seeded ones populated, which reads as a broken
+           * list rather than as a migration in progress.
+           *
+           * So both are written and the new table is the one completeness and
+           * the Company page read. De-duplicating them means retiring the flat
+           * columns across every reader, which is its own task — recorded, not
+           * smuggled in here.
+           */
+          ...(primaryAddress
+            ? {
+                address: primaryAddress.address_line.trim() || null,
+                pincode: primaryAddress.pincode.trim() || null,
+                state_id: primaryAddress.state_id || null,
+                district_id: primaryAddress.district_id || null,
+                taluka_id: primaryAddress.taluka_id || null,
+                village_id: primaryAddress.village_id || null,
+              }
+            : {}),
+        }),
+      })
+      data = await res.json().catch(() => ({}))
+    } catch {
+      setSaving(false)
+      setErrors({ form: 'The connection dropped. Nothing was saved.' })
+      return
+    }
 
     if (!res.ok) {
       setSaving(false)
@@ -482,75 +492,82 @@ export default function NewCompanyPage() {
     }
 
     const created = data as CreatedCompany
-    // The company is saved; only its landline may not be, until the database
-    // has the column (src/lib/party-landline.ts).
-    const landlineWarning = (data as { warning?: string }).warning
-
-    /*
-     * Status is its own write, and only when it is not the default.
-     *
-     * §3.3 puts Status at the END of the form, and `POST /api/companies` has no
-     * `is_active` in its body — the column defaults to true. So an Active
-     * company needs no second call, and an Inactive one is a PUT immediately
-     * after. A failure here leaves a real, Active company rather than nothing,
-     * which is why it is reported and not rolled back: there is no draft to
-     * roll back to.
-     */
-    if (!form.is_active) {
-      const flip = await fetch(`/api/companies/${created.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_active: false }),
-      })
-      if (!flip.ok) toast('Account saved, but it could not be set to Inactive.', 'error')
-    }
-
-    /*
-     * The addresses, once the company has an id.
-     *
-     * Sequential rather than `Promise.all`: each POST may demote the current
-     * primary, and two of those racing could leave two rows flagged or none.
-     * The server settles the flag inside a transaction per request; issuing
-     * them one at a time is what keeps the sequence of transactions coherent.
-     *
-     * A failure here does NOT roll the company back — there is no draft to roll
-     * back to (§12), and a company with some of its addresses is a real record
-     * the user can finish on the company page. It is reported rather than
-     * swallowed, naming how many were saved.
-     */
-    let savedAddresses = 0
-    for (const a of realAddresses) {
-      const r = await fetch(`/api/companies/${created.id}/addresses`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(addressPayload(a)),
-      })
-      if (r.ok) savedAddresses += 1
-    }
-    if (savedAddresses < realAddresses.length) {
-      toast(
-        `Account saved, but ${realAddresses.length - savedAddresses} of ${realAddresses.length} addresses could not be. Add them from the account page.`,
-        'error'
-      )
-    }
-
-    /*
-     * Re-read the company: `is_complete` and `completeness_missing` on the
-     * create response were computed BEFORE the addresses existed, so the banner
-     * on Step 2 would name fields the user has just filled in. The server
-     * recomputes on every address write; this picks up that answer rather than
-     * guessing at it.
-     */
     let finalCompany = created
-    if (savedAddresses > 0) {
-      const fresh = await fetch(`/api/companies/${created.id}`)
-      if (fresh.ok) {
-        const row = await fresh.json().catch(() => null) as CreatedCompany | null
-        if (row) finalCompany = { ...created, ...row }
-      }
-    }
+    let landlineWarning: string | undefined
+    try {
+      // The company is saved; only its landline may not be, until the database
+      // has the column (src/lib/party-landline.ts).
+      landlineWarning = (data as { warning?: string }).warning
 
-    setSaving(false)
+      /*
+       * Status is its own write, and only when it is not the default.
+       *
+       * §3.3 puts Status at the END of the form, and `POST /api/companies` has no
+       * `is_active` in its body — the column defaults to true. So an Active
+       * company needs no second call, and an Inactive one is a PUT immediately
+       * after. A failure here leaves a real, Active company rather than nothing,
+       * which is why it is reported and not rolled back: there is no draft to
+       * roll back to.
+       */
+      if (!form.is_active) {
+        const flip = await fetch(`/api/companies/${created.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_active: false }),
+        })
+        if (!flip.ok) toast('Account saved, but it could not be set to Inactive.', 'error')
+      }
+
+      /*
+       * The addresses, once the company has an id.
+       *
+       * Sequential rather than `Promise.all`: each POST may demote the current
+       * primary, and two of those racing could leave two rows flagged or none.
+       * The server settles the flag inside a transaction per request; issuing
+       * them one at a time is what keeps the sequence of transactions coherent.
+       *
+       * A failure here does NOT roll the company back — there is no draft to roll
+       * back to (§12), and a company with some of its addresses is a real record
+       * the user can finish on the company page. It is reported rather than
+       * swallowed, naming how many were saved.
+       */
+      let savedAddresses = 0
+      for (const a of realAddresses) {
+        const r = await fetch(`/api/companies/${created.id}/addresses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(addressPayload(a)),
+        })
+        if (r.ok) savedAddresses += 1
+      }
+      if (savedAddresses < realAddresses.length) {
+        toast(
+          `Account saved, but ${realAddresses.length - savedAddresses} of ${realAddresses.length} addresses could not be. Add them from the account page.`,
+          'error'
+        )
+      }
+
+      /*
+       * Re-read the company: `is_complete` and `completeness_missing` on the
+       * create response were computed BEFORE the addresses existed, so the banner
+       * on Step 2 would name fields the user has just filled in. The server
+       * recomputes on every address write; this picks up that answer rather than
+       * guessing at it.
+       */
+      if (savedAddresses > 0) {
+        const fresh = await fetch(`/api/companies/${created.id}`)
+        if (fresh.ok) {
+          const row = await fresh.json().catch(() => null) as CreatedCompany | null
+          if (row) finalCompany = { ...created, ...row }
+        }
+      }
+    } catch {
+      // The account exists; only a follow-up write failed. Move on to Step 2
+      // rather than leaving the form looking unsaved (a retry would duplicate).
+      toast('Account saved, but the connection dropped before everything was added. Check it on the account page.', 'error')
+    } finally {
+      setSaving(false)
+    }
     setCompany(finalCompany)
     if (landlineWarning) toast(landlineWarning, 'warning')
     else toast('Account saved. Add its contact people next.')
@@ -634,41 +651,12 @@ export default function NewCompanyPage() {
         />
       ) : (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Account kind</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {/*
-                Company | Individual — spec §1, Company default. A two-button
-                segmented control (the kit ships no dedicated component for
-                one); switching never clears anything already typed below.
-              */}
-              <div
-                role="radiogroup"
-                aria-label="Account kind"
-                className="inline-flex rounded-lg border border-border bg-surface-secondary p-1"
-              >
-                {(['Company', 'Individual'] as const).map(k => (
-                  <button
-                    key={k}
-                    type="button"
-                    role="radio"
-                    aria-checked={kind === k}
-                    onClick={() => setKind(k)}
-                    className={cn(
-                      'min-h-11 rounded-md px-4 text-body font-medium transition-colors duration-200',
-                      kind === k
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-text-secondary hover:text-text-primary'
-                    )}
-                  >
-                    {k}
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {/*
+            Company | Individual — spec §1, Company default. The kit's only
+            exclusive-choice control (radio-group.tsx), not a Card: switching
+            never clears anything already typed below.
+          */}
+          <AccountKindChoice value={kind} onChange={setKind} />
 
           {kind === 'Individual' ? (
             <Card className="mt-4">
@@ -676,32 +664,13 @@ export default function NewCompanyPage() {
                 <CardTitle>Person</CardTitle>
               </CardHeader>
               <CardContent>
-                <div
-                  role="radiogroup"
-                  aria-label="Person"
-                  className="mb-4 inline-flex rounded-lg border border-border bg-surface-secondary p-1"
-                >
-                  {([
-                    { v: 'existing', label: 'Pick existing contact' },
-                    { v: 'new', label: 'New person' },
-                  ] as const).map(opt => (
-                    <button
-                      key={opt.v}
-                      type="button"
-                      role="radio"
-                      aria-checked={personMode === opt.v}
-                      onClick={() => { setPersonMode(opt.v); setErrors(e => { const { person: _p, ...rest } = e; return rest }) }}
-                      className={cn(
-                        'min-h-11 rounded-md px-4 text-body font-medium transition-colors duration-200',
-                        personMode === opt.v
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-text-secondary hover:text-text-primary'
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
+                <PersonModeChoice
+                  value={personMode}
+                  onChange={v => { setPersonMode(v); setErrors(e => { const { person: _p, ...rest } = e; return rest }) }}
+                  existingLabel="Pick existing contact"
+                  newLabel="New person"
+                  className="mb-4"
+                />
 
                 {personMode === 'existing' ? (
                   <div>

@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { listMissedTodosForRep } from '@/lib/missed-todos'
 import { businessDate } from '@/lib/business-date'
+import { readFollowUpTimes, readCompanyNextMeetingTimes } from '@/lib/next-meeting-time'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,18 +43,27 @@ export async function GET(req: NextRequest) {
   if (!user.userId) return NextResponse.json({ followups: [], nextMeetings: [] })
 
   const date = req.nextUrl.searchParams.get('date')
-  if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })
+  // §41.5/§41.15: the phone Activity screen's "Upcoming" chip ignores the
+  // selected day and shows every future item, soonest first — so `date` is
+  // not required in this mode, and the comparisons below switch from "on
+  // this day" to "today or later".
+  const upcoming = req.nextUrl.searchParams.get('upcoming') === '1'
+  if (!date && !upcoming) return NextResponse.json({ error: 'date is required' }, { status: 400 })
   const tid = getTenantId()
-  const day = new Date(date)
+  const todayStr = businessDate()
+  const day = date ? new Date(date) : new Date(todayStr)
 
   try {
     // The caller's own visits for the day, used by BOTH sections below to
     // decide whether a card has already been acted on. One query, reused,
-    // rather than two near-identical ones.
-    const dayVisits = await prisma.daily_visits.findMany({
-      where: { tenant_id: tid, user_id: user.userId, visit_date: day },
-      select: { id: true, entity_id: true },
-    })
+    // rather than two near-identical ones. Skipped in `upcoming` mode, which
+    // spans many days — "already met" there is left to the record itself.
+    const dayVisits = upcoming
+      ? []
+      : await prisma.daily_visits.findMany({
+          where: { tenant_id: tid, user_id: user.userId, visit_date: day },
+          select: { id: true, entity_id: true },
+        })
 
     // ---- b) Opportunity follow-ups --------------------------------------
     let followups: Record<string, unknown>[] = []
@@ -62,9 +72,10 @@ export async function GET(req: NextRequest) {
         where: {
           tenant_id: tid,
           status: 'not_done',
-          due_date: day,
+          due_date: upcoming ? { gte: new Date(todayStr) } : day,
           deals: { tenant_id: tid, owner_user_id: user.userId },
         },
+        ...(upcoming ? { take: 25 } : {}),
         include: {
           deals: {
             select: {
@@ -84,8 +95,10 @@ export async function GET(req: NextRequest) {
       const visitIds = new Set(dayVisits.map(v => v.id))
       const open = rows.filter(r => !(r.visit_id && visitIds.has(r.visit_id)))
       const serialized = serialize(open, 'deal_follow_ups') as Record<string, unknown>[]
+      const times = await readFollowUpTimes(tid, open.map(r => r.id))
       followups = serialized.map((r, i) => ({
         ...r,
+        due_time: times?.get(open[i].id) ?? null,
         deal_name: open[i].deals.name,
         company_id: open[i].deals.company_id,
         company_name: open[i].deals.companies?.name ?? null,
@@ -99,20 +112,56 @@ export async function GET(req: NextRequest) {
         tenant_id: tid,
         owner_user_id: user.userId,
         is_active: true,
-        next_follow_up_date: day,
+        next_follow_up_date: upcoming ? { gte: new Date(todayStr) } : day,
       },
       select: { id: true, name: true, type: true, next_follow_up_date: true },
       orderBy: { name: 'asc' },
+      ...(upcoming ? { take: 25 } : {}),
     })
     // Hidden once the caller already has ANY meeting that day with that
     // account — no linking is required for this one (unlike b), there is no
     // deal to attach it to), so "a visit exists with this entity_id" is the
     // whole rule.
     const metEntityIds = new Set(dayVisits.map(v => v.entity_id).filter(Boolean) as string[])
-    const nextMeetings = serialize(
-      companies.filter(c => !metEntityIds.has(c.id)),
-      'companies'
-    ) as Record<string, unknown>[]
+    const openCompanies = companies.filter(c => !metEntityIds.has(c.id))
+    const companyTimes = await readCompanyNextMeetingTimes(tid, openCompanies.map(c => c.id))
+    const nextMeetings = (serialize(openCompanies, 'companies') as Record<string, unknown>[]).map((r, i) => ({
+      ...r,
+      next_follow_up_time: companyTimes?.get(openCompanies[i].id) ?? null,
+    }))
+
+    // Same-day cards sort by time, no-time ones after timed ones. In
+    // `upcoming` mode the date sorts first (soonest day first), then time.
+    const byTime = (a: { due_time?: unknown }, b: { due_time?: unknown }) => {
+      const ta = typeof a.due_time === 'string' ? a.due_time : null
+      const tb = typeof b.due_time === 'string' ? b.due_time : null
+      if (ta === tb) return 0
+      if (ta === null) return 1
+      if (tb === null) return -1
+      return ta < tb ? -1 : 1
+    }
+    const byDateThenTime = (
+      a: { due_date?: unknown; due_time?: unknown },
+      b: { due_date?: unknown; due_time?: unknown }
+    ) => {
+      const da = typeof a.due_date === 'string' ? a.due_date.slice(0, 10) : ''
+      const db = typeof b.due_date === 'string' ? b.due_date.slice(0, 10) : ''
+      if (da !== db) return da < db ? -1 : 1
+      return byTime(a, b)
+    }
+    if (upcoming) {
+      followups.sort(byDateThenTime as (a: Record<string, unknown>, b: Record<string, unknown>) => number)
+      nextMeetings.sort((a, b) => byDateThenTime(
+        { due_date: (a as Record<string, unknown>).next_follow_up_date, due_time: a.next_follow_up_time },
+        { due_date: (b as Record<string, unknown>).next_follow_up_date, due_time: b.next_follow_up_time }
+      ))
+    } else {
+      followups.sort(byTime)
+      nextMeetings.sort((a, b) => byTime(
+        { due_time: a.next_follow_up_time },
+        { due_time: b.next_follow_up_time }
+      ))
+    }
 
     // ---- Missed (last 7 business days, not started or moved) -----------
     // One entry per underlying item; the client groups same-account items

@@ -5,6 +5,15 @@ import { useRouter, useSearchParams } from 'next/navigation'
 
 import { Button } from '@/components/ui/button'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { PasswordInput } from '@/components/ui/password-input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+} from '@/components/ui/dialog'
 import { isSafeReturnPath } from '@/lib/session-expiry'
 
 /** One company the submitted phone and password are valid in; see /api/auth/login. */
@@ -32,7 +41,6 @@ function LoginForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showForgot, setShowForgot] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
   // Set when the phone and password are valid in more than one company. The
   // second step re-posts the SAME phone and password, which stay in this
   // component's state only — never in the URL or in storage — plus the choice.
@@ -158,23 +166,7 @@ function LoginForm() {
           </div>
           <div>
             <label htmlFor="login-password" className="block text-sm font-medium text-text-secondary mb-1">Password</label>
-            <div className="relative">
-              <input id="login-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
-                className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-              <button type="button" onClick={() => setShowPassword(v => !v)} tabIndex={-1}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition">
-                {showPassword ? (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                )}
-              </button>
-            </div>
+            <PasswordInput id="login-password" name="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
           </div>
           {error && <p className="text-sm text-danger bg-danger-bg px-3 py-2 rounded-lg">{error}</p>}
           <button type="submit" disabled={loading}
@@ -187,23 +179,34 @@ function LoginForm() {
         {!companies && (
           <div className="mt-4 text-center">
             <button onClick={() => setShowForgot(true)}
-              className="text-sm text-blue-600 hover:text-blue-700 hover:underline transition">
+              className="text-sm text-primary-text hover:underline transition">
               Forgot Password?
             </button>
           </div>
         )}
       </div>
 
-      {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />}
+      <ForgotPasswordDialog open={showForgot} onOpenChange={setShowForgot} />
     </div>
   )
 }
 
-function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
+function ForgotPasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
+
+  // Reset to the initial step each time the dialog is reopened, so a
+  // previous "Email Sent" state is never shown for a new attempt.
+  useEffect(() => {
+    if (open) {
+      setPhone('')
+      setLoading(false)
+      setSent(false)
+      setError('')
+    }
+  }, [open])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -228,38 +231,33 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-(--backdrop)" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-sm p-7">
-        <button onClick={onClose}
-          className="absolute top-4 right-4 text-text-muted hover:text-text-secondary w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-control transition">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-
-        {sent ? (
-          <div className="text-center py-2">
-            <div className="w-14 h-14 bg-success-bg rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-              </svg>
-            </div>
-            <h3 className="text-base font-medium text-text-primary mb-1">Email Sent</h3>
-            <p className="text-sm text-text-muted mb-5">
-              If an account exists for that phone number, an email with your credentials and a reset link has been sent.
-            </p>
-            <button onClick={onClose}
-              className="w-full bg-primary hover:bg-primary-hover text-primary-foreground font-medium py-2.5 rounded-lg text-sm transition">
-              Back to Login
-            </button>
-          </div>
-        ) : (
-          <>
-            <h3 className="text-base font-medium text-text-primary mb-1">Reset Password</h3>
-            <p className="text-sm text-text-muted mb-5">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>{sent ? 'Email Sent' : 'Reset Password'}</DialogTitle>
+          {!sent && (
+            <DialogDescription>
               Enter your registered phone number. We&apos;ll send your current credentials and a reset link to your email.
-            </p>
+            </DialogDescription>
+          )}
+        </DialogHeader>
+        <DialogBody>
+          {sent ? (
+            <div className="text-center py-2">
+              <div className="w-14 h-14 bg-success-bg rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                </svg>
+              </div>
+              <p className="text-sm text-text-muted mb-5">
+                If an account exists for that phone number, an email with your credentials and a reset link has been sent.
+              </p>
+              <button onClick={() => onOpenChange(false)}
+                className="w-full bg-primary hover:bg-primary-hover text-primary-foreground font-medium py-2.5 rounded-lg text-sm transition">
+                Back to Login
+              </button>
+            </div>
+          ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="forgot-phone" className="block text-sm font-medium text-text-secondary mb-1">Phone Number</label>
@@ -273,9 +271,9 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
                 {loading ? 'Sending…' : 'Send Reset Email'}
               </button>
             </form>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   )
 }

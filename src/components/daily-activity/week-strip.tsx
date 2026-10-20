@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback, type ComponentProps } from 'react'
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import CalendarPicker from '@/components/ui/CalendarPicker'
+import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { DAY_LABELS, getWeekDates, toDateStr } from './types'
 
 /**
@@ -31,6 +32,40 @@ export function WeekStrip({
   const todayStr = toDateStr(new Date())
   const weekDates = getWeekDates(new Date(selectedDate + 'T00:00:00'))
   const [showCalendar, setShowCalendar] = useState(false)
+  const [viewMonth, setViewMonth] = useState(() => new Date(selectedDate + 'T00:00:00'))
+  const [filledDates, setFilledDates] = useState<Set<string>>(new Set())
+
+  const loadFilled = useCallback(async () => {
+    if (!calendarApiBase) return
+    const monthKey = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth() + 1).padStart(2, '0')}`
+    try {
+      const url = `${calendarApiBase}${calendarApiBase.includes('?') ? '&' : '?'}month=${monthKey}`
+      const r = await fetch(url)
+      if (r.ok) {
+        const { filledDates: arr } = await r.json()
+        setFilledDates(new Set(arr))
+      }
+    } catch { /* ignore */ }
+  }, [calendarApiBase, viewMonth])
+
+  useEffect(() => { if (showCalendar) loadFilled() }, [showCalendar, loadFilled])
+
+  function FilledDayButton(dayProps: ComponentProps<typeof CalendarDayButton>) {
+    const dateStr = toDateStr(dayProps.day.date)
+    const isFilled = filledDates.has(dateStr)
+    return (
+      <CalendarDayButton {...dayProps}>
+        {dayProps.children}
+        {isFilled && (
+          <span
+            className={`pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 size-1 rounded-full ${
+              dayProps.modifiers.selected ? 'bg-primary-foreground/60' : 'bg-success'
+            }`}
+          />
+        )}
+      </CalendarDayButton>
+    )
+  }
 
   return (
     <div className="relative">
@@ -79,25 +114,32 @@ export function WeekStrip({
         <Button variant="ghost" size="sm" onClick={onNextWeek} aria-label="Next week" className="shrink-0">
           <ChevronRightIcon />
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowCalendar(v => !v)}
-          aria-label="Open calendar"
-          className="shrink-0"
-        >
-          <CalendarIcon />
-        </Button>
+        <Popover open={showCalendar} onOpenChange={setShowCalendar}>
+          <PopoverTrigger
+            render={
+              <Button variant="ghost" size="sm" aria-label="Open calendar" className="shrink-0">
+                <CalendarIcon />
+              </Button>
+            }
+          />
+          <PopoverContent align="end" className="w-auto p-2">
+            <Calendar
+              mode="single"
+              month={viewMonth}
+              onMonthChange={setViewMonth}
+              selected={new Date(selectedDate + 'T00:00:00')}
+              onSelect={d => { if (d) { onSelectDate(toDateStr(d)); setShowCalendar(false) } }}
+              components={calendarApiBase ? { DayButton: FilledDayButton } : undefined}
+            />
+            {calendarApiBase && (
+              <div className="flex items-center gap-1.5 border-t border-border-light px-1 pt-2">
+                <span className="size-2 rounded-full bg-success" />
+                <span className="text-meta text-text-muted">Has activity</span>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
-
-      {showCalendar && (
-        <CalendarPicker
-          selectedDate={selectedDate}
-          onSelectDate={d => { onSelectDate(d); setShowCalendar(false) }}
-          onClose={() => setShowCalendar(false)}
-          calendarApiBase={calendarApiBase}
-        />
-      )}
     </div>
   )
 }

@@ -5,7 +5,9 @@
  * (gated `deals:create`): `name` and `company_id` required (2026-10-13 spec,
  * see `src/app/api/deals/_handlers.ts`/`deal-dialog.tsx`), stage usable only
  * at create time. Everything else — contact, value, probability, close
- * date, source, remarks — is optional and lives under "More details".
+ * date, source, remarks — is optional. No "More details" disclosure
+ * (owner decision, kept consistent with `/orders/new`): every optional
+ * field shows inline, in the order it is most often filled in.
  *
  * Desktop has no standalone create URL (the list's own dialog,
  * `deal-dialog.tsx`, is what desktop uses), so a desktop visit here
@@ -22,7 +24,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useLayout } from '@/lib/layout'
 import { useToast } from '@/contexts/ToastContext'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
-import { PhoneForm, PhoneFormField, PhoneFormMore, usePhoneFormGuard } from '@/components/ui/phone-form'
+import { PhoneForm, PhoneFormField, usePhoneFormGuard } from '@/components/ui/phone-form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { PickerSheetField, StaticPickerSheetField, type PickerOption } from '@/components/ui/picker-sheet'
@@ -62,7 +64,7 @@ export default function NewDealPage() {
   const [error, setError] = useState<string | null>(null)
 
   const changed = Boolean(name || account || value || closeDate || contact || source || remarks)
-  const { requestLeave, warning } = usePhoneFormGuard(changed)
+  const { warning } = usePhoneFormGuard(changed)
 
   usePhoneAppBar({ title: 'Create opportunity', back: '/deals' })
 
@@ -95,10 +97,6 @@ export default function NewDealPage() {
   }, [accountPrefillId])
 
   if (layout === 'desktop') return null
-
-  function goBack() {
-    requestLeave(() => router.push('/deals'))
-  }
 
   const openStages = stages.filter(s => s.stage_type !== 'Closed')
 
@@ -173,24 +171,19 @@ export default function NewDealPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <button type="button" onClick={goBack} className="self-start text-body text-primary">
-        ← Back
-      </button>
-
       {error ? <p className="text-body text-danger">{error}</p> : null}
 
-      <PhoneForm saving={saving} onSave={save} changed={changed}>
-        <PhoneFormField label="Opportunity name">
+      <PhoneForm saving={saving} onSave={save} changed={changed} saveLabel="Save opportunity">
+        <PhoneFormField label="Opportunity name" required>
           <Input
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="What is being sold"
             style={{ fontSize: 16 }}
-            autoFocus
           />
         </PhoneFormField>
 
-        <PhoneFormField label="Account">
+        <PhoneFormField label="Account" required>
           <PickerSheetField
             label="Account"
             placeholder="Choose the account"
@@ -213,57 +206,55 @@ export default function NewDealPage() {
           />
         </PhoneFormField>
 
-        <PhoneFormMore summary="More details">
-          <PhoneFormField label="Contact">
-            <PickerSheetField
-              label="Contact"
-              placeholder="No contact"
-              value={contact}
-              onChange={setContact}
-              fetchOptions={searchContacts}
-            />
-          </PhoneFormField>
+        <PhoneFormField label="Contact">
+          <PickerSheetField
+            label="Contact"
+            placeholder="No contact"
+            value={contact}
+            onChange={setContact}
+            fetchOptions={searchContacts}
+          />
+        </PhoneFormField>
 
-          <PhoneFormField label="Expected value">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={value}
-              onChange={e => setValue(e.target.value)}
-              placeholder="0"
-              style={{ fontSize: 16 }}
-            />
-          </PhoneFormField>
+        <PhoneFormField label="Expected value">
+          <Input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            placeholder="0"
+            style={{ fontSize: 16 }}
+          />
+        </PhoneFormField>
 
-          <PhoneFormField label="Expected closing date">
-            <Input
-              type="date"
-              value={closeDate}
-              onChange={e => setCloseDate(e.target.value)}
-              style={{ fontSize: 16 }}
-            />
-          </PhoneFormField>
+        <PhoneFormField label="Expected closing date">
+          <Input
+            type="date"
+            value={closeDate}
+            onChange={e => setCloseDate(e.target.value)}
+            style={{ fontSize: 16 }}
+          />
+        </PhoneFormField>
 
-          <PhoneFormField label="Source">
-            <Input
-              value={source}
-              onChange={e => setSource(e.target.value)}
-              placeholder="Where this opportunity came from"
-              style={{ fontSize: 16 }}
-            />
-          </PhoneFormField>
+        <PhoneFormField label="Source">
+          <Input
+            value={source}
+            onChange={e => setSource(e.target.value)}
+            placeholder="Where this opportunity came from"
+            style={{ fontSize: 16 }}
+          />
+        </PhoneFormField>
 
-          <PhoneFormField label="Remarks">
-            <Textarea
-              value={remarks}
-              onChange={e => setRemarks(e.target.value)}
-              placeholder="Optional"
-              style={{ fontSize: 16 }}
-            />
-          </PhoneFormField>
-        </PhoneFormMore>
+        <PhoneFormField label="Remarks">
+          <Textarea
+            value={remarks}
+            onChange={e => setRemarks(e.target.value)}
+            placeholder="Optional"
+            style={{ fontSize: 16 }}
+          />
+        </PhoneFormField>
       </PhoneForm>
       {warning}
     </div>

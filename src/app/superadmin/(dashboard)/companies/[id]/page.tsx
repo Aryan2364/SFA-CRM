@@ -1,8 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter, DialogClose,
+} from '@/components/ui/dialog'
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+} from '@/components/ui/alert-dialog'
+import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import { SectionTabs } from '@/components/ui/section-tabs'
+import { toast } from '@/components/ui/sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -421,14 +432,21 @@ function AnalyticsTab({ companyId }: { companyId: string }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function CompanyDetailPage({ params }: { params: { id: string } }) {
+  return (
+    <Suspense>
+      <CompanyDetailPageInner params={params} />
+    </Suspense>
+  )
+}
+
+function CompanyDetailPageInner({ params }: { params: { id: string } }) {
   const { id } = params
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'settings' | 'analytics'>('settings')
+  const searchParams = useSearchParams()
+  const activeTab: 'settings' | 'analytics' = searchParams.get('view') === 'analytics' ? 'analytics' : 'settings'
   const [company, setCompany] = useState<Company | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
   const [form, setForm] = useState({
     name: '', email: '', phone: '', address: '', gstin: '',
     license_count: '', payment_status: 'Active', payment_due_date: '',
@@ -464,8 +482,8 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.name.trim()) { setError('Company name is required'); return }
-    setError(''); setSuccess(''); setSaving(true)
+    if (!form.name.trim()) { toast.error('Company name is required'); return }
+    setSaving(true)
     const res = await fetch(`/api/superadmin/companies/${id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -477,10 +495,9 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
     })
     const data = await res.json()
     setSaving(false)
-    if (!res.ok) { setError(data.error || 'Save failed'); return }
+    if (!res.ok) { toast.error(data.error || 'Save failed'); return }
     setCompany(prev => prev ? { ...prev, ...data } : null)
-    setSuccess('Changes saved successfully')
-    setTimeout(() => setSuccess(''), 3000)
+    toast.success('Changes saved successfully')
   }
 
   async function toggleActive() {
@@ -515,7 +532,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
     setRevokeTarget(null)
     if (!res.ok) {
       const d = await res.json().catch(() => ({}))
-      setError(d.error || 'Revoke failed')
+      toast.error(d.error || 'Revoke failed')
       return
     }
     await load()
@@ -533,18 +550,22 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
   return (
     <div className="max-w-5xl space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => router.push('/superadmin/companies')} className="text-text-muted hover:text-text-secondary transition-colors">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div>
+      <div>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink onClick={() => router.push('/superadmin/companies')}>Companies</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{company.name}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+        <div className="flex items-center gap-2 mt-2">
           <h1 className="text-xl font-medium text-text-primary">{company.name}</h1>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[company.payment_status]}`}>{company.payment_status}</span>
-            {!company.is_active && <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-surface-control text-text-secondary">Disabled</span>}
-          </div>
+          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[company.payment_status]}`}>{company.payment_status}</span>
+          {!company.is_active && <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-surface-control text-text-secondary">Disabled</span>}
         </div>
       </div>
 
@@ -552,7 +573,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
       {admins.length === 0 && (
         <div className="bg-warning-bg border border-warning-border rounded-lg px-4 py-3 flex items-center justify-between gap-4">
           <div className="text-sm text-warning"><span className="font-medium">No Administrator found.</span> This company has no admin user and cannot log in.</div>
-          <button onClick={() => setShowCreateAdmin(true)} className="shrink-0 bg-amber-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors">Create Admin</button>
+          <Button variant="primary" size="sm" onClick={() => setShowCreateAdmin(true)} className="shrink-0">Create Admin</Button>
         </div>
       )}
       {(!company.is_active || company.payment_status === 'Suspended') && (
@@ -579,24 +600,18 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-border-light">
-        <div className="flex gap-6">
-          {(['settings', 'analytics'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              {tab === 'settings' ? 'Company Settings' : 'Users & Analytics'}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Tabs — section 33: sibling views of this company's own data */}
+      <SectionTabs
+        value={activeTab}
+        tabs={[
+          { value: 'settings', label: 'Company Settings' },
+          { value: 'analytics', label: 'Users & Analytics' },
+        ]}
+      />
 
       {/* Settings tab */}
       {activeTab === 'settings' && (
         <form onSubmit={handleSave} className="bg-surface rounded-xl border border-border-light p-5 space-y-4">
-          {error   && <div className="bg-danger-bg text-danger text-sm px-3 py-2 rounded-lg">{error}</div>}
-          {success && <div className="bg-success-bg text-success text-sm px-3 py-2 rounded-lg">{success}</div>}
-
           <div>
             <label htmlFor="co-name" className="block text-sm font-medium text-text-secondary mb-1">Company Name <span className="text-danger">*</span></label>
             <input id="co-name" name="name" type="text" value={form.name} onChange={F('name')} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
@@ -645,7 +660,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                 <h2 className="font-medium text-text-primary">Administrators</h2>
                 <p className="text-xs text-text-muted mt-0.5">Users with full access to this company</p>
               </div>
-              <button type="button" onClick={() => setShowCreateAdmin(true)} className="text-sm font-medium text-text-primary hover:underline">+ Add Admin</button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setShowCreateAdmin(true)}>+ Add Admin</Button>
             </div>
             {admins.length === 0 ? (
               <p className="text-sm text-text-muted py-2">No administrators yet.</p>
@@ -671,7 +686,9 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${a.status === 'Active' ? 'bg-success-bg text-success' : 'bg-surface-control text-text-secondary'}`}>{a.status}</span>
                         </td>
                         <td className="px-4 py-2.5 text-right">
-                          <button type="button" onClick={() => setRevokeTarget(a)} className="text-xs text-red-600 hover:text-red-800 font-medium">Revoke</button>
+                          <Button type="button" variant="secondary" size="sm" onClick={() => setRevokeTarget(a)} className="border-danger-border text-danger hover:bg-danger-bg">
+                            Revoke
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -682,13 +699,13 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
           </div>
 
           <div className="flex items-center gap-3 pt-1">
-            <button type="submit" disabled={saving} className="bg-gray-900 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
-              {saving ? 'Saving…' : 'Save Changes'}
-            </button>
-            <button type="button" onClick={toggleActive}
-              className={`px-5 py-2 rounded-lg text-sm font-medium border transition-colors ${company.is_active ? 'border-danger-border text-danger hover:bg-danger-bg' : 'border-success-border text-success hover:bg-success-bg'}`}>
+            <Button type="submit" variant="primary" loading={saving}>
+              Save Changes
+            </Button>
+            <Button type="button" variant="secondary" onClick={toggleActive}
+              className={company.is_active ? 'border-danger-border text-danger hover:bg-danger-bg' : 'border-success-border text-success hover:bg-success-bg'}>
               {company.is_active ? 'Disable All Logins' : 'Re-enable Logins'}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -696,13 +713,15 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
       {/* Analytics tab */}
       {activeTab === 'analytics' && <AnalyticsTab companyId={id} />}
 
-      {/* Create Admin modal */}
-      {showCreateAdmin && (
-        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
-          <div className="bg-surface rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-medium text-text-primary mb-1">Create Admin User</h3>
-            <p className="text-xs text-text-muted mb-4">This user will be the Administrator for {company.name}</p>
-            <form onSubmit={handleCreateAdmin} className="space-y-3">
+      {/* Create Admin dialog */}
+      <Dialog open={showCreateAdmin} onOpenChange={(open) => { setShowCreateAdmin(open); if (!open) setCreateAdminError('') }}>
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Create Admin User</DialogTitle>
+            <DialogDescription>This user will be the Administrator for {company.name}</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateAdmin}>
+            <DialogBody className="space-y-3">
               {createAdminError && <div className="bg-danger-bg text-danger text-xs px-3 py-2 rounded-lg">{createAdminError}</div>}
               <div>
                 <label htmlFor="ca-name" className="block text-sm font-medium text-text-secondary mb-1">Name <span className="text-danger">*</span></label>
@@ -720,47 +739,47 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                 <label htmlFor="ca-password" className="block text-sm font-medium text-text-secondary mb-1">Password <span className="text-danger">*</span></label>
                 <input id="ca-password" name="ca_password" type="text" value={createAdminForm.password} onChange={CAF('password')} placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
               </div>
-              <div className="flex gap-3 pt-1">
-                <button type="submit" disabled={createAdminSaving} className="flex-1 bg-gray-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
-                  {createAdminSaving ? 'Creating…' : 'Create Admin'}
-                </button>
-                <button type="button" onClick={() => { setShowCreateAdmin(false); setCreateAdminError('') }} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose render={<Button type="button" variant="secondary" />}>Cancel</DialogClose>
+              <Button type="submit" variant="primary" loading={createAdminSaving} loadingLabel="Creating">Create Admin</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Revoke admin confirmation */}
-      {revokeTarget && (
-        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
-          <div className="bg-surface rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-medium text-text-primary mb-2">Revoke Admin Access?</h3>
-            <p className="text-sm text-text-muted mb-1"><strong>{revokeTarget.name}</strong> will lose Administrator access immediately.</p>
-            <p className="text-sm text-text-muted mb-5">They can still log in but will see a &quot;role not configured&quot; screen until the company admin assigns them a role.</p>
-            <div className="flex gap-3">
-              <button onClick={handleRevokeAdmin} disabled={revokeSaving} className="flex-1 bg-danger text-primary-foreground py-2 rounded-lg text-sm font-medium hover:bg-danger-hover disabled:opacity-50 transition-colors">{revokeSaving ? 'Revoking…' : 'Revoke'}</button>
-              <button onClick={() => setRevokeTarget(null)} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AlertDialog open={!!revokeTarget} onOpenChange={(open) => { if (!open) setRevokeTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke admin access for {revokeTarget?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They will lose Administrator access immediately. They can still log in but will see a &quot;role not configured&quot;
+              screen until the company admin assigns them a role.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRevokeAdmin} loading={revokeSaving} loadingLabel="Revoking">Revoke</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Confirm disable dialog */}
-      {confirmDisable && (
-        <div className="fixed inset-0 bg-(--backdrop) flex items-center justify-center z-50 px-4">
-          <div className="bg-surface rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="font-medium text-text-primary mb-2">Disable All Logins?</h3>
-            <p className="text-sm text-text-muted mb-5">All users of <strong>{company.name}</strong> will be blocked from logging in immediately.</p>
-            <div className="flex gap-3">
-              <button onClick={confirmDisableAction} className="flex-1 bg-danger text-primary-foreground py-2 rounded-lg text-sm font-medium hover:bg-danger-hover transition-colors">Disable</button>
-              <button onClick={() => setConfirmDisable(false)} className="flex-1 border border-border text-text-secondary py-2 rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AlertDialog open={confirmDisable} onOpenChange={setConfirmDisable}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable all logins for {company.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              All users of <strong>{company.name}</strong> will be blocked from logging in immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDisableAction}>Disable</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

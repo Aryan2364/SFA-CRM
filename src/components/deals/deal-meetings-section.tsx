@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { HistoryIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Truncate } from '@/components/ui/truncate'
 import { formatDuration } from '@/components/daily-activity/types'
@@ -24,9 +25,11 @@ import { fmtDate, fmtTime } from '@/lib/format'
  * Deal: a card reading "No meetings yet" would invent an obligation the
  * specification explicitly removes, and would do it on the majority of Deals.
  *
- * So the component returns `null` for all three of "still loading", "the read
- * failed" and "none" — a heading that appears a beat later is worse than one
- * that was never promised, and a Deal is perfectly readable without this.
+ * So the component returns `null` for "still loading" and for "none" — a
+ * heading that appears a beat later is worse than one that was never
+ * promised, and a Deal is perfectly readable without this. A genuine fetch
+ * failure is different (kit section 14 rule 3: a failed load must not be
+ * invisible) and gets a one-line inline message with Retry, below.
  *
  * ---------------------------------------------------------------------------
  * EVERY MEETING LINKED TO THIS DEAL, AND `can_open` SAYS WHO MAY OPEN IT
@@ -56,22 +59,40 @@ type DealMeeting = {
 
 export function DealMeetingsSection({ dealId }: { dealId: string }) {
   const [meetings, setMeetings] = useState<DealMeeting[]>([])
+  const [failed, setFailed] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
     if (!dealId) return
     let live = true
+    setFailed(false)
     fetch(`/api/deals/${dealId}/meetings`, { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : []))
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error('not ok'))))
       .then((rows: DealMeeting[]) => {
         if (live) setMeetings(Array.isArray(rows) ? rows : [])
       })
-      /* A failure here costs the cross-links and nothing else. The Deal is
-         not allowed to fail because its optional section did. */
-      .catch(() => {})
+      .catch(() => {
+        if (live) setFailed(true)
+      })
     return () => {
       live = false
     }
-  }, [dealId])
+  }, [dealId, reloadToken])
+
+  if (failed) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-between gap-3 py-4">
+          <p className="text-body text-text-secondary">
+            Meetings on this opportunity could not be loaded.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => setReloadToken(t => t + 1)}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
 
   if (meetings.length === 0) return null
 

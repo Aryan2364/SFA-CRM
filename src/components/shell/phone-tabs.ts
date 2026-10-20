@@ -29,7 +29,7 @@ function canView(me: Me, section: string): boolean {
 
 export const PHONE_TABS: PhoneTab[] = [
   {
-    label: 'Today',
+    label: 'Activity',
     href: '/today',
     icon: CalendarDays,
     visible: () => true,
@@ -66,6 +66,11 @@ export const PHONE_TABS: PhoneTab[] = [
  * their own, so the two can never disagree about a destination.
  */
 export function visiblePhoneTabs(me: Me | null): PhoneTab[] {
-  if (!me) return []
+  // While `me` is still loading, "not known yet" is not "not allowed"
+  // (§41.4 / global rule 4): show every tab, so a reload never drops
+  // Accounts/Opportunities/Orders for a moment and the server's HTML matches
+  // the first client render. Once the answer lands, a tab the person may not
+  // view is removed; the pages behind them check permission themselves.
+  if (!me) return PHONE_TABS
   return PHONE_TABS.filter(tab => tab.visible(me))
 }

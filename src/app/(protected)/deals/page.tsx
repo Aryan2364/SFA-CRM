@@ -667,9 +667,9 @@ function DealsScreen() {
    * short-circuit. §26's closing note applies: this is appearance only, and
    * the route enforces the permission regardless of what renders here.
    */
-  const canCreate =
-    me?.role === 'Administrator' ||
-    (me?.permissions?.deals?.create ?? me?.permissions?.deals?.edit ?? false)
+  const canCreate: boolean | undefined = me
+    ? me.role === 'Administrator' || Boolean(me.permissions?.deals?.create)
+    : undefined
   /* `useMe` starts at null, so for the first moment the answer is "not known
      yet", which is not the same as "not allowed". Attaching section 26's
      reason to that moment would tell the user they lack a permission nobody
@@ -967,10 +967,10 @@ function DealsScreen() {
           <div className="flex items-center gap-2">
             <DataHealthAlerts alerts={healthAlerts} label="Opportunity data health" />
             <PermissionTooltip
-              allowed={!permissionsKnown || canCreate}
+              allowed={canCreate}
               reason="Only someone who can create opportunities can add one."
             >
-              <Button disabled={!canCreate} onClick={() => setCreateOpen(true)}>
+              <Button disabled={canCreate !== true} onClick={() => setCreateOpen(true)}>
                 <PlusIcon />
                 Create opportunity
               </Button>
@@ -1053,13 +1053,15 @@ function DealsScreen() {
         emptyYet={{
           heading: 'No opportunities yet',
           body: 'Every opportunity being worked — its stage, what it is worth and when it is expected to close — is listed here.',
-          /* Section 13: "nothing yet" offers a primary create. It is left
-             off for a user who may not create — an empty state's button
-             cannot carry section 26's reason, and section 26's first rule is
-             that no control may fail after being clicked. The header button
-             above is where that user reads why. */
-          actionLabel: canCreate ? 'Create opportunity' : undefined,
-          onAction: canCreate ? () => setCreateOpen(true) : undefined,
+          /* Section 26: an individual action a user may not perform should
+             be shown disabled with its reason, not hidden — but
+             `EmptyState` (kit) has no prop for a disabled action + reason
+             (logged in kit-gaps.md: "EmptyState: actionDisabledReason
+             dropped"), so until the kit grows one this still has to hide
+             the action for someone who cannot create, same as before; the
+             header button above is where that user reads why instead. */
+          actionLabel: canCreate === true ? 'Create opportunity' : undefined,
+          onAction: canCreate === true ? () => setCreateOpen(true) : undefined,
         }}
       />
 

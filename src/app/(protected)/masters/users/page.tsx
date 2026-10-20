@@ -3,8 +3,17 @@
 import { useState, useEffect } from 'react'
 import { PencilIcon, PlusIcon, UsersIcon } from 'lucide-react'
 
-import Modal from '@/components/ui/Modal'
-import SearchableSelect from '@/components/ui/SearchableSelect'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from '@/components/ui/dialog'
+import { SearchableSelect } from '@/components/ui/searchable-select'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { useMe } from '@/hooks/useMe'
 import { MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 import { useToast } from '@/contexts/ToastContext'
@@ -27,7 +36,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
-import { masterLocks, type CrudLocks } from '@/components/ui/CrudPage'
+import { masterLocks, type CrudLocks } from '@/lib/master-locks'
 
 type Dept = { id: string; name: string }
 type Desig = { id: string; name: string; department_id: string }
@@ -612,81 +621,115 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* Add / Edit Modal */}
-      <Modal title={editing ? 'Edit User' : 'Add User'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
-        {formError && (
-          <div className="bg-danger-bg border border-danger-border text-danger text-sm rounded-lg px-4 py-3 -mt-2">{formError}</div>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <label htmlFor="user-name" className="block text-sm font-medium text-text-secondary mb-1">Full Name <span className="text-danger">*</span></label>
-            <input id="user-name" name="name" type="text" value={form.name} onChange={e => setF('name')(e.target.value)} placeholder="Full name" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-          </div>
-          <div>
-            <label htmlFor="user-email" className="block text-sm font-medium text-text-secondary mb-1">Email <span className="text-danger">*</span></label>
-            <input id="user-email" name="email" type="email" value={form.email} onChange={e => { setF('email')(e.target.value); setEmailError('') }} placeholder="email@example.com"
-              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring ${emailError ? 'border-danger-border' : 'border-border'}`} />
-            {emailError && <p className="text-xs text-danger mt-1">{emailError}</p>}
-          </div>
-          <div>
-            <label htmlFor="user-contact" className="block text-sm font-medium text-text-secondary mb-1">Contact <span className="text-danger">*</span></label>
-            <input id="user-contact" name="contact" type="tel" value={form.contact}
-              onChange={e => setF('contact')(e.target.value.replace(/\D/g, '').slice(0, 10))}
-              placeholder="10-digit mobile" maxLength={10}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-          </div>
-          <div>
-            <label htmlFor="user-password" className="block text-sm font-medium text-text-secondary mb-1">
-              Password {editing ? <span className="text-text-muted font-normal">(leave blank to keep current)</span> : <span className="text-danger">*</span>}
-            </label>
-            {/* flex-col stretches PermissionTooltip's inline-flex wrapper to the
-                field's full width; w-full then fills it. */}
-            <div className="flex flex-col">
-            <PermissionTooltip allowed={typeof credentialLock !== 'string'} reason={credentialLock ?? ''}>
-            <div className="relative w-full">
-              <input id="user-password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={e => setF('password')(e.target.value)} disabled={credentialLock !== undefined} placeholder={editing ? `New password, at least ${MIN_PASSWORD_LENGTH} characters` : `At least ${MIN_PASSWORD_LENGTH} characters`} className="w-full border border-border rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:opacity-50 disabled:cursor-not-allowed" />
-              <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition" tabIndex={-1}>
-                {showPassword ? (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                )}
-              </button>
+      {/* Add / Edit Dialog */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit User' : 'Add User'}</DialogTitle>
+          </DialogHeader>
+          {formError && (
+            <div className="bg-danger-bg border border-danger-border text-danger text-sm rounded-lg px-4 py-3">{formError}</div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <Label htmlFor="user-name">Full Name <span className="text-danger">*</span></Label>
+              <div className="mt-1">
+                <Input id="user-name" name="name" type="text" value={form.name} onChange={e => setF('name')(e.target.value)} placeholder="Full name" />
+              </div>
             </div>
-            </PermissionTooltip>
+            <div>
+              <Label htmlFor="user-email">Email <span className="text-danger">*</span></Label>
+              <div className="mt-1">
+                <Input id="user-email" name="email" type="email" value={form.email} onChange={e => { setF('email')(e.target.value); setEmailError('') }} placeholder="email@example.com" aria-invalid={!!emailError} />
+              </div>
+              {emailError && <p className="text-xs text-danger mt-1">{emailError}</p>}
             </div>
-          </div>
-          <div>
-            <p className="block text-sm font-medium text-text-secondary mb-1">Department</p>
-            <SearchableSelect value={form.department_id} onChange={v => setForm(f => ({ ...f, department_id: v, designation_id: '' }))} options={depts.map(d => ({ value: d.id, label: d.name }))} placeholder="Select dept…" />
-          </div>
-          <div>
-            <p className="block text-sm font-medium text-text-secondary mb-1">Designation</p>
-            <SearchableSelect value={form.designation_id} onChange={setF('designation_id')} options={allDesigs.map(d => ({ value: d.id, label: d.name }))} placeholder="Select desig…" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1">Role <span className="text-danger">*</span></label>
-            <div className="flex flex-col">
+            <div>
+              <Label htmlFor="user-contact">Contact <span className="text-danger">*</span></Label>
+              <div className="mt-1">
+                <Input id="user-contact" name="contact" type="tel" value={form.contact}
+                  onChange={e => setF('contact')(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="10-digit mobile" maxLength={10} />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="user-password">
+                Password {editing ? <span className="text-text-muted font-normal">(leave blank to keep current)</span> : <span className="text-danger">*</span>}
+              </Label>
+              {/* flex-col stretches PermissionTooltip's inline-flex wrapper to the
+                  field's full width; w-full then fills it. */}
+              <div className="mt-1 flex flex-col">
               <PermissionTooltip allowed={typeof credentialLock !== 'string'} reason={credentialLock ?? ''}>
-                <div className="w-full">
-                  <SearchableSelect
-                    value={form.role_id}
-                    onChange={setF('role_id')}
-                    options={[{ value: 'Administrator', label: 'Administrator' }, ...roles.map(r => ({ value: r.id, label: r.name }))]}
-                    placeholder="Select role…"
-                    disabled={credentialLock !== undefined}
-                  />
-                </div>
+              <div className="relative w-full">
+                <Input id="user-password" name="password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={e => setF('password')(e.target.value)} disabled={credentialLock !== undefined} placeholder={editing ? `New password, at least ${MIN_PASSWORD_LENGTH} characters` : `At least ${MIN_PASSWORD_LENGTH} characters`} className="pr-9" />
+                <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition" tabIndex={-1}>
+                  {showPassword ? (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  )}
+                </button>
+              </div>
               </PermissionTooltip>
+              </div>
             </div>
-            {roles.length === 0 && <p className="text-xs text-warning mt-1">No custom roles yet. Create them in Settings → Access Control → Roles &amp; Permissions.</p>}
+            <div>
+              <Label>Department</Label>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={form.department_id}
+                  onValueChange={v => setForm(f => ({ ...f, department_id: v, designation_id: '' }))}
+                  options={Object.fromEntries(depts.map(d => [d.id, d.name]))}
+                  placeholder="Select dept…"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Designation</Label>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={form.designation_id}
+                  onValueChange={setF('designation_id')}
+                  options={Object.fromEntries(allDesigs.map(d => [d.id, d.name]))}
+                  placeholder="Select desig…"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Role <span className="text-danger">*</span></Label>
+              <div className="mt-1 flex flex-col">
+                <PermissionTooltip allowed={typeof credentialLock !== 'string'} reason={credentialLock ?? ''}>
+                  <div className="w-full">
+                    <SearchableSelect
+                      value={form.role_id}
+                      onValueChange={setF('role_id')}
+                      options={Object.fromEntries([['Administrator', 'Administrator'], ...roles.map(r => [r.id, r.name])])}
+                      placeholder="Select role…"
+                      disabled={credentialLock !== undefined}
+                    />
+                  </div>
+                </PermissionTooltip>
+              </div>
+              {roles.length === 0 && <p className="text-xs text-warning mt-1">No custom roles yet. Create them in Settings → Access Control → Roles &amp; Permissions.</p>}
+            </div>
+            <div className="col-span-2">
+              <Label>Manager</Label>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={form.manager_user_id}
+                  onValueChange={setF('manager_user_id')}
+                  options={Object.fromEntries(managerCandidates.map(u => [u.id, u.name]))}
+                  placeholder="Select manager…"
+                />
+              </div>
+            </div>
           </div>
-          <div className="col-span-2">
-            <p className="block text-sm font-medium text-text-secondary mb-1">Manager</p>
-            <SearchableSelect value={form.manager_user_id} onChange={setF('manager_user_id')} options={managerCandidates.map(u => ({ value: u.id, label: u.name }))} placeholder="Select manager…" />
-          </div>
-        </div>
-      </Modal>
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary" />}>Cancel</DialogClose>
+            <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Deactivation Warning Modal */}
       {deactivateTarget && (
@@ -770,8 +813,8 @@ export default function UsersPage() {
                 <label className="block text-sm font-medium text-text-secondary mb-1">Role</label>
                 <SearchableSelect
                   value={reactivateForm.role_id}
-                  onChange={v => setReactivateForm(f => ({ ...f, role_id: v }))}
-                  options={[{ value: 'Administrator', label: 'Administrator' }, ...roles.map(r => ({ value: r.id, label: r.name }))]}
+                  onValueChange={v => setReactivateForm(f => ({ ...f, role_id: v }))}
+                  options={Object.fromEntries([['Administrator', 'Administrator'], ...roles.map(r => [r.id, r.name])])}
                   placeholder="Select role…"
                 />
               </div>
@@ -779,8 +822,8 @@ export default function UsersPage() {
                 <p className="block text-sm font-medium text-text-secondary mb-1">Reporting Manager</p>
                 <SearchableSelect
                   value={reactivateForm.manager_user_id}
-                  onChange={v => setReactivateForm(f => ({ ...f, manager_user_id: v }))}
-                  options={activeUsers.filter(u => u.id !== reactivateTarget.id).map(u => ({ value: u.id, label: u.name }))}
+                  onValueChange={v => setReactivateForm(f => ({ ...f, manager_user_id: v }))}
+                  options={Object.fromEntries(activeUsers.filter(u => u.id !== reactivateTarget.id).map(u => [u.id, u.name]))}
                   placeholder="Select manager…"
                 />
               </div>

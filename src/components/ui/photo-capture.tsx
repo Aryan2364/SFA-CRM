@@ -236,7 +236,15 @@ export function PhotoCapture({
       />
 
       <Sheet open={viewing !== null} onOpenChange={open => !open && setViewing(null)}>
-        <SheetContent side="bottom" className="h-[100dvh] items-center justify-center bg-black/95 p-0">
+        <SheetContent side="bottom" className="h-[100dvh] items-center justify-center bg-black/95 p-0" showCloseButton={false}>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setViewing(null)}
+            className="absolute top-3 right-3 z-10 flex size-11 items-center justify-center rounded-full bg-black/40 text-white active:bg-black/60"
+          >
+            <XIcon aria-hidden className="size-5" />
+          </button>
           {viewing ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img

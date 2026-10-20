@@ -1,6 +1,6 @@
 'use client'
 
-import { MessageSquareIcon, UsersIcon } from 'lucide-react'
+import { ClockIcon, MessageSquareIcon, UsersIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,7 @@ import { FollowUpItem, NextMeetingItem } from './types'
 export function TodoCard({
   kind,
   heading,
+  time,
   subheading,
   offered,
   canStart,
@@ -29,6 +30,8 @@ export function TodoCard({
 }: {
   kind: 'followup' | 'next-meeting'
   heading: string
+  /** "h:MM AM/PM", or `null` when no time was set. */
+  time?: string | null
   subheading: string[]
   /** The row is the viewer's own and the day is not in the future. `null`
    *  while /me is still loading: drawn disabled, no reason yet — "not
@@ -46,6 +49,12 @@ export function TodoCard({
       <div className="flex flex-1 flex-col gap-2 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="neutral">Next meeting</Badge>
+          {time && (
+            <span className="inline-flex items-center gap-1 text-label text-text-secondary">
+              <ClockIcon className="size-3.5 text-text-muted" />
+              {time}
+            </span>
+          )}
         </div>
 
         <h3 className="text-card-heading font-medium text-text-primary">{heading}</h3>

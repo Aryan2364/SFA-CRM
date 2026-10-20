@@ -58,7 +58,6 @@ import {
   ZapIcon,
 } from 'lucide-react'
 
-import Modal from '@/components/ui/Modal'
 import { QuickCreateDialog } from './quick-create-dialog'
 import { ContactDialog, type CreatedContact } from './contact-dialog'
 import { IndividualConflictDialog, type IndividualConflict } from './individual-conflict-dialog'
@@ -104,6 +103,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { SectionTabs, type SectionTab } from '@/components/ui/section-tabs'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -284,7 +284,7 @@ function companyColumns({
           {/* Kind badge: every row carries one, Company and Individual alike,
               so siblings stay visually identical (section 1) — this is not
               an exception marker like "Shared" below. */}
-          <Badge variant={row.account_kind === 'Individual' ? 'neutral' : 'primary'}>
+          <Badge variant={row.account_kind === 'Individual' ? 'neutral' : 'neutral'}>
             {row.account_kind}
           </Badge>
           {row.shared_access && (
@@ -895,35 +895,47 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
       />
       </div>
 
-      <Modal title="Edit account" isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving} size="lg">
-        <BusinessPartnerFormFields
-          hook={bp}
-          namePlaceholder="Account name"
-          showLeadStatus
-          topSlot={
-            <div>
-              <label htmlFor="company-type" className="block text-sm font-medium text-text-secondary mb-1">Account type</label>
-              <select id="company-type" name="type" value={bp.form.type} onChange={bp.F('type')}
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring bg-surface">
-                <option value="">Select type…</option>
-                {/* docs/accounts-contacts-spec.md §1: a type only offers itself
-                    for the kind(s) it `applies_to` — 'Both' always qualifies.
-                    Active types, plus the company's own if it has since been
-                    deactivated or no longer applies to this kind, so an edit
-                    neither blanks it nor offers it anew. */}
-                {companyTypes
-                  .filter(t => t.name === bp.form.type || (
-                    (t.is_active !== false) &&
-                    (t.applies_to === 'Both' || t.applies_to === ((editing?.account_kind as string | undefined) ?? 'Company'))
-                  ))
-                  .map(t => (
-                    <option key={t.id} value={t.name}>{t.name}{t.is_active === false ? ' (inactive)' : ''}</option>
-                  ))}
-              </select>
-            </div>
-          }
-        />
-      </Modal>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Edit account</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto px-6 py-2">
+            <BusinessPartnerFormFields
+              hook={bp}
+              namePlaceholder="Account name"
+              showLeadStatus
+              topSlot={
+                <div>
+                  <label htmlFor="company-type" className="block text-sm font-medium text-text-secondary mb-1">Account type</label>
+                  {/* §16.3/§1 r5: a native <select> paints the OS menu and
+                      cannot carry the selected-vs-hovered rule; this list can
+                      also run past six options in a real tenant. */}
+                  <SearchableSelect
+                    value={bp.form.type}
+                    onValueChange={bp.setF('type')}
+                    placeholder="Select type…"
+                    options={Object.fromEntries(
+                      companyTypes
+                        .filter(t => t.name === bp.form.type || (
+                          (t.is_active !== false) &&
+                          (t.applies_to === 'Both' || t.applies_to === ((editing?.account_kind as string | undefined) ?? 'Company'))
+                        ))
+                        .map(t => [t.name, `${t.name}${t.is_active === false ? ' (inactive)' : ''}`])
+                    )}
+                  />
+                </div>
+              }
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary" />}>Cancel</DialogClose>
+            <Button onClick={handleSave} disabled={saving} loading={saving}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Section 15: an irreversible action opens a confirmation dialog. This
           is what a native `confirm()` is not allowed to be. */}

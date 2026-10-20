@@ -117,7 +117,7 @@ export function CategoryBarChart<T>({
   if (series.length > MAX_SERIES) {
     throw new Error(
       `[design-system] A chart was given ${series.length} series. ` +
-        `AGENTS.md section 21: maximum six series in one chart — group ` +
+        `FRONTEND_RULES.md section 21: maximum six series in one chart — group ` +
         `the smallest into "Other".`,
     )
   }

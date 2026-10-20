@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { MoreVerticalIcon, RotateCcwIcon } from 'lucide-react'
+import { MoreVerticalIcon, PlusIcon, RotateCcwIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useLayout } from '@/lib/layout'
@@ -36,6 +36,7 @@ type OrderDetail = {
   order_source: 'meeting' | 'direct'
   entity_type: string | null
   entity_name: string | null
+  entity_id: string | null
   visit_id: string | null
   status: OrderStatus
   total_amount: number
@@ -82,7 +83,7 @@ function PhoneOrderDetail({ id }: { id: string }) {
           render={
             <button
               aria-label="More"
-              className="flex size-9 items-center justify-center rounded-lg text-text-secondary active:bg-surface-control"
+              className="flex size-11 items-center justify-center rounded-lg text-text-secondary active:bg-surface-control"
             />
           }
         >
@@ -93,6 +94,12 @@ function PhoneOrderDetail({ id }: { id: string }) {
             <RotateCcwIcon className="size-4" />
             Reorder
           </DropdownMenuItem>
+          {order?.entity_id ? (
+            <DropdownMenuItem onClick={() => router.push(`/orders/new?account=${order.entity_id}`)}>
+              <PlusIcon className="size-4" />
+              Place another order
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     ),
@@ -111,7 +118,7 @@ function PhoneOrderDetail({ id }: { id: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-5 px-4 py-4">
+    <div className="flex flex-col gap-5">
       <RecordSummary
         name={order.entity_name ?? (order.visit_id ? 'Meeting order' : 'Direct order')}
         badges={

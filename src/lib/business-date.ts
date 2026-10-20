@@ -141,6 +141,12 @@ export function recentBusinessDays(dateOnly: string, n: number): string[] {
   return out
 }
 
+/** The current wall-clock time in the business timezone, as `"HH:MM"` (24h). */
+export function businessNowTime(at: Date = new Date()): string {
+  const { hour, minute } = wallClock(at)
+  return `${pad(hour)}:${pad(minute)}`
+}
+
 /** How many working days before `today` does `dateOnly` fall — 1-based, so a
  *  date due yesterday (the last working day) is `1`. Used to cut Missed off
  *  at 7 business days old. */

@@ -44,6 +44,7 @@ import {
   BuildingIcon,
   CakeIcon,
   EllipsisIcon,
+  EllipsisVerticalIcon,
   HeartIcon,
   PhoneIcon,
   StarIcon,
@@ -82,11 +83,16 @@ import { InlineFieldError } from '@/components/ui/inline-field-error'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { LEAD_STAGE, StatusBadge, USER_STATUS } from '@/components/status-badge'
-import { useMe } from '@/hooks/useMe'
+import { useMe, type Me } from '@/hooks/useMe'
 import { useToast } from '@/contexts/ToastContext'
 import { EMPTY, fmtDate } from '@/lib/format'
 import { recordRecentItem } from '@/lib/recent-items'
 import { cn } from '@/lib/utils'
+import { useLayout } from '@/lib/layout'
+import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
+import { RecordSummary, type KeyFact } from '@/components/ui/record-summary'
+import { ActionBar } from '@/components/ui/action-bar'
+import { PhoneContactActionsSheet } from '@/components/ui/contact-actions'
 
 import { IndividualConflictDialog, type IndividualConflict } from '../../individual-conflict-dialog'
 
@@ -231,6 +237,185 @@ function PrimaryMarker() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// PHONE — Contact detail
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Reuses `ContactDetail`'s own `contact`/`load` state and the same
+ * `GET /api/contacts/[id]` call — no second fetch path to drift from the
+ * desktop one. Mirrors the account detail phone screen's shape: title in
+ * the app bar only, a RecordSummary with ≤4 key facts, phone/WhatsApp/email
+ * as plain tappable rows through the contact-actions sheet, a Log meeting
+ * primary action, and an Edit item on the ⋮ menu.
+ */
+function PhoneContactDetail({
+  id,
+  contact,
+  error,
+  loading,
+  load,
+  me,
+  router,
+}: {
+  id: string
+  contact: Contact | null
+  error: LoadError | null
+  loading: boolean
+  load: () => Promise<void>
+  me: Me | null
+  router: ReturnType<typeof useRouter>
+}) {
+  const canLogMeeting = me ? Boolean(me.permissions?.meetings?.create) : undefined
+  const primaryAccount = contact?.companies.find(c => c.is_primary) ?? contact?.companies[0] ?? null
+
+  usePhoneAppBar({
+    title: contact?.name ?? 'Contact',
+    back: '/parties/contacts',
+    menu:
+      contact && me ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label="More actions"
+                className="flex size-10 items-center justify-center rounded-full active:bg-surface-control"
+              />
+            }
+          >
+            <EllipsisVerticalIcon aria-hidden className="size-5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              disabled={!(me.permissions?.contacts?.edit ?? false)}
+              onClick={() => router.push(`/parties/contacts/${id}/edit`)}
+            >
+              Edit
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : undefined,
+  })
+
+  const [phoneSheetOpen, setPhoneSheetOpen] = useState(false)
+  const [whatsappSheetOpen, setWhatsappSheetOpen] = useState(false)
+
+  if (loading) {
+    return <ContactSkeleton />
+  }
+
+  if (error || !contact) {
+    const heading =
+      error === 'not-found'
+        ? 'This contact is not here'
+        : error === 'forbidden'
+          ? 'You cannot open contacts'
+          : 'The contact could not be loaded'
+    return (
+      <EmptyState
+        variant="failed"
+        heading={heading}
+        actionLabel={error === 'failed' ? undefined : 'Go to Contacts'}
+        onAction={error === 'failed' ? undefined : () => router.push('/parties/contacts')}
+      >
+        {error === 'failed' ? (
+          <button type="button" className="text-body text-primary" onClick={() => void load()}>
+            Try again
+          </button>
+        ) : (
+          'An administrator can change access under Settings, Access Control.'
+        )}
+      </EmptyState>
+    )
+  }
+
+  const facts: KeyFact[] = [
+    { label: 'Designation', value: contact.designation },
+    { label: 'Owner', value: contact.owner?.name ?? null },
+    { label: 'Contact type', value: contact.contact_types?.name ?? null },
+    { label: 'Birthday', value: contact.birthday ? fmtDate(contact.birthday) : null },
+  ]
+
+  return (
+    <div className="flex flex-col gap-5 pb-24">
+      <RecordSummary
+        name={contact.name}
+        badges={<StatusBadge vocabulary={USER_STATUS} status={contact.is_active ? 'Active' : 'Inactive'} />}
+        facts={facts}
+      />
+
+      {primaryAccount ? (
+        primaryAccount.can_open === false ? (
+          <div className="flex min-h-11 items-center gap-2 rounded-lg border border-border-light bg-surface px-3 text-body text-text-primary">
+            <BuildingIcon aria-hidden className="size-4 shrink-0 text-text-secondary" />
+            {primaryAccount.name}
+          </div>
+        ) : (
+          <Link
+            href={`/parties/companies/${primaryAccount.id}`}
+            className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-border-light bg-surface px-3 text-body font-medium text-text-primary active:bg-surface-control"
+          >
+            <span className="flex items-center gap-2">
+              <BuildingIcon aria-hidden className="size-4 shrink-0 text-text-secondary" />
+              {primaryAccount.name}
+            </span>
+            <span aria-hidden className="text-text-secondary">›</span>
+          </Link>
+        )
+      ) : null}
+
+      <div className="flex flex-col gap-2">
+        {contact.mobile ? (
+          <button
+            type="button"
+            onClick={() => setPhoneSheetOpen(true)}
+            className="flex min-h-11 items-center gap-2 rounded-lg border border-border-light bg-surface px-3 text-body font-medium text-primary active:bg-surface-control"
+          >
+            <PhoneIcon aria-hidden className="size-4" />
+            {contact.mobile}
+          </button>
+        ) : null}
+        {contact.whatsapp ? (
+          <button
+            type="button"
+            onClick={() => setWhatsappSheetOpen(true)}
+            className="flex min-h-11 items-center gap-2 rounded-lg border border-border-light bg-surface px-3 text-body font-medium text-primary active:bg-surface-control"
+          >
+            <PhoneIcon aria-hidden className="size-4" />
+            {contact.whatsapp} (WhatsApp)
+          </button>
+        ) : null}
+        {contact.email ? (
+          <a
+            href={`mailto:${contact.email}`}
+            className="flex min-h-11 items-center gap-2 rounded-lg border border-border-light bg-surface px-3 text-body font-medium text-primary active:bg-surface-control"
+          >
+            {contact.email}
+          </a>
+        ) : null}
+      </div>
+
+      {/* No Meetings row here: `GET /api/daily-activity` has no per-contact
+          filter (only `companyId`, added for the account screen) — adding
+          one is a separate change; see the report. */}
+
+      <ActionBar>
+        <Button
+          className="w-full"
+          disabled={canLogMeeting === false}
+          onClick={() => router.push(`/daily-activity/new?account=${primaryAccount?.id ?? ''}`)}
+        >
+          Log meeting
+        </Button>
+      </ActionBar>
+
+      <PhoneContactActionsSheet open={phoneSheetOpen} onOpenChange={setPhoneSheetOpen} phone={contact.mobile ?? undefined} />
+      <PhoneContactActionsSheet open={whatsappSheetOpen} onOpenChange={setWhatsappSheetOpen} phone={contact.whatsapp ?? undefined} />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // The page
 // ─────────────────────────────────────────────────────────────
 
@@ -238,6 +423,7 @@ function ContactDetail() {
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { layout } = useLayout()
 
   const id = params?.id ?? ''
 
@@ -420,6 +606,20 @@ function ContactDetail() {
     } finally {
       setDeleting(false)
     }
+  }
+
+  if (layout === 'phone') {
+    return (
+      <PhoneContactDetail
+        id={id}
+        contact={contact}
+        error={error}
+        loading={loading}
+        load={load}
+        me={me}
+        router={router}
+      />
+    )
   }
 
   return (

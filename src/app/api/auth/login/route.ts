@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { signSession, sessionMaxAgeSeconds, COOKIE_NAME } from '@/lib/session'
+import { signSession, sessionMaxAgeSecondsFor, COOKIE_NAME } from '@/lib/session'
+import { getRequestLayout } from '@/lib/layout.server'
 import { prisma } from '@/lib/db'
 import { asId } from '@/lib/tenant-fk'
 import bcrypt from 'bcryptjs'
@@ -212,6 +213,8 @@ export async function POST(req: NextRequest) {
   const effectiveRole =
     user.profile === 'Administrator' ? 'Administrator' : (roleName ?? 'NoRole')
 
+  // One number for both the token's `exp` and the cookie's maxAge; phones get the longer lifetime.
+  const maxAge = sessionMaxAgeSecondsFor(getRequestLayout(req))
   const token = await signSession({
     phone: user.contact,
     userId: user.id,
@@ -219,17 +222,17 @@ export async function POST(req: NextRequest) {
     role: effectiveRole,
     tenantId: user.tenant_id ?? process.env.DEFAULT_TENANT_ID ?? '',
     cv: user.credentials_version ?? 1,
-  })
+  }, maxAge)
   // NOTE: the previous fire-and-forget insert into `user_login_logs` was
   // removed here. That table does not exist in the database, so the write had
   // been failing silently (the old client returned the error as an ignored value).
   // See PLAN.md §13.1 — the capability is gone, not migrated.
   const res = NextResponse.json({ ok: true })
-  // maxAge comes from the same function signSession() used for `exp`, so the
+  // maxAge is the same number signSession() used for `exp`, so the
   // cookie and the token it carries die at the same moment. A cookie that
   // outlived its token would leave the browser sending a dead session and
   // middleware — which only checks that a cookie exists — waving it through.
-  res.cookies.set(COOKIE_NAME, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: sessionMaxAgeSeconds() })
+  res.cookies.set(COOKIE_NAME, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge })
   return res
 }
 

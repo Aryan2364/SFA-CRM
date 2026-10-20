@@ -5,6 +5,7 @@ import { FilterIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { Count } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DatePicker, formatDate } from '@/components/ui/date-picker'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -626,7 +627,6 @@ export function ListPage<Row>({
         heading={emptyYet.heading}
         actionLabel={emptyYet.actionLabel}
         onAction={emptyYet.onAction}
-        actionDisabledReason={emptyYet.actionDisabledReason}
       >
         {emptyYet.body}
       </EmptyState>
@@ -865,9 +865,7 @@ export function ListPage<Row>({
                 <FilterIcon />
                 Filter
                 {/* Section 27.3: a count badge when filters are active. */}
-                {activeCount > 0 && (
-                  <Badge variant="primary">{activeCount}</Badge>
-                )}
+                {activeCount > 0 && <Count value={activeCount} />}
               </PopoverTrigger>
               <PopoverContent>
                 <PopoverTitle className="text-card-heading font-medium text-text-primary">

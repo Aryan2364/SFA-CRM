@@ -210,7 +210,7 @@ export function NotesSection({
           <CardTitle className="flex items-center gap-2 whitespace-nowrap">
             Minutes of the meeting
             {linked ? (
-              <Badge variant="primary" className="gap-1">
+              <Badge variant="neutral" className="gap-1">
                 <LinkIcon className="size-3" />
                 {target.kind === 'deal' ? 'Opportunity' : 'Order'}
               </Badge>

@@ -27,6 +27,35 @@ import { useLayout } from '@/lib/layout'
 const PHONE_LIST_PAGE = 25
 const SEARCH_DELAY_MS = 300
 
+/**
+ * Kit-compatible type, added for `approval-select.tsx` (Wave 8B): the same
+ * shape its `noun` prop always was here (`{ one, many }`), just named and
+ * exported so approval-select.tsx's `type Noun` import resolves. No
+ * behaviour change — PhoneListProps.noun below still takes the inline
+ * shape, which is structurally identical.
+ */
+export type Noun = {
+  /** "client" */
+  one: string
+  /** "clients" */
+  many: string
+}
+
+/**
+ * Kit-compatible type, added for `approval-select.tsx` (Wave 8B):
+ * `useApprovalSelection`'s return shape for what PhoneList would need to
+ * draw select mode's tick boxes. Not consumed by this file's `PhoneList`
+ * yet — this reduced port has no select mode (see the file-level note
+ * above) — so this type has no runtime effect; it exists only so
+ * approval-select.tsx compiles. Wiring it into PhoneList's rendering is
+ * the product decision logged in kit-gaps.md.
+ */
+export type PhoneListSelection = {
+  isSelected: (key: string) => boolean
+  toggle: (key: string) => void
+  reasonFor: (key: string) => string | null
+}
+
 export type PhoneListState = 'loading' | 'failed' | 'ready'
 
 export type PhoneListSearch = {
@@ -97,6 +126,11 @@ export type PhoneListProps<Row> = {
    * lists on the same route need a distinct key.
    */
   listKey?: string
+  /**
+   * A secondary button at the right end of the count line, e.g. the day
+   * picker on Activity (§41.5: count line with secondary buttons on the right).
+   */
+  countLineAction?: React.ReactNode
 }
 
 export function PhoneList<Row>(props: PhoneListProps<Row>) {
@@ -122,6 +156,7 @@ function PhoneListOnPhone<Row>({
   activeFilters,
   onRefresh,
   listKey,
+  countLineAction,
 }: PhoneListProps<Row>) {
   const [loadingMore, setLoadingMore] = React.useState(false)
   const endRef = React.useRef<HTMLDivElement | null>(null)
@@ -134,13 +169,17 @@ function PhoneListOnPhone<Row>({
   usePullToRefresh(rootRef, onRefresh, refreshing, setRefreshing, state === 'ready')
 
   // §41.5 rule 17 / §27.3: restore scroll on return, save it on the way out.
+  // The page itself never scrolls here — PhoneShell's <main> does
+  // (overflow-y-auto) — so this reads/writes that ancestor's scrollTop,
+  // not window.scrollY, which would always read 0.
   React.useEffect(() => {
     if (state !== 'ready') return
+    const scroller = rootRef.current?.closest('main')
     try {
       const raw = window.sessionStorage.getItem(scrollKey)
-      if (raw) {
+      if (raw && scroller) {
         const y = Number(raw)
-        if (Number.isFinite(y)) window.scrollTo(0, y)
+        if (Number.isFinite(y)) scroller.scrollTop = y
       }
     } catch {}
     // Restore once per ready paint, not on every row change.
@@ -148,16 +187,18 @@ function PhoneListOnPhone<Row>({
   }, [state === 'ready'])
 
   React.useEffect(() => {
+    const scroller = rootRef.current?.closest('main')
+    if (!scroller) return
     function save() {
       try {
-        window.sessionStorage.setItem(scrollKey, String(window.scrollY))
+        window.sessionStorage.setItem(scrollKey, String(scroller!.scrollTop))
       } catch {}
     }
-    window.addEventListener('scroll', save, { passive: true })
+    scroller.addEventListener('scroll', save, { passive: true })
     window.addEventListener('pagehide', save)
     return () => {
       save()
-      window.removeEventListener('scroll', save)
+      scroller.removeEventListener('scroll', save)
       window.removeEventListener('pagehide', save)
     }
   }, [scrollKey])
@@ -217,7 +258,12 @@ function PhoneListOnPhone<Row>({
   } else {
     body = (
       <>
-        <ul className="flex flex-col divide-y divide-border-light rounded-xl border border-border-light bg-surface">
+        {/* §41.5 rule 8: rows run edge to edge, bleeding past the content's
+            16px side padding via negative margins, rather than sitting
+            inside a bordered/rounded card. Each row keeps its own 16px
+            internal padding (PhoneListRow's px-4), so the text still lines
+            up with everything else on the page. */}
+        <ul className="-mx-4 flex flex-col divide-y divide-border-light border-y border-border-light bg-surface">
           {rows.map(row => (
             <li key={rowKey(row)}>{renderRow(row)}</li>
           ))}
@@ -246,8 +292,11 @@ function PhoneListOnPhone<Row>({
       ) : null}
       <ListSearchField noun={noun} search={search} />
       {filters ? <FilterChips filters={filters} /> : null}
-      <div role="status" className="text-label text-text-secondary">
-        {state === 'loading' ? 'Loading' : `${total} ${total === 1 ? noun.one : noun.many}`}
+      <div className="flex items-center justify-between gap-2">
+        <div role="status" className="min-w-0 text-label text-text-secondary">
+          {state === 'loading' ? 'Loading' : `${total} ${total === 1 ? noun.one : noun.many}`}
+        </div>
+        {countLineAction ? <div className="flex shrink-0 items-center gap-2">{countLineAction}</div> : null}
       </div>
       {activeFilters && activeFilters.length > 0 ? <ActiveFilterChips filters={activeFilters} /> : null}
       {body}
@@ -264,7 +313,7 @@ function AddButton({ add }: { add: NonNullable<PhoneListProps<unknown>['add']> }
     <div
       className={cn(
         'fixed bottom-[calc(var(--h-tab-bar)+var(--safe-bottom)+16px)] right-[calc(var(--safe-right)+16px)]',
-        'z-[--z-shell]'
+        'z-(--z-shell)'
       )}
     >
       {add.allowed === true ? (
@@ -454,11 +503,12 @@ function usePullToRefresh(
     const refresh = onRefresh
     if (!root || !refresh || !enabled) return
 
+    const scroller = root.closest('main')
     let startY = 0
     let active = false
 
     function atTop() {
-      return window.scrollY <= 0
+      return (scroller?.scrollTop ?? 0) <= 0
     }
 
     function onTouchStart(e: TouchEvent) {
@@ -502,7 +552,7 @@ function usePullToRefresh(
 
 function PhoneSkeletonRows({ count, className }: { count: number; className?: string }) {
   return (
-    <ul className={cn('flex flex-col divide-y divide-border-light rounded-xl border border-border-light bg-surface', className)}>
+    <ul className={cn('-mx-4 flex flex-col divide-y divide-border-light border-y border-border-light bg-surface', className)}>
       {Array.from({ length: count }, (_, i) => (
         <li key={i} aria-hidden className="flex flex-col gap-2 px-4 py-3">
           <div className="h-4 w-2/3 animate-pulse rounded bg-surface-sunken" />

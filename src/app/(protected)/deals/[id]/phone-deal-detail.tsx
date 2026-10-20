@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { EllipsisVerticalIcon, ThumbsDownIcon, TrophyIcon } from 'lucide-react'
+import { ChevronRightIcon, EllipsisVerticalIcon, PencilIcon, PlusIcon, ThumbsDownIcon, TrophyIcon } from 'lucide-react'
 
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { ActionBar } from '@/components/ui/action-bar'
@@ -25,6 +25,8 @@ import { RecordSummary } from '@/components/ui/record-summary'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { BottomSheet, BottomSheetOption } from '@/components/ui/bottom-sheet'
 import {
   DropdownMenu,
@@ -35,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useMe } from '@/hooks/useMe'
+import { useToast } from '@/contexts/ToastContext'
 import { EMPTY, fmtAmount, fmtDate } from '@/lib/format'
 import {
   DealCloseDialog,
@@ -57,7 +60,23 @@ type Deal = {
   access?: 'owner-scope' | 'work' | 'view'
 }
 
-type RelatedCounts = { meetings: number; followUps: number; members: number }
+type Meeting = {
+  id: string
+  visit_date: string
+  entity_name: string | null
+  visit_type: string | null
+  users: { name: string } | null
+}
+
+type FollowUp = {
+  id: string
+  due_date: string
+  mode: string
+  status: string
+  notes: string | null
+}
+
+type RelatedCounts = { meetings: number; followUps: number }
 
 const REQUEST_TIMEOUT_MS = 15000
 
@@ -76,6 +95,7 @@ const VIEW_ONLY_REASON = 'This opportunity is shared with you to view only.'
 export function PhoneDealDetailPage({ id }: { id: string }) {
   const router = useRouter()
   const me = useMe()
+  const { toast } = useToast()
   const [deal, setDeal] = useState<Deal | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
@@ -83,7 +103,16 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
   const [closing, setClosing] = useState<DealOutcome | null>(null)
   const [stageSheetOpen, setStageSheetOpen] = useState(false)
   const [logging, setLogging] = useState(false)
-  const [related, setRelated] = useState<RelatedCounts>({ meetings: 0, followUps: 0, members: 0 })
+  const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [followUps, setFollowUps] = useState<FollowUp[]>([])
+  const [meetingsSheetOpen, setMeetingsSheetOpen] = useState(false)
+  const [followUpsSheetOpen, setFollowUpsSheetOpen] = useState(false)
+  const [addingFollowUp, setAddingFollowUp] = useState(false)
+  const [followUpDate, setFollowUpDate] = useState('')
+  const [followUpNote, setFollowUpNote] = useState('')
+  const [savingFollowUp, setSavingFollowUp] = useState(false)
+
+  const related: RelatedCounts = { meetings: meetings.length, followUps: followUps.length }
 
   async function load() {
     setLoading(true)
@@ -98,23 +127,45 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
       setDeal(row)
       if (stagesRes.ok) setStages((await stagesRes.json()) as StageOption[])
 
-      const [meetingsRes, followUpsRes, membersRes] = await Promise.all([
+      const [meetingsRes, followUpsRes] = await Promise.all([
         fetchWithDeadline(`/api/deals/${id}/meetings`).catch(() => null),
         fetchWithDeadline(`/api/deals/${id}/follow-ups`).catch(() => null),
-        fetchWithDeadline(`/api/deals/${id}/members`).catch(() => null),
       ])
-      const meetings = meetingsRes && meetingsRes.ok ? ((await meetingsRes.json()) as unknown[]) : []
-      const followUps = followUpsRes && followUpsRes.ok ? ((await followUpsRes.json()) as unknown[]) : []
-      const members = membersRes && membersRes.ok ? ((await membersRes.json()) as unknown[]) : []
-      setRelated({
-        meetings: Array.isArray(meetings) ? meetings.length : 0,
-        followUps: Array.isArray(followUps) ? followUps.length : 0,
-        members: Array.isArray(members) ? members.length : 0,
-      })
+      const meetingRows = meetingsRes && meetingsRes.ok ? ((await meetingsRes.json()) as Meeting[]) : []
+      const followUpRows = followUpsRes && followUpsRes.ok ? ((await followUpsRes.json()) as FollowUp[]) : []
+      setMeetings(Array.isArray(meetingRows) ? meetingRows : [])
+      setFollowUps(Array.isArray(followUpRows) ? followUpRows : [])
     } catch {
       setFailed(true)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function addFollowUp() {
+    if (!followUpDate || savingFollowUp) return
+    setSavingFollowUp(true)
+    try {
+      const res = await fetchWithDeadline(`/api/deals/${id}/follow-ups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ due_date: followUpDate, mode: 'call', notes: followUpNote.trim() || undefined }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        toast(body.error ?? 'Could not add the follow-up.', 'error')
+        return
+      }
+      const created = (await res.json()) as FollowUp
+      setFollowUps(rows => [...rows, created].sort((a, b) => a.due_date.localeCompare(b.due_date)))
+      setFollowUpDate('')
+      setFollowUpNote('')
+      setAddingFollowUp(false)
+      toast('Follow-up added.', 'success')
+    } catch {
+      toast('The connection dropped. Nothing has been saved.', 'error')
+    } finally {
+      setSavingFollowUp(false)
     }
   }
 
@@ -165,6 +216,13 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
               <DropdownMenuLabel className="whitespace-normal">{why}</DropdownMenuLabel>
             </DropdownMenuGroup>
           ) : null}
+          <DropdownMenuItem
+            className="h-11"
+            disabled={canEdit !== true}
+            onClick={() => router.push(`/deals/${id}/edit`)}
+          >
+            <PencilIcon /> Edit
+          </DropdownMenuItem>
           <DropdownMenuItem className="h-11" disabled={closeDisabled} onClick={() => setClosing('won')}>
             <TrophyIcon /> Mark won
           </DropdownMenuItem>
@@ -174,7 +232,7 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
         </DropdownMenuContent>
       </DropdownMenu>
     )
-  }, [dealLoaded, canEdit, closed, outcome, editReason])
+  }, [dealLoaded, canEdit, closed, outcome, editReason, router, id])
 
   usePhoneAppBar({ title: deal?.name ?? 'Opportunity', back: '/deals', menu })
 
@@ -218,20 +276,18 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
           </>
         }
         facts={[
-          { label: 'Value', value: fmtAmount(deal.expected_value) },
+          { label: 'Value', value: deal.expected_value ? fmtAmount(deal.expected_value) : null },
           { label: 'Account', value: deal.company?.name ?? deal.contact?.name ?? EMPTY },
           {
             label: 'Expected close',
             value: deal.expected_close_date ? fmtDate(deal.expected_close_date) : null,
           },
-          { label: 'Stage', value: deal.stage?.name ?? null },
         ]}
       />
 
       <div className="flex flex-col gap-2">
-        <RelatedRow label="Meetings" count={related.meetings} />
-        <RelatedRow label="Follow-ups" count={related.followUps} />
-        <RelatedRow label="Shared with" count={related.members} />
+        <RelatedRow label="Meetings" count={related.meetings} onClick={() => setMeetingsSheetOpen(true)} />
+        <RelatedRow label="Follow-ups" count={related.followUps} onClick={() => setFollowUpsSheetOpen(true)} />
       </div>
 
       <ActionBar>
@@ -299,22 +355,110 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
           onClosed={row => setDeal(d => (d ? { ...d, ...(row as Partial<Deal>) } : d))}
         />
       ) : null}
+
+      <BottomSheet open={meetingsSheetOpen} onOpenChange={setMeetingsSheetOpen} title="Meetings">
+        {meetings.length === 0 ? (
+          <p className="px-3 py-3 text-body text-text-secondary">No meetings have been logged on this opportunity yet.</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {meetings.map(m => (
+              <BottomSheetOption
+                key={m.id}
+                onSelect={() => {
+                  setMeetingsSheetOpen(false)
+                  router.push(`/daily-activity/meeting/${m.id}`)
+                }}
+              >
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-body text-text-primary">{fmtDate(m.visit_date)}</span>
+                  <span className="truncate text-label text-text-secondary">
+                    {m.entity_name ?? m.visit_type ?? ''}{m.users?.name ? ` · ${m.users.name}` : ''}
+                  </span>
+                </span>
+              </BottomSheetOption>
+            ))}
+          </div>
+        )}
+      </BottomSheet>
+
+      <BottomSheet open={followUpsSheetOpen} onOpenChange={setFollowUpsSheetOpen} title="Follow-ups">
+        <div className="flex flex-col gap-3 px-1">
+          {followUps.length === 0 ? (
+            <p className="px-2 py-1 text-body text-text-secondary">No follow-ups yet.</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {followUps.map(f => (
+                <div
+                  key={f.id}
+                  className="flex min-h-11 flex-col gap-0.5 rounded-lg border border-border-light px-3 py-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-body text-text-primary">{fmtDate(f.due_date)}</span>
+                    <Badge variant={f.status === 'done' ? 'success' : 'neutral'}>
+                      {f.status === 'done' ? 'Done' : 'Open'}
+                    </Badge>
+                  </div>
+                  {f.notes ? <span className="text-label text-text-secondary">{f.notes}</span> : null}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {addingFollowUp ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-border-light p-3">
+              <Input
+                type="date"
+                value={followUpDate}
+                onChange={e => setFollowUpDate(e.target.value)}
+                style={{ fontSize: 16 }}
+              />
+              <Textarea
+                value={followUpNote}
+                onChange={e => setFollowUpNote(e.target.value)}
+                placeholder="Note (optional)"
+                style={{ fontSize: 16 }}
+              />
+              <div className="flex gap-2">
+                <Button variant="secondary" className="flex-1" onClick={() => setAddingFollowUp(false)}>
+                  Cancel
+                </Button>
+                <Button className="flex-1" disabled={!followUpDate || savingFollowUp} onClick={addFollowUp}>
+                  Add
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <PermissionTooltip allowed={canEdit !== false} reason={editReason}>
+              <Button
+                variant="secondary"
+                className="w-full"
+                disabled={canEdit !== true}
+                onClick={() => setAddingFollowUp(true)}
+              >
+                <PlusIcon className="size-4" /> Add follow-up
+              </Button>
+            </PermissionTooltip>
+          )}
+        </div>
+      </BottomSheet>
     </div>
   )
 }
 
-/**
- * No dedicated phone screen exists yet for meetings/follow-ups/members lists
- * (not in scope here — no such route exists on desktop either, only
- * sections on this same detail page), so this is a count, not a link, until
- * one of those screens exists. No chevron: a row with nowhere to go must not
- * look tappable.
- */
-function RelatedRow({ label, count }: { label: string; count: number }) {
+/** Meetings/Follow-ups open their own bottom sheet; a chevron marks that it
+ *  is tappable (FRONTEND_RULES_PHONE §41.8). */
+function RelatedRow({ label, count, onClick }: { label: string; count: number; onClick: () => void }) {
   return (
-    <div className="flex min-h-11 items-center justify-between rounded-lg border border-border-light bg-surface px-3 py-2">
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-11 items-center justify-between rounded-lg border border-border-light bg-surface px-3 py-2 text-left active:bg-surface-sunken"
+    >
       <span className="text-body text-text-primary">{label}</span>
-      <span className="text-body text-text-secondary">{count}</span>
-    </div>
+      <span className="flex items-center gap-1 text-body text-text-secondary">
+        {count}
+        <ChevronRightIcon className="size-4" aria-hidden />
+      </span>
+    </button>
   )
 }

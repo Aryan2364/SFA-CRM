@@ -7,6 +7,12 @@ import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { businessDate } from '@/lib/business-date'
 import { firstForeignTenantRef } from '@/lib/tenant-fk'
 import { getDealAccessLevel, meets, widenScope, workSharedDealBranches } from '@/lib/sharing'
+import {
+  NEXT_MEETING_TIME_NOT_SAVED, parseHHMM,
+  readFollowUpTime, readCompanyNextMeetingTime,
+  writeFollowUpTime, writeCompanyNextMeetingTime,
+} from '@/lib/next-meeting-time'
+import { businessNowTime } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -118,6 +124,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         ?? (await prisma.deals.findFirst({ where: { id: current.deal_id, tenant_id: tid }, select: { name: true } }))?.name
         ?? null
     }
+    const dueTime = current
+      ? current.source === 'deal'
+        ? await readFollowUpTime(tid, current.follow_up_id)
+        : await readCompanyNextMeetingTime(tid, visit.entity_id)
+      : null
 
     return NextResponse.json({
       account_required: false,
@@ -126,6 +137,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         ? {
             source: current.source,
             due_date: dateOnlyString(current.due_date),
+            due_time: dueTime,
             deal_id: current.source === 'deal' ? current.deal_id : null,
             deal_name: dealName,
           }
@@ -141,14 +153,22 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!await checkPermission(user, 'meetings', 'edit')) return forbidden()
   const tid = getTenantId()
 
-  const { due_date, deal_id } = await req.json()
+  const { due_date, due_time, deal_id } = await req.json()
   if (!due_date) return NextResponse.json({ error: 'A date is required' }, { status: 400 })
+  const dueTimeStr = parseHHMM(due_time ?? null)
+  if (dueTimeStr === undefined) {
+    return NextResponse.json({ error: 'That time is not valid' }, { status: 400 })
+  }
   // @db.Date columns compare as "YYYY-MM-DD" strings; businessDate() is the
   // server's own IST-aware "today", never the process clock.
   const todayStr = businessDate()
   const dueDateStr = String(due_date).slice(0, 10)
   if (dueDateStr < todayStr) {
     return NextResponse.json({ error: 'The next meeting must be today or later' }, { status: 400 })
+  }
+  // A time on today must still be ahead of now — otherwise it is already past.
+  if (dueDateStr === todayStr && dueTimeStr && dueTimeStr <= businessNowTime()) {
+    return NextResponse.json({ error: 'That time has already passed today' }, { status: 400 })
   }
 
   try {
@@ -195,23 +215,29 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       }
 
       const dueDate = new Date(dueDateStr)
+      let followUpId: string
       if (existing?.source === 'deal' && existing.deal_id === deal_id) {
         await prisma.deal_follow_ups.update({
           where: { id: existing.follow_up_id, tenant_id: tid },
           data: { due_date: dueDate, updated_at: new Date() },
         })
+        followUpId = existing.follow_up_id
       } else {
         // Moving to a different deal (or no prior row): drop any stale row on
         // another open deal first, so only one "next meeting" exists at once.
         if (existing?.source === 'deal') {
           await prisma.deal_follow_ups.deleteMany({ where: { id: existing.follow_up_id, tenant_id: tid } })
         }
-        await prisma.deal_follow_ups.create({
+        const created = await prisma.deal_follow_ups.create({
           data: {
             tenant_id: tid, deal_id, due_date: dueDate, mode: 'Meeting', status: 'not_done',
           },
+          select: { id: true },
         })
+        followUpId = created.id
       }
+      const timeSaved = await writeFollowUpTime(tid, followUpId, dueTimeStr ?? null)
+      return NextResponse.json(timeSaved || !dueTimeStr ? { ok: true } : { ok: true, warning: NEXT_MEETING_TIME_NOT_SAVED })
     } else {
       // No Opportunity: `companies.next_follow_up_date`, gated like the
       // companies PUT route.
@@ -223,9 +249,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         where: { id: companyId, tenant_id: tid },
         data: { next_follow_up_date: new Date(dueDateStr) },
       })
+      const timeSaved = await writeCompanyNextMeetingTime(tid, companyId, dueTimeStr ?? null)
+      return NextResponse.json(timeSaved || !dueTimeStr ? { ok: true } : { ok: true, warning: NEXT_MEETING_TIME_NOT_SAVED })
     }
-
-    return NextResponse.json({ ok: true })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
@@ -258,6 +284,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     } else {
       if (!await checkPermission(user, 'companies', 'edit')) return forbidden()
       await prisma.companies.update({ where: { id: companyId, tenant_id: tid }, data: { next_follow_up_date: null } })
+      await writeCompanyNextMeetingTime(tid, companyId, null)
     }
 
     return NextResponse.json({ ok: true })

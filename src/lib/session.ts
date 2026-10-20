@@ -5,6 +5,9 @@ const ALGORITHM = { name: 'HMAC', hash: 'SHA-256' }
 /** Session lifetime when SESSION_MAX_AGE_DAYS is unset or unusable. */
 const DEFAULT_MAX_AGE_DAYS = 7
 
+/** Session lifetime on a phone when PHONE_SESSION_MAX_AGE_DAYS is unset or unusable. */
+const DEFAULT_PHONE_MAX_AGE_DAYS = 30
+
 /**
  * Tolerance on the `exp` check, in seconds. The signing server and the
  * verifying server are the same machine today, but a token minted a
@@ -33,6 +36,21 @@ export function sessionMaxAgeSeconds(): number {
   const raw = Number(process.env.SESSION_MAX_AGE_DAYS)
   const days = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_AGE_DAYS
   return Math.floor(days * 24 * 60 * 60)
+}
+
+/**
+ * The lifetime for a session minted on a phone. Validated exactly like
+ * SESSION_MAX_AGE_DAYS; server-only, never `NEXT_PUBLIC_`.
+ */
+export function phoneSessionMaxAgeSeconds(): number {
+  const raw = Number(process.env.PHONE_SESSION_MAX_AGE_DAYS)
+  const days = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_PHONE_MAX_AGE_DAYS
+  return Math.floor(days * 24 * 60 * 60)
+}
+
+/** The lifetime to mint for this sign-in: one number for both `exp` and the cookie maxAge. */
+export function sessionMaxAgeSecondsFor(layout: 'phone' | 'desktop'): number {
+  return layout === 'phone' ? phoneSessionMaxAgeSeconds() : sessionMaxAgeSeconds()
 }
 
 /**
@@ -102,16 +120,19 @@ export function decodeSessionPayload(data: string): unknown {
   return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
 }
 
-export async function signSession(payload: Record<string, unknown>): Promise<string> {
+export async function signSession(
+  payload: Record<string, unknown>,
+  maxAgeSeconds: number = sessionMaxAgeSeconds(),
+): Promise<string> {
   const enc = new TextEncoder()
   // `iat`/`exp` are seconds since the epoch, the JWT convention, and are set
   // here rather than by each caller so no login route can mint an eternal
-  // token by forgetting them. The cookie's maxAge is set from
-  // sessionMaxAgeSeconds() at every call site, so browser and token die together.
+  // token by forgetting them. A caller that passes `maxAgeSeconds` must use that
+  // same number for the cookie's maxAge, so browser and token die together.
   const issuedAt = Math.floor(Date.now() / 1000)
   // UTF-8 bytes, base64url — see decodeSessionPayload() for why not btoa().
   const data = base64urlEncode(
-    enc.encode(JSON.stringify({ ...payload, iat: issuedAt, exp: issuedAt + sessionMaxAgeSeconds() }))
+    enc.encode(JSON.stringify({ ...payload, iat: issuedAt, exp: issuedAt + maxAgeSeconds }))
   )
   const key = await getKey()
   const sig = await globalThis.crypto.subtle.sign(ALGORITHM, key, enc.encode(data))

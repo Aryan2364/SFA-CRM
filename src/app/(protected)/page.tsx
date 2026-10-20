@@ -2,12 +2,22 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { ChevronLeftIcon, ChevronRightIcon, ArrowUpDownIcon, ArrowUpIcon, ArrowDownIcon } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
 import { LoadError } from '@/components/ui/load-error'
 import { loadJson } from '@/lib/load-list'
+import { CategoryBarChart } from '@/components/ui/bar-chart'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts'
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from '@/components/ui/alert-dialog'
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from '@/components/ui/table'
+import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
 
 // ---- Helpers ----
 function getMondayOf(date: Date): Date {
@@ -79,6 +89,12 @@ function KPICard({ label, value, sub, color = 'text-text-primary', subColor = 't
   )
 }
 
+/**
+ * kit gap: section 21's bar-chart component has no sparkline form (it is
+ * category rows with labelled bars, not a dense per-cell trend). A plain
+ * `<svg>` stays here, but its fill now reads the chart ramp token instead
+ * of a literal hex — see docs/kit-audit/kit-gaps.md.
+ */
 function Sparkline({ data }: { data: number[] }) {
   const max = Math.max(...data, 1)
   const W = 5, H = 24, GAP = 2
@@ -88,25 +104,20 @@ function Sparkline({ data }: { data: number[] }) {
         const h = Math.max(2, Math.round((v / max) * H))
         return (
           <rect key={i} x={i * (W + GAP)} y={H - h} width={W} height={h}
-            rx={1} fill={v > 0 ? '#3b82f6' : '#e5e7eb'} />
+            rx={1} fill={v > 0 ? 'var(--color-chart-ramp-5)' : 'var(--color-chart-ramp-1)'} />
         )
       })}
     </svg>
   )
 }
 
+/** The dashboard's own Plan status badge, now the shared section 11.1
+ *  vocabulary (status-badge.tsx's WEEKLY_PLAN_STATUS) instead of a second,
+ *  hand-rolled colour map — see that file for why "Edited by Manager" is
+ *  neutral rather than purple. */
 function PlanBadge({ status }: { status: string | null }) {
   if (!status) return <span className="text-xs text-text-secondary">—</span>
-  const map: Record<string, string> = {
-    'Approved': 'bg-success-bg text-success',
-    'Submitted': 'bg-primary-subtle text-primary',
-    'Resubmitted': 'bg-primary-subtle text-primary',
-    'Rejected': 'bg-danger-bg text-danger',
-    'On Hold': 'bg-warning-bg text-warning',
-    'Draft': 'bg-surface-control text-text-secondary',
-    'Edited by Manager': 'bg-purple-100 text-purple-700',
-  }
-  return <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${map[status] ?? 'bg-surface-control text-text-secondary'}`}>{status}</span>
+  return <StatusBadge vocabulary={WEEKLY_PLAN_STATUS} status={status} />
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -239,8 +250,10 @@ export default function DashboardPage() {
   }
 
   function SortIcon({ col }: { col: typeof sortCol }) {
-    if (sortCol !== col) return <span className="text-text-muted ml-1">↕</span>
-    return <span className="text-primary ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
+    if (sortCol !== col) return <ArrowUpDownIcon className="size-3.5 text-text-muted ml-1" />
+    return sortDir === 'asc'
+      ? <ArrowUpIcon className="size-3.5 text-primary ml-1" />
+      : <ArrowDownIcon className="size-3.5 text-primary ml-1" />
   }
 
   if (loading) {
@@ -259,20 +272,20 @@ export default function DashboardPage() {
   if (!data || !('isManager' in data) || !data.isManager) {
     return (
       <div>
-        <h2 className="text-xl font-medium text-text-primary mb-6">Dashboard</h2>
+        <h2 className="text-page-title font-medium text-text-primary mb-6">Dashboard</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div onClick={() => router.push('/weekly-plan')} className="rounded-2xl border border-border-light bg-surface p-5 shadow-sm cursor-pointer hover:border-primary-border transition">
+          <Link href="/weekly-plan" className="rounded-2xl border border-border-light bg-surface p-5 shadow-sm hover:border-primary-border transition outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring">
             <p className="text-sm font-medium text-text-muted uppercase tracking-wide mb-1">Weekly Plan</p>
             <p className="text-sm text-text-secondary">View and submit your weekly plan</p>
-          </div>
-          <div onClick={() => router.push('/daily-activity')} className="rounded-2xl border border-border-light bg-surface p-5 shadow-sm cursor-pointer hover:border-primary-border transition">
+          </Link>
+          <Link href="/daily-activity" className="rounded-2xl border border-border-light bg-surface p-5 shadow-sm hover:border-primary-border transition outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring">
             <p className="text-sm font-medium text-text-muted uppercase tracking-wide mb-1">Daily Activity</p>
             <p className="text-sm text-text-secondary">Log meetings and expenses</p>
-          </div>
-          <div onClick={() => router.push('/orders')} className="rounded-2xl border border-border-light bg-surface p-5 shadow-sm cursor-pointer hover:border-primary-border transition">
+          </Link>
+          <Link href="/orders" className="rounded-2xl border border-border-light bg-surface p-5 shadow-sm hover:border-primary-border transition outline-none focus-visible:outline-2 focus-visible:[outline-style:solid] focus-visible:outline-offset-2 focus-visible:outline-primary-ring">
             <p className="text-sm font-medium text-text-muted uppercase tracking-wide mb-1">Orders</p>
             <p className="text-sm text-text-secondary">View and create orders</p>
-          </div>
+          </Link>
         </div>
       </div>
     )
@@ -301,15 +314,26 @@ export default function DashboardPage() {
     return { day, date: dateStr, completed, pending }
   })
 
-  // Plan compliance percentages
+  // Plan compliance percentages. Colour comes from the same section-11.1
+  // status vocabulary as PlanBadge (status-badge.tsx's WEEKLY_PLAN_STATUS)
+  // rather than a second, independent hex map — a status gets one colour
+  // everywhere it appears. "Not Submitted" is not a real weekly_plans
+  // status (it is this count's own absence bucket), so it takes the
+  // vocabulary's neutral fallback directly.
   const complianceSegments = [
-    { label: 'Approved', count: planStats.approved, color: '#22c55e' },
-    { label: 'Submitted', count: planStats.submitted, color: '#3b82f6' },
-    { label: 'On Hold', count: planStats.onHold, color: '#eab308' },
-    { label: 'Rejected', count: planStats.rejected, color: '#ef4444' },
-    { label: 'Draft', count: planStats.draft, color: '#d1d5db' },
-    { label: 'Not Submitted', count: planStats.notSubmitted, color: '#e5e7eb' },
+    { label: 'Approved', count: planStats.approved, role: WEEKLY_PLAN_STATUS.Approved.role },
+    { label: 'Submitted', count: planStats.submitted, role: WEEKLY_PLAN_STATUS.Submitted.role },
+    { label: 'On Hold', count: planStats.onHold, role: WEEKLY_PLAN_STATUS['On Hold'].role },
+    { label: 'Rejected', count: planStats.rejected, role: WEEKLY_PLAN_STATUS.Rejected.role },
+    { label: 'Draft', count: planStats.draft, role: WEEKLY_PLAN_STATUS.Draft.role },
+    { label: 'Not Submitted', count: planStats.notSubmitted, role: 'neutral' as const },
   ]
+  const ROLE_FILL: Record<string, string> = {
+    success: 'var(--color-success)',
+    warning: 'var(--color-warning)',
+    danger: 'var(--color-danger)',
+    neutral: 'var(--color-border-strong)',
+  }
   // The plans the counts cover, not the team size: a caller outside some
   // reports' plans must not see them as a share of the whole team.
   const planTotal = complianceSegments.reduce((s, seg) => s + seg.count, 0)
@@ -321,23 +345,17 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-medium text-text-primary">{greeting()}{me?.name ? `, ${me.name}` : ''}</h2>
+          <h2 className="text-page-title font-medium text-text-primary">{greeting()}{me?.name ? `, ${me.name}` : ''}</h2>
           <p className="text-sm text-text-muted mt-0.5">Team performance overview</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setWeekMonday(d => addDays(d, -7))}
-            className="p-2 rounded-lg border border-border-light hover:bg-surface-sunken text-text-muted transition">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-          </button>
+          <Button variant="ghost" size="icon" onClick={() => setWeekMonday(d => addDays(d, -7))} aria-label="Previous week">
+            <ChevronLeftIcon />
+          </Button>
           <span className="text-sm font-medium text-text-secondary px-2 min-w-[180px] text-center">{formatWeekRange(weekMonday)}</span>
-          <button onClick={() => setWeekMonday(d => addDays(d, 7))}
-            className="p-2 rounded-lg border border-border-light hover:bg-surface-sunken text-text-muted transition">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
+          <Button variant="ghost" size="icon" onClick={() => setWeekMonday(d => addDays(d, 7))} aria-label="Next week">
+            <ChevronRightIcon />
+          </Button>
         </div>
       </div>
 
@@ -381,19 +399,14 @@ export default function DashboardPage() {
               <NotAvailable />
             </div>
           ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={chartData} barCategoryGap="30%">
-              <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
-                formatter={(value, name) => [value, name === 'completed' ? 'Completed' : 'Pending']}
-              />
-              <Legend formatter={v => v === 'completed' ? 'Completed' : 'Pending'} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="completed" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} name="completed" />
-              <Bar dataKey="pending" stackId="a" fill="#dbeafe" radius={[4, 4, 0, 0]} name="pending" />
-            </BarChart>
-          </ResponsiveContainer>
+          <CategoryBarChart
+            data={chartData}
+            category={d => d.day}
+            series={[
+              { label: 'Completed', value: d => d.completed, format: d => String(d.completed) },
+              { label: 'Pending', value: d => d.pending, format: d => String(d.pending) },
+            ]}
+          />
           )}
         </div>
 
@@ -441,25 +454,21 @@ export default function DashboardPage() {
                   <div className="flex gap-2">
                     {pp.reopen_requested ? (
                       <>
-                        <button disabled={acting} onClick={() => handleReopen(pp.id, 'accept-reopen')}
-                          className="flex-1 text-[11px] font-medium py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition">
+                        <Button size="sm" className="flex-1" disabled={acting} onClick={() => handleReopen(pp.id, 'accept-reopen')}>
                           Accept
-                        </button>
-                        <button disabled={acting} onClick={() => handleReopen(pp.id, 'decline-reopen')}
-                          className="flex-1 text-[11px] font-normal py-1.5 bg-surface hover:bg-surface-sunken text-danger border border-danger-border rounded-lg disabled:opacity-50 transition">
+                        </Button>
+                        <Button size="sm" variant="danger" className="flex-1" disabled={acting} onClick={() => handleReopen(pp.id, 'decline-reopen')}>
                           Decline
-                        </button>
+                        </Button>
                       </>
                     ) : (
                       <>
-                        <button disabled={acting} onClick={() => approvePlan(pp.id)}
-                          className="flex-1 text-[11px] font-medium py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition">
+                        <Button size="sm" className="flex-1" disabled={acting} onClick={() => approvePlan(pp.id)}>
                           Approve
-                        </button>
-                        <button disabled={acting} onClick={() => { setCommentModal({ planId: pp.id, action: 'reject' }); setComment('') }}
-                          className="flex-1 text-[11px] font-normal py-1.5 bg-surface hover:bg-surface-sunken text-danger border border-danger-border rounded-lg disabled:opacity-50 transition">
+                        </Button>
+                        <Button size="sm" variant="danger" className="flex-1" disabled={acting} onClick={() => { setCommentModal({ planId: pp.id, action: 'reject' }); setComment('') }}>
                           Reject
-                        </button>
+                        </Button>
                       </>
                     )}
                   </div>
@@ -487,14 +496,14 @@ export default function DashboardPage() {
         <div className="flex h-4 rounded-full overflow-hidden bg-surface-control mb-3">
           {complianceSegments.map(seg => seg.count > 0 && (
             <div key={seg.label} title={`${seg.label}: ${seg.count}`}
-              style={{ width: `${(seg.count / planTotal) * 100}%`, backgroundColor: seg.color }}
+              style={{ width: `${(seg.count / planTotal) * 100}%`, backgroundColor: ROLE_FILL[seg.role] }}
               className="transition-all" />
           ))}
         </div>
         <div className="flex flex-wrap gap-3">
           {complianceSegments.map(seg => (
             <div key={seg.label} className="flex items-center gap-1.5 text-xs text-text-secondary">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: seg.color }} />
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ROLE_FILL[seg.role] }} />
               {seg.label} ({seg.count})
             </div>
           ))}
@@ -509,46 +518,46 @@ export default function DashboardPage() {
           <h3 className="text-sm font-medium text-text-primary">Team Performance</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border-light bg-surface-sunken">
-                <th className="px-4 py-3 text-left">
-                  <button onClick={() => toggleSort('name')} className="text-xs font-medium text-text-muted uppercase tracking-wide hover:text-text-secondary flex items-center">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <button onClick={() => toggleSort('name')} className="text-xs font-medium uppercase tracking-wide flex items-center">
                     Member <SortIcon col="name" />
                   </button>
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-normal text-text-muted uppercase tracking-wide">Plan</th>
-                <th className="px-4 py-3 text-center text-xs font-normal text-text-muted uppercase tracking-wide">Activity</th>
+                </TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead className="text-center">Activity</TableHead>
                 {DAY_LABELS.map(d => (
-                  <th key={d} className="px-2 py-3 text-center text-xs font-normal text-text-muted w-8">{d}</th>
+                  <TableHead key={d} className="text-center w-8">{d}</TableHead>
                 ))}
-                <th className="px-4 py-3 text-right">
-                  <button onClick={() => toggleSort('meetings')} className="text-xs font-medium text-text-muted uppercase tracking-wide hover:text-text-secondary flex items-center ml-auto">
+                <TableHead numeric>
+                  <button onClick={() => toggleSort('meetings')} className="text-xs font-medium uppercase tracking-wide flex items-center ml-auto">
                     Meetings <SortIcon col="meetings" />
                   </button>
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Met</th>
-                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Met late</th>
-                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Couldn&apos;t meet</th>
-                <th className="px-4 py-3 text-right text-xs font-normal text-text-muted uppercase tracking-wide">Missed</th>
-                <th className="px-4 py-3 text-right">
-                  <button onClick={() => toggleSort('orders')} className="text-xs font-medium text-text-muted uppercase tracking-wide hover:text-text-secondary flex items-center ml-auto">
+                </TableHead>
+                <TableHead numeric>Met</TableHead>
+                <TableHead numeric>Met late</TableHead>
+                <TableHead numeric>Couldn&apos;t meet</TableHead>
+                <TableHead numeric>Missed</TableHead>
+                <TableHead numeric>
+                  <button onClick={() => toggleSort('orders')} className="text-xs font-medium uppercase tracking-wide flex items-center ml-auto">
                     Orders <SortIcon col="orders" />
                   </button>
-                </th>
-                <th className="px-4 py-3 text-right">
-                  <button onClick={() => toggleSort('expenses')} className="text-xs font-medium text-text-muted uppercase tracking-wide hover:text-text-secondary flex items-center ml-auto">
+                </TableHead>
+                <TableHead numeric>
+                  <button onClick={() => toggleSort('expenses')} className="text-xs font-medium uppercase tracking-wide flex items-center ml-auto">
                     Expenses <SortIcon col="expenses" />
                   </button>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((m, idx) => (
-                <tr key={m.userId}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map(m => (
+                <TableRow key={m.userId}
                   onClick={() => router.push(`/review/${m.userId}`)}
-                  className={`border-b border-border-light cursor-pointer hover:bg-primary-subtle/50 transition ${idx % 2 === 0 ? '' : 'bg-surface-sunken/30'}`}>
-                  <td className="px-4 py-3">
+                  className="cursor-pointer hover:bg-primary-subtle/50 transition">
+                  <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-primary-subtle text-primary text-xs font-medium flex items-center justify-center shrink-0">
                         {m.userName.charAt(0).toUpperCase()}
@@ -558,17 +567,17 @@ export default function DashboardPage() {
                         {m.level && <p className="text-[11px] text-text-muted">{m.level}</p>}
                       </div>
                     </div>
-                  </td>
-                  <td className="px-4 py-3" onClick={e => { e.stopPropagation(); router.push(`/review/${m.userId}?tab=plans`) }}>
+                  </TableCell>
+                  <TableCell onClick={e => { e.stopPropagation(); router.push(`/review/${m.userId}?tab=plans`) }}>
                     {plansDenied ? <NotAvailable className="text-xs" /> : <PlanBadge status={m.planStatus} />}
-                  </td>
-                  <td className="px-4 py-3 text-center">
+                  </TableCell>
+                  <TableCell className="text-center">
                     {meetingsDenied
                       ? <NotAvailable className="text-xs" />
                       : <Sparkline data={m.dailyActivity.map(d => d.meetingsCompleted)} />}
-                  </td>
+                  </TableCell>
                   {m.dailyActivity.map((d, i) => (
-                    <td key={i} className="px-2 py-3 text-center"
+                    <TableCell key={i} className="text-center"
                       onClick={e => { e.stopPropagation(); router.push(`/review/${m.userId}?tab=daily&date=${d.date}`) }}>
                       {meetingsDenied ? (
                         <span className="text-xs text-text-muted">—</span>
@@ -577,33 +586,33 @@ export default function DashboardPage() {
                           {d.meetingsTotal > 0 ? `${d.meetingsCompleted}/${d.meetingsTotal}` : '—'}
                         </span>
                       )}
-                    </td>
+                    </TableCell>
                   ))}
-                  <td className="px-4 py-3 text-right"
+                  <TableCell numeric
                     onClick={e => { e.stopPropagation(); router.push(`/review/${m.userId}?tab=daily`) }}>
                     {meetingsDenied ? <NotAvailable className="text-sm" /> : (
                       <span className="text-sm font-medium text-text-secondary">
                         {m.weekTotals.meetingsCompleted}/{m.weekTotals.meetingsTotal}
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  </TableCell>
+                  <TableCell numeric>
                     {m.outcomeCounts === null ? <NotAvailable className="text-sm" /> : (
                       <span className="text-sm font-medium text-text-secondary">{m.outcomeCounts.met}</span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  </TableCell>
+                  <TableCell numeric>
                     {m.outcomeCounts === null ? <NotAvailable className="text-sm" /> : (
                       <span className="text-sm font-medium text-text-secondary">{m.outcomeCounts.metLate}</span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  </TableCell>
+                  <TableCell numeric>
                     {m.outcomeCounts === null ? <NotAvailable className="text-sm" /> : (
                       <span className="inline-flex items-center justify-end gap-1.5 text-sm font-medium text-text-secondary">
                         {m.outcomeCounts.couldntMeet}
                         {m.repeatedCouldntMeet && m.repeatedCouldntMeet.length > 0 && (
                           <span
-                            className="inline-flex size-4 items-center justify-center rounded-full bg-warning-surface text-[10px] font-semibold text-warning"
+                            className="inline-flex size-4 items-center justify-center rounded-full bg-warning-bg text-[10px] font-semibold text-warning"
                             title={`Couldn't meet 3+ times with: ${m.repeatedCouldntMeet.map(p => p.party_name ?? 'Unknown').join(', ')}`}
                           >
                             !
@@ -611,56 +620,61 @@ export default function DashboardPage() {
                         )}
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  </TableCell>
+                  <TableCell numeric>
                     {m.missedCount === null ? <NotAvailable className="text-sm" /> : (
                       <span className={`text-sm font-medium ${m.missedCount > 0 ? 'text-warning' : 'text-text-secondary'}`}>
                         {m.missedCount}
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right"
+                  </TableCell>
+                  <TableCell numeric
                     onClick={e => { e.stopPropagation(); router.push(`/orders?userId=${m.userId}`) }}>
                     {ordersDenied
                       ? <NotAvailable className="text-sm" />
                       : <span className="text-sm font-medium text-text-secondary">{fmtCurrency(m.weekTotals.orderValue)}</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right"
+                  </TableCell>
+                  <TableCell numeric
                     onClick={e => { e.stopPropagation(); router.push(`/review/${m.userId}?tab=expenses`) }}>
                     {expensesDenied
                       ? <NotAvailable className="text-sm" />
                       : <span className="text-sm font-medium text-text-secondary">{fmtCurrency(m.weekTotals.expenseAmount)}</span>}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {sorted.length === 0 && (
             <p className="text-center py-8 text-sm text-text-muted">No team members found</p>
           )}
         </div>
       </div>
 
-      {/* Reject Comment Modal */}
-      {commentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-(--backdrop)" onClick={() => setCommentModal(null)} />
-          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h3 className="font-medium text-text-primary mb-4">Reject Plan</h3>
-            <textarea value={comment} onChange={e => setComment(e.target.value)}
+      {/* Reject Comment dialog — alert-dialog has no form body in the kit
+          (section 24), so a Textarea sits inside its header zone, which is
+          the one part of the dialog that scrolls (see alert-dialog.tsx). */}
+      <AlertDialog open={!!commentModal} onOpenChange={open => { if (!open) setCommentModal(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject Plan</AlertDialogTitle>
+            <AlertDialogDescription>State why this plan is being rejected; the owner sees this reason.</AlertDialogDescription>
+            <Textarea value={comment} onChange={e => setComment(e.target.value)}
               rows={4} placeholder="Reason for rejection (required)…"
-              className="w-full border border-border-light rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-danger mb-4" />
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setCommentModal(null)}
-                className="px-4 py-2 text-sm text-text-secondary border border-border-light rounded-lg hover:bg-surface-sunken">Cancel</button>
-              <button disabled={acting || !comment.trim()} onClick={() => rejectPlan(commentModal.planId, comment)}
-                className="px-4 py-2 text-sm font-medium text-primary-foreground bg-danger hover:bg-danger-hover rounded-lg disabled:opacity-50">
-                {acting ? 'Rejecting…' : 'Reject Plan'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              className="mt-2" />
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={acting || !comment.trim()}
+              loading={acting}
+              loadingLabel="Rejecting…"
+              onClick={() => commentModal && rejectPlan(commentModal.planId, comment)}
+            >
+              Reject Plan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

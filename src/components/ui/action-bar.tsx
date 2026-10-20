@@ -48,17 +48,21 @@ export function ActionBar({
   if (layout !== 'phone' || items.length === 0) return null
 
   return (
+    <>
+    {/* Keeps the end of the page clear of the fixed bar. */}
+    <div aria-hidden className="h-20" />
     <div
       role="group"
       aria-label={label}
       data-slot="action-bar"
+      data-fixed-bottom="action-bar"
       className={cn(
-        'fixed inset-x-0 bottom-0 z-[--z-shell] flex gap-3 border-t border-border-light bg-surface px-4 py-3 transition-[bottom] duration-150',
+        'fixed inset-x-0 bottom-0 z-(--z-shell) flex gap-3 border-t border-border-light bg-surface px-4 py-3 transition-[bottom] duration-150',
         className
       )}
       style={{
-        bottom: keyboardInset,
-        paddingBottom: keyboardInset > 0 ? '12px' : 'calc(var(--safe-bottom) + 12px)',
+        bottom: keyboardInset > 0 ? keyboardInset : 'var(--tab-bar-offset, 0px)',
+        paddingBottom: keyboardInset > 0 ? '12px' : 'calc(var(--action-bar-safe, var(--safe-bottom)) + 12px)',
         paddingLeft: 'calc(var(--safe-left) + 16px)',
         paddingRight: 'calc(var(--safe-right) + 16px)',
       }}
@@ -69,6 +73,7 @@ export function ActionBar({
         </div>
       ))}
     </div>
+    </>
   )
 }
 

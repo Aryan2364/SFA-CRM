@@ -6,6 +6,7 @@ import { PlusIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
+import { loadJson, loadList } from '@/lib/load-list'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { Button } from '@/components/ui/button'
@@ -46,6 +47,7 @@ import { WeekStrip } from '@/components/daily-activity/week-strip'
 import {
   Expense,
   FollowUpItem,
+  formatHHMM,
   getPosition,
   MissedTodo,
   NextMeetingItem,
@@ -103,16 +105,20 @@ function DailyActivityInner() {
 
   const [visits, setVisits] = useState<Visit[]>([])
   const [visitsLoading, setVisitsLoading] = useState(true)
+  const [visitsFailed, setVisitsFailed] = useState(false)
   const [planned, setPlanned] = useState<PlannedItem[]>([])
   const [plannedLoading, setPlannedLoading] = useState(true)
+  const [plannedFailed, setPlannedFailed] = useState(false)
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([])
   const [nextMeetings, setNextMeetings] = useState<NextMeetingItem[]>([])
   const [missed, setMissed] = useState<MissedTodo[]>([])
   const [todosLoading, setTodosLoading] = useState(true)
+  const [todosFailed, setTodosFailed] = useState(false)
   const [startingMissed, setStartingMissed] = useState<string | null>(null)
   const [couldntMeetTarget, setCouldntMeetTarget] = useState<CouldntMeetTarget | null>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [expensesLoading, setExpensesLoading] = useState(true)
+  const [expensesFailed, setExpensesFailed] = useState(false)
 
   const [acting, setActing] = useState(false)
   const [startingPlanItem, setStartingPlanItem] = useState<string | null>(null)
@@ -165,24 +171,18 @@ function DailyActivityInner() {
 
   const loadVisits = useCallback(async () => {
     setVisitsLoading(true)
-    try {
-      const r = await fetch(`/api/daily-activity?date=${selectedDate}`)
-      setVisits(r.ok ? await r.json() : [])
-    } catch {
-      setVisits([])
-    }
+    const res = await loadList<Visit>(`/api/daily-activity?date=${selectedDate}`)
+    // A failed load keeps its own state: an empty list would read as "Nothing on this day".
+    if (res.ok) setVisits(res.data)
+    setVisitsFailed(!res.ok)
     setVisitsLoading(false)
   }, [selectedDate])
 
   const loadPlanned = useCallback(async () => {
     setPlannedLoading(true)
-    try {
-      const r = await fetch(`/api/daily-activity/plan?date=${selectedDate}`)
-      const d = r.ok ? await r.json() : { items: [] }
-      setPlanned(Array.isArray(d.items) ? d.items : [])
-    } catch {
-      setPlanned([])
-    }
+    const res = await loadJson<{ items?: PlannedItem[] }>(`/api/daily-activity/plan?date=${selectedDate}`)
+    if (res.ok) setPlanned(Array.isArray(res.data?.items) ? res.data.items : [])
+    setPlannedFailed(!res.ok)
     setPlannedLoading(false)
   }, [selectedDate])
 
@@ -195,29 +195,24 @@ function DailyActivityInner() {
    */
   const loadTodos = useCallback(async () => {
     setTodosLoading(true)
-    try {
-      const r = await fetch(`/api/daily-activity/todos?date=${selectedDate}`)
-      const d = r.ok ? await r.json() : { followups: [], nextMeetings: [], missed: [] }
+    const res = await loadJson<{ followups?: FollowUpItem[]; nextMeetings?: NextMeetingItem[]; missed?: MissedTodo[] }>(
+      `/api/daily-activity/todos?date=${selectedDate}`
+    )
+    if (res.ok) {
+      const d = res.data ?? {}
       setFollowUps(Array.isArray(d.followups) ? d.followups : [])
       setNextMeetings(Array.isArray(d.nextMeetings) ? d.nextMeetings : [])
       setMissed(Array.isArray(d.missed) ? d.missed : [])
-    } catch {
-      setFollowUps([])
-      setNextMeetings([])
-      setMissed([])
     }
+    setTodosFailed(!res.ok)
     setTodosLoading(false)
   }, [selectedDate])
 
   const loadExpenses = useCallback(async () => {
     setExpensesLoading(true)
-    try {
-      const r = await fetch(`/api/expenses?date=${selectedDate}`)
-      const d = r.ok ? await r.json() : []
-      setExpenses(Array.isArray(d) ? d : [])
-    } catch {
-      setExpenses([])
-    }
+    const res = await loadList<Expense>(`/api/expenses?date=${selectedDate}`)
+    if (res.ok) setExpenses(res.data)
+    setExpensesFailed(!res.ok)
     setExpensesLoading(false)
   }, [selectedDate])
 
@@ -250,21 +245,26 @@ function DailyActivityInner() {
   async function handleAdd(partial: MeetingDraft) {
     if (isFuture) { toast('Meetings cannot be logged for a future date', 'error'); return }
     const past = partial.is_manual_entry === true
-    const r = await fetch('/api/daily-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...partial, visit_date: selectedDate }),
-    })
-    if (!r.ok) {
-      toast((await r.json()).error ?? `Failed to log the ${past ? 'past ' : ''}meeting`, 'error')
-      return
+    try {
+      const r = await fetch('/api/daily-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...partial, visit_date: selectedDate }),
+      })
+      if (!r.ok) {
+        toast((await r.json().catch(() => ({}))).error ?? `Failed to log the ${past ? 'past ' : ''}meeting`, 'error')
+        return
+      }
+      setMeetingDialog({ open: false, planItem: null })
+      await loadVisits()
+      // A follow-up with no company opens this same dialog (see
+      // `meetingDialog.followUpId`); its card only disappears once the
+      // follow-up row the server linked it to drops off `/todos`.
+      if (partial.deal_follow_up_id) await loadTodos()
+    } catch {
+      // The dialog stays open with what was typed.
+      toast('The connection dropped. Nothing was saved.', 'error')
     }
-    setMeetingDialog({ open: false, planItem: null })
-    await loadVisits()
-    // A follow-up with no company opens this same dialog (see
-    // `meetingDialog.followUpId`); its card only disappears once the
-    // follow-up row the server linked it to drops off `/todos`.
-    if (partial.deal_follow_up_id) await loadTodos()
   }
 
   /**
@@ -276,28 +276,34 @@ function DailyActivityInner() {
   async function handleStartPlanned(item: PlannedItem) {
     if (!item.party_id || !item.party_name) return
     setStartingPlanItem(item.id)
-    const r = await fetch('/api/daily-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        visit_date: selectedDate,
-        // The party's own type; an untyped party is 'Other', never a guessed
-        // 'Dealer'. `||`, not `??`: an untyped company stores '' (NOT NULL).
-        visit_type: item.party_visit_type || item.party_type || OTHER_VISIT_TYPE,
-        entity_id: item.party_id,
-        entity_name: item.party_name,
-        is_new_entity: false,
-        weekly_plan_item_id: item.id,
-      }),
-    })
-    if (!r.ok) {
-      toast((await r.json()).error ?? 'Could not start the planned meeting', 'error')
-      setStartingPlanItem(null)
+    let created: Visit
+    try {
+      const r = await fetch('/api/daily-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_date: selectedDate,
+          // The party's own type; an untyped party is 'Other', never a guessed
+          // 'Dealer'. `||`, not `??`: an untyped company stores '' (NOT NULL).
+          visit_type: item.party_visit_type || item.party_type || OTHER_VISIT_TYPE,
+          entity_id: item.party_id,
+          entity_name: item.party_name,
+          is_new_entity: false,
+          weekly_plan_item_id: item.id,
+        }),
+      })
+      if (!r.ok) {
+        toast((await r.json().catch(() => ({}))).error ?? 'Could not start the planned meeting', 'error')
+        return
+      }
+      created = await r.json()
+      await loadVisits()
+    } catch {
+      toast('The connection dropped. Nothing was saved.', 'error')
       return
+    } finally {
+      setStartingPlanItem(null)
     }
-    const created: Visit = await r.json()
-    await loadVisits()
-    setStartingPlanItem(null)
     await handleStart(created.id)
   }
 
@@ -314,27 +320,33 @@ function DailyActivityInner() {
   async function handleStartFollowUp(item: FollowUpItem) {
     if (!item.company_id || !item.company_name) return
     setStartingTodo(item.id)
-    const r = await fetch('/api/daily-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        visit_date: selectedDate,
-        visit_type: item.company_visit_type || OTHER_VISIT_TYPE,
-        entity_id: item.company_id,
-        entity_name: item.company_name,
-        is_new_entity: false,
-        deal_follow_up_id: item.id,
-      }),
-    })
-    if (!r.ok) {
-      toast((await r.json()).error ?? 'Could not start the meeting', 'error')
-      setStartingTodo(null)
+    let created: Visit
+    try {
+      const r = await fetch('/api/daily-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_date: selectedDate,
+          visit_type: item.company_visit_type || OTHER_VISIT_TYPE,
+          entity_id: item.company_id,
+          entity_name: item.company_name,
+          is_new_entity: false,
+          deal_follow_up_id: item.id,
+        }),
+      })
+      if (!r.ok) {
+        toast((await r.json().catch(() => ({}))).error ?? 'Could not start the meeting', 'error')
+        return
+      }
+      created = await r.json()
+      await loadVisits()
+      await loadTodos()
+    } catch {
+      toast('The connection dropped. Nothing was saved.', 'error')
       return
+    } finally {
+      setStartingTodo(null)
     }
-    const created: Visit = await r.json()
-    await loadVisits()
-    await loadTodos()
-    setStartingTodo(null)
     await handleStart(created.id)
   }
 
@@ -346,26 +358,32 @@ function DailyActivityInner() {
    */
   async function handleStartNextMeeting(item: NextMeetingItem) {
     setStartingTodo(item.id)
-    const r = await fetch('/api/daily-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        visit_date: selectedDate,
-        visit_type: item.type || OTHER_VISIT_TYPE,
-        entity_id: item.id,
-        entity_name: item.name,
-        is_new_entity: false,
-      }),
-    })
-    if (!r.ok) {
-      toast((await r.json()).error ?? 'Could not start the meeting', 'error')
-      setStartingTodo(null)
+    let created: Visit
+    try {
+      const r = await fetch('/api/daily-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_date: selectedDate,
+          visit_type: item.type || OTHER_VISIT_TYPE,
+          entity_id: item.id,
+          entity_name: item.name,
+          is_new_entity: false,
+        }),
+      })
+      if (!r.ok) {
+        toast((await r.json().catch(() => ({}))).error ?? 'Could not start the meeting', 'error')
+        return
+      }
+      created = await r.json()
+      await loadVisits()
+      await loadTodos()
+    } catch {
+      toast('The connection dropped. Nothing was saved.', 'error')
       return
+    } finally {
+      setStartingTodo(null)
     }
-    const created: Visit = await r.json()
-    await loadVisits()
-    await loadTodos()
-    setStartingTodo(null)
     await handleStart(created.id)
   }
 
@@ -386,27 +404,33 @@ function DailyActivityInner() {
     }
     setStartingMissed(group.key)
     const visitType = group.items.find(i => i.visit_type)?.visit_type || OTHER_VISIT_TYPE
-    const r = await fetch('/api/daily-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        visit_date: selectedDate,
-        visit_type: visitType,
-        entity_id: group.party_id,
-        entity_name: group.heading,
-        is_new_entity: false,
-        ...(followUp ? { deal_follow_up_id: followUp.id } : {}),
-      }),
-    })
-    if (!r.ok) {
-      toast((await r.json()).error ?? 'Could not start the meeting', 'error')
-      setStartingMissed(null)
+    let created: Visit
+    try {
+      const r = await fetch('/api/daily-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_date: selectedDate,
+          visit_type: visitType,
+          entity_id: group.party_id,
+          entity_name: group.heading,
+          is_new_entity: false,
+          ...(followUp ? { deal_follow_up_id: followUp.id } : {}),
+        }),
+      })
+      if (!r.ok) {
+        toast((await r.json().catch(() => ({}))).error ?? 'Could not start the meeting', 'error')
+        return
+      }
+      created = await r.json()
+      await loadVisits()
+      await loadTodos()
+    } catch {
+      toast('The connection dropped. Nothing was saved.', 'error')
       return
+    } finally {
+      setStartingMissed(null)
     }
-    const created: Visit = await r.json()
-    await loadVisits()
-    await loadTodos()
-    setStartingMissed(null)
     await handleStart(created.id)
   }
 
@@ -442,19 +466,24 @@ function DailyActivityInner() {
       body.longitude = pos.longitude
       body.address = await reverseGeocode(pos.latitude, pos.longitude)
     }
-    const r = await fetch(`/api/daily-activity/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!r.ok) {
-      const err = await r.json()
-      toast(err.error ?? 'Could not start the meeting', 'error')
-      if (typeof err.error === 'string' && err.error.includes('active')) await loadVisits()
-    } else {
-      await loadVisits()
+    try {
+      const r = await fetch(`/api/daily-activity/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}))
+        toast(err.error ?? 'Could not start the meeting', 'error')
+        if (typeof err.error === 'string' && err.error.includes('active')) await loadVisits()
+      } else {
+        await loadVisits()
+      }
+    } catch {
+      toast('The connection dropped. Nothing was saved.', 'error')
+    } finally {
+      setActing(false)
     }
-    setActing(false)
   }
 
   async function handleStop(id: string) {
@@ -472,32 +501,41 @@ function DailyActivityInner() {
       body.end_longitude = pos.longitude
       body.end_address = await reverseGeocode(pos.latitude, pos.longitude)
     }
-    const r = await fetch(`/api/daily-activity/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!r.ok) {
-      toast((await r.json()).error ?? 'Could not stop the meeting', 'error')
-    } else {
-      await loadVisits()
-      // The "Next meeting?" prompt, right after a successful stop.
-      setNextMeetingDialog({ visitId: id, mode: 'prompt' })
+    try {
+      const r = await fetch(`/api/daily-activity/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!r.ok) {
+        toast((await r.json().catch(() => ({}))).error ?? 'Could not stop the meeting', 'error')
+      } else {
+        await loadVisits()
+        // The "Next meeting?" prompt, right after a successful stop.
+        setNextMeetingDialog({ visitId: id, mode: 'prompt' })
+      }
+    } catch {
+      toast('The connection dropped. Nothing was saved.', 'error')
+    } finally {
+      setActing(false)
     }
-    setActing(false)
   }
 
   async function confirmDeleteVisit() {
     const target = pendingDelete
     setPendingDelete(null)
     if (!target) return
-    const r = await fetch(`/api/daily-activity/${target.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete' }),
-    })
-    if (!r.ok) toast((await r.json()).error ?? 'Failed to delete the meeting', 'error')
-    else await loadVisits()
+    try {
+      const r = await fetch(`/api/daily-activity/${target.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete' }),
+      })
+      if (!r.ok) toast((await r.json().catch(() => ({}))).error ?? 'Failed to delete the meeting', 'error')
+      else await loadVisits()
+    } catch {
+      toast('The connection dropped. The meeting was not deleted.', 'error')
+    }
   }
 
   /**
@@ -608,6 +646,19 @@ function DailyActivityInner() {
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {[0, 1, 2].map(i => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}
               </div>
+            ) : visitsFailed || plannedFailed || todosFailed ? (
+              <EmptyState
+                variant="failed"
+                heading="Couldn't load this day"
+                actionLabel="Try again"
+                onAction={() => {
+                  if (visitsFailed) void loadVisits()
+                  if (plannedFailed) void loadPlanned()
+                  if (todosFailed) void loadTodos()
+                }}
+              >
+                Check your connection and try again.
+              </EmptyState>
             ) : visits.length === 0 && openPlanned.length === 0 && followUps.length === 0 && nextMeetings.length === 0 &&
                 !(selectedDate === toDateStr(new Date()) && missed.length > 0) ? (
               <EmptyState
@@ -639,6 +690,7 @@ function DailyActivityInner() {
                       key={`fu-${item.id}`}
                       kind="followup"
                       heading={item.company_name ?? item.deal_name}
+                      time={item.due_time ? formatHHMM(item.due_time) : null}
                       subheading={[
                         [`Opportunity: ${item.deal_name}`, item.mode !== 'Meeting' ? item.mode : ''].filter(Boolean).join(' · '),
                         item.notes ?? '',
@@ -662,6 +714,7 @@ function DailyActivityInner() {
                       key={`nm-${item.id}`}
                       kind="next-meeting"
                       heading={item.name}
+                      time={item.next_follow_up_time ? formatHHMM(item.next_follow_up_time) : null}
                       subheading={[]}
                       offered={isFuture ? false : me ? true : null}
                       canStart={known(canLogMeeting && canEditMeeting)}
@@ -749,6 +802,16 @@ function DailyActivityInner() {
           />
 
           <TabsContent value="expenses" className="pt-4">
+            {expensesFailed && !expensesLoading ? (
+              <EmptyState
+                variant="failed"
+                heading="Couldn't load expenses"
+                actionLabel="Try again"
+                onAction={() => void loadExpenses()}
+              >
+                Check your connection and try again.
+              </EmptyState>
+            ) : (
             <ExpensesTab
               selectedDate={selectedDate}
               isFuture={isFuture}
@@ -760,6 +823,7 @@ function DailyActivityInner() {
               onReload={loadExpenses}
               onOpenRemarks={id => setRemarksPanel({ contextType: 'expense', contextId: id, title: 'Expense' })}
             />
+            )}
           </TabsContent>
 
           <TabsContent value="summary" className="pt-4">

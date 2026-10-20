@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useUnsavedChanges } from '@/components/ui/unsaved-changes'
 import { DECISIONS, type DecisionKey } from './approval-types'
 
 /**
@@ -55,13 +56,20 @@ export function DecisionDialog({
   const needsComment = spec?.commentRequired ?? false
   const ready = !needsComment || comment.trim().length > 0
 
+  const unsaved = useUnsavedChanges({
+    changed: comment.trim().length > 0,
+    noun: 'note',
+    mode: 'create',
+  })
+
   return (
     <Dialog
       open={decision !== null}
-      onOpenChange={open => {
+      onOpenChange={unsaved.guard(open => {
         if (!open && !busy) onClose()
-      }}
+      })}
     >
+      {unsaved.warning}
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>{spec?.label ?? ''}</DialogTitle>

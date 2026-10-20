@@ -27,7 +27,9 @@ import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { PhoneForm, PhoneFormField } from '@/components/ui/phone-form'
 import { PickerSheetField, type PickerOption } from '@/components/ui/picker-sheet'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { fmtAmount } from '@/lib/format'
+import { toDateStr } from '@/components/daily-activity/types'
 import { orderTotals, type LineInput } from '@/lib/order-math'
 
 type Company = {
@@ -39,6 +41,8 @@ type Company = {
   is_complete?: boolean
   completeness_missing?: string | null
 }
+
+type MeLite = { permissions?: Record<string, { create?: boolean; edit?: boolean }> }
 
 type Product = { id: string; name: string; price: number }
 
@@ -74,13 +78,17 @@ function PhoneNewOrder() {
   const [lastOrder, setLastOrder] = useState<PastOrder | null>(null)
   const [saving, setSaving] = useState(false)
   const [canCreate, setCanCreate] = useState<boolean | undefined>(undefined)
+  const [canEditAccount, setCanEditAccount] = useState<boolean | undefined>(undefined)
 
   usePhoneAppBar({ title: 'New order', back: '/orders' })
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => (r.ok ? r.json() : Promise.reject(r)))
-      .then(d => setCanCreate(Boolean(d.permissions?.orders?.create)))
-      .catch(() => setCanCreate(false))
+      .then((d: MeLite) => {
+        setCanCreate(Boolean(d.permissions?.orders?.create))
+        setCanEditAccount(Boolean(d.permissions?.companies?.edit))
+      })
+      .catch(() => { setCanCreate(false); setCanEditAccount(false) })
   }, [])
 
   // ?account= prefill.
@@ -178,12 +186,22 @@ function PhoneNewOrder() {
     return orderTotals(lineInputs)
   }, [lines])
 
-  // Client-side preview only — mirrors the server's own placementBlock().
-  // The real gate is POST /api/orders; this just tells the rep up front.
-  const gstBlocked =
-    accountDetail?.account_kind === 'Company' &&
-    accountDetail.is_complete === false &&
-    (accountDetail.completeness_missing ?? '').toLowerCase().includes('gst')
+  // The account's completeness as GET /api/companies/[id] already reports it
+  // — that response has run `withGstPolicy` + `withMobileCompleteness`
+  // (src/lib/gst-policy.ts, src/lib/completeness.ts), so `completeness_missing`
+  // here is the SAME field list the server's own `placementBlock()` reads for
+  // POST /api/orders. This screen never re-derives the rule, it just reads it.
+  const missingFields = (accountDetail?.completeness_missing ?? '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+  const accountIncomplete = accountDetail?.is_complete === false && missingFields.length > 0
+
+  const editAccountHref = account
+    ? `/parties/companies/${account.id}/edit?next=${encodeURIComponent(
+        `/orders/new?account=${account.id}${fromOrderId ? `&from=${fromOrderId}` : ''}`
+      )}`
+    : undefined
 
   async function save() {
     if (!account) { toast('Choose an account first', 'error'); return }
@@ -198,7 +216,7 @@ function PhoneNewOrder() {
           entity_type: accountDetail?.type || null,
           entity_id: account.id,
           entity_name: account.label,
-          order_date: new Date().toISOString().slice(0, 10),
+          order_date: toDateStr(new Date()),
           status: 'Placed',
           items: lines.map(l => ({ product_id: l.product_id, product_name: l.product_name, qty: l.qty })),
         }),
@@ -207,14 +225,14 @@ function PhoneNewOrder() {
       if (!r.ok) {
         // §3.5 no-dead-end: the server names the exact reason (e.g. missing
         // GSTIN) with a way forward — opening the account to fix it.
-        toast(body.error ?? 'Could not place this order', 'error')
+        toast(body.error ?? 'Could not place this order. Nothing was saved.', 'error')
         setSaving(false)
         return
       }
       toast('Order placed')
       router.push(`/orders/${body.id}`)
     } catch {
-      toast('Could not place this order', 'error')
+      toast('The connection dropped. The order was not placed.', 'error')
       setSaving(false)
     }
   }
@@ -226,7 +244,7 @@ function PhoneNewOrder() {
       saveLabel={canCreate === false ? 'Not allowed' : 'Place order'}
       changed={!!account || lines.length > 0}
     >
-      <PhoneFormField label="Account">
+      <PhoneFormField label="Account" required>
         <PickerSheetField
           label="Account"
           value={account}
@@ -237,21 +255,30 @@ function PhoneNewOrder() {
             const data: Company[] = await r.json()
             return data.map(c => ({ id: c.id, label: c.name }))
           }}
-          onCreate={name => router.push(`/parties/new?name=${encodeURIComponent(name)}`)}
+          onCreate={name => router.push(`/parties/new?name=${encodeURIComponent(name)}&next=${encodeURIComponent('/orders/new')}`)}
         />
       </PhoneFormField>
 
-      {gstBlocked && (
-        <p className="rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-label text-warning">
-          This account needs a GSTIN before you can place an order.{' '}
-          <button
-            type="button"
-            className="font-medium underline"
-            onClick={() => router.push(`/parties/companies/${account?.id}`)}
+      {accountIncomplete && (
+        <div className="flex flex-col gap-2 rounded-lg bg-warning-bg border border-warning-border px-3 py-2.5">
+          <p className="text-label text-warning">
+            Add <strong className="font-medium">{missingFields.join(', ')}</strong> to this account
+            before ordering — an order placed against it will stay in Draft
+            until these are filled in.
+          </p>
+          <PermissionTooltip
+            allowed={canEditAccount !== false}
+            reason="Only someone who can edit accounts can add these details"
           >
-            Open the account
-          </button>
-        </p>
+            <Button
+              size="sm"
+              disabled={canEditAccount === false || !editAccountHref}
+              onClick={() => editAccountHref && router.push(editAccountHref)}
+            >
+              Add details
+            </Button>
+          </PermissionTooltip>
+        </div>
       )}
 
       {account && lastOrder && lines.length === 0 && (

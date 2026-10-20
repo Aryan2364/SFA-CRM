@@ -1,11 +1,30 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { EllipsisVerticalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 
 import { useLayout } from '@/lib/layout'
+import { useToast } from '@/contexts/ToastContext'
+import { useMe } from '@/hooks/useMe'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { RecordSummary } from '@/components/ui/record-summary'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 /**
  * Phone Expenses detail — read-only, full-screen receipt photo. There is no
@@ -25,6 +44,7 @@ type Expense = {
   amount: number
   notes: string | null
   photo_url: string | null
+  user_id: string
 }
 
 function formatAmount(n: number): string {
@@ -42,10 +62,81 @@ export default function ExpenseDetailPage() {
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
   const dateHint = searchParams.get('date')
+  const { toast } = useToast()
+  const me = useMe()
   const [state, setState] = useState<'loading' | 'failed' | 'ready' | 'missing'>('loading')
   const [expense, setExpense] = useState<Expense | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
-  usePhoneAppBar({ title: 'Expense', back: '/expenses' })
+  // Edit and delete are owner-only (api/expenses/[id]): a manager who can see
+  // a team member's expense here may read it but not change it.
+  const isOwn: boolean | null = me && expense ? expense.user_id === me.userId : null
+  const canEdit: boolean | null = me ? Boolean(me.permissions?.expenses?.edit) && isOwn === true : null
+  const canDelete: boolean | null = me ? Boolean(me.permissions?.expenses?.delete) && isOwn === true : null
+
+  const menu = useMemo(() => {
+    if (state !== 'ready') return undefined
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label="More actions"
+              className="flex size-11 shrink-0 items-center justify-center rounded-lg active:bg-white/10"
+            />
+          }
+        >
+          <EllipsisVerticalIcon aria-hidden className="size-5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem
+            className="h-11"
+            disabled={canEdit !== true}
+            onClick={() => router.push(`/expenses/new?id=${params.id}${dateHint ? `&date=${dateHint}` : ''}`)}
+          >
+            <PencilIcon /> Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="h-11 text-danger"
+            disabled={canDelete !== true}
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2Icon /> Delete
+          </DropdownMenuItem>
+          {isOwn === false ? (
+            <p className="px-2 py-1.5 text-label text-text-muted">
+              Only the person who added this expense can change it.
+            </p>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, canEdit, canDelete, isOwn, params.id, dateHint, router])
+
+  usePhoneAppBar({ title: 'Expense', back: '/expenses', menu })
+
+  async function remove() {
+    if (deleting) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/expenses/${params.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        toast(body.error ?? 'Could not delete this expense.', 'error')
+        return
+      }
+      toast('Expense deleted.', 'success')
+      router.push('/expenses')
+    } catch {
+      toast('The connection dropped. Nothing was deleted.', 'error')
+    } finally {
+      setDeleting(false)
+      setDeleteOpen(false)
+    }
+  }
 
   useEffect(() => {
     if (layout === 'desktop') {
@@ -121,6 +212,23 @@ export default function ExpenseDetailPage() {
       ) : (
         <p className="text-body text-text-muted">No receipt photo.</p>
       )}
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={deleting} onClick={remove}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

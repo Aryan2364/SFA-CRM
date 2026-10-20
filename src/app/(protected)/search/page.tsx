@@ -65,7 +65,7 @@ function SearchPageInner() {
   const grandTotal = useMemo(() => Object.values(totals).reduce((a, b) => a + (b ?? 0), 0), [totals])
 
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6 p-6">
       <div>
         <h1 className="text-h2 text-text-primary">
           {q ? <>Search results for &ldquo;{q}&rdquo;</> : 'Search'}

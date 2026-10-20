@@ -15,16 +15,17 @@
  * `src/app/(protected)/parties/companies/new/page.tsx`).
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 import { useLayout } from '@/lib/layout'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
-import { PhoneForm, PhoneFormField, PhoneFormMore, usePhoneFormGuard } from '@/components/ui/phone-form'
+import { PhoneForm, PhoneFormField, usePhoneFormGuard } from '@/components/ui/phone-form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { PickerSheetField, type PickerOption } from '@/components/ui/picker-sheet'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -35,9 +36,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useToast } from '@/contexts/ToastContext'
+import { isSafeReturnPath } from '@/lib/session-expiry'
 import { usePartyMasters } from '../party-masters'
-import { checkEmail, checkGstin, checkMobile } from '@/lib/validation'
-import { cn } from '@/lib/utils'
+import { checkEmail, checkGstin, checkMobile, checkPincode, firstError } from '@/lib/validation'
+import { AccountKindChoice } from '@/components/parties/account-kind-choice'
+import { PersonModeChoice } from '@/components/parties/person-mode-choice'
 
 type AccountKind = 'Company' | 'Individual'
 
@@ -45,10 +48,11 @@ export default function NewAccountPage() {
   const { layout } = useLayout()
   const router = useRouter()
 
-  if (layout === 'desktop') {
-    router.replace('/parties?tab=companies')
-    return null
-  }
+  useEffect(() => {
+    if (layout === 'desktop') router.replace('/parties?tab=companies')
+  }, [layout, router])
+
+  if (layout === 'desktop') return null
 
   return <PhoneNewAccount />
 }
@@ -65,6 +69,10 @@ function PhoneNewAccount() {
   const [email, setEmail] = useState('')
   const [gst, setGst] = useState('')
   const [notes, setNotes] = useState('')
+  const [addressLine, setAddressLine] = useState('')
+  const [city, setCity] = useState('')
+  const [stateId, setStateId] = useState('')
+  const [pincode, setPincode] = useState('')
   const [personMode, setPersonMode] = useState<'new' | 'existing'>('new')
   const [personName, setPersonName] = useState('')
   const [personMobile, setPersonMobile] = useState('')
@@ -73,7 +81,17 @@ function PhoneNewAccount() {
   const [saving, setSaving] = useState(false)
   const [selfConflict, setSelfConflict] = useState<{ existingAccountId: string } | null>(null)
 
-  const changed = Boolean(name || mobile || email || gst || notes || personName || personMobile || existingContact)
+  // `?name=` prefills the name (a caller that searched for an account that
+  // does not exist yet); read once on mount.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('name')
+    if (q) setName(q)
+  }, [])
+
+  const changed = Boolean(
+    name || mobile || email || gst || notes || personName || personMobile || existingContact ||
+      addressLine || city || stateId || pincode
+  )
   const { requestLeave, warning } = usePhoneFormGuard(changed)
 
   function validate(): boolean {
@@ -93,75 +111,96 @@ function PhoneNewAccount() {
     if (e) next.email = e
     const g = checkGstin(gst)
     if (g) next.gst = g
+    const p = firstError(checkPincode(pincode))
+    if (p) next.pincode = p
     setErrors(next)
     return Object.keys(next).length === 0
+  }
+
+  // Optional address, saved through the existing `POST
+  // /api/companies/[id]/addresses` after the account itself is created — one
+  // write path, the same the desktop create flow and the phone edit screen
+  // use, so this never re-derives completeness rules. Best-effort: if it
+  // fails, the account still exists and the owner can add the address later
+  // from Edit account, so a toast warns rather than blocking navigation.
+  async function saveAddress(companyId: string) {
+    if (!addressLine.trim() && !city.trim() && !stateId && !pincode.trim()) return
+    try {
+      const res = await fetch(`/api/companies/${companyId}/addresses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address_line: addressLine.trim() || undefined,
+          city: city.trim() || undefined,
+          state_id: stateId || undefined,
+          pincode: pincode.trim() || undefined,
+          is_primary: true,
+        }),
+      })
+      if (!res.ok) toast('Account saved, but the address could not be added. Add it from Edit account.', 'warning')
+    } catch {
+      toast('Account saved, but the address could not be added. Add it from Edit account.', 'warning')
+    }
   }
 
   async function save() {
     if (saving) return
     if (!validate()) return
     setSaving(true)
-    const res = await fetch('/api/companies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: name.trim() || null,
-        account_kind: kind,
-        ...(kind === 'Individual' && personMode === 'existing' && existingContact
-          ? { self_contact_id: existingContact.id }
-          : {}),
-        ...(kind === 'Individual' && personMode === 'new'
-          ? { self_new_person: { name: personName.trim(), mobile: personMobile.trim() || undefined } }
-          : {}),
-        mobile_1: mobile.trim() || null,
-        email: email.trim() || null,
-        gst_number: gst.trim() || null,
-        description: notes.trim() || null,
-        owner_user_id: masters.currentUserId || null,
-      }),
-    })
-    const data = await res.json().catch(() => ({}))
-    setSaving(false)
+    try {
+      const res = await fetch('/api/companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim() || null,
+          account_kind: kind,
+          ...(kind === 'Individual' && personMode === 'existing' && existingContact
+            ? { self_contact_id: existingContact.id }
+            : {}),
+          ...(kind === 'Individual' && personMode === 'new'
+            ? { self_new_person: { name: personName.trim(), mobile: personMobile.trim() || undefined } }
+            : {}),
+          mobile_1: mobile.trim() || null,
+          email: email.trim() || null,
+          gst_number: gst.trim() || null,
+          description: notes.trim() || null,
+          owner_user_id: masters.currentUserId || null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
 
-    if (!res.ok) {
-      if (res.status === 409 && (data as { existing_account_id?: string }).existing_account_id) {
-        setSelfConflict({ existingAccountId: (data as { existing_account_id: string }).existing_account_id })
+      if (!res.ok) {
+        if (res.status === 409 && (data as { existing_account_id?: string }).existing_account_id) {
+          setSelfConflict({ existingAccountId: (data as { existing_account_id: string }).existing_account_id })
+          return
+        }
+        setErrors({ form: (data as { error?: string }).error ?? 'Could not save this account.' })
         return
       }
-      setErrors({ form: (data as { error?: string }).error ?? 'Could not save this account.' })
-      return
-    }
 
-    const created = data as { id: string; name: string }
-    const warning = (data as { warning?: string }).warning
-    if (warning) toast(warning, 'warning')
-    else toast('Account saved.')
-    router.push(`/parties/companies/${created.id}`)
+      const created = data as { id: string; name: string }
+      await saveAddress(created.id)
+      const warning = (data as { warning?: string }).warning
+      if (warning) toast(warning, 'warning')
+      else toast('Account saved.')
+      // A caller that sent the rep here to create an account (`?next=`) gets
+      // them back with `account=<new id>` appended.
+      const next = new URLSearchParams(window.location.search).get('next')
+      if (isSafeReturnPath(next) && next !== '/') {
+        router.replace(`${next}${next.includes('?') ? '&' : '?'}account=${encodeURIComponent(created.id)}`)
+      } else {
+        router.push(`/parties/companies/${created.id}`)
+      }
+    } catch {
+      setErrors({ form: 'The connection dropped. Nothing was saved.' })
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <>
-      <div
-        role="radiogroup"
-        aria-label="Account kind"
-        className="mb-4 inline-flex rounded-lg border border-border-light bg-surface p-1"
-      >
-        {(['Company', 'Individual'] as const).map(k => (
-          <button
-            key={k}
-            type="button"
-            role="radio"
-            aria-checked={kind === k}
-            onClick={() => setKind(k)}
-            className={cn(
-              'min-h-11 flex-1 rounded-md px-4 text-body font-medium transition-colors duration-200',
-              kind === k ? 'bg-primary text-text-inverse' : 'text-text-secondary'
-            )}
-          >
-            {k}
-          </button>
-        ))}
-      </div>
+      <AccountKindChoice value={kind} onChange={setKind} className="mb-4" />
 
       <PhoneForm
         saving={saving}
@@ -171,34 +210,17 @@ function PhoneNewAccount() {
       >
         {kind === 'Individual' ? (
           <>
-            <div
-              role="radiogroup"
-              aria-label="Person"
-              className="inline-flex rounded-lg border border-border-light bg-surface p-1"
-            >
-              {([
-                { v: 'new', label: 'New person' },
-                { v: 'existing', label: 'Existing contact' },
-              ] as const).map(opt => (
-                <button
-                  key={opt.v}
-                  type="button"
-                  role="radio"
-                  aria-checked={personMode === opt.v}
-                  onClick={() => setPersonMode(opt.v)}
-                  className={cn(
-                    'min-h-11 flex-1 rounded-md px-3 text-body font-medium transition-colors duration-200',
-                    personMode === opt.v ? 'bg-primary text-text-inverse' : 'text-text-secondary'
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            <PersonModeChoice
+              value={personMode}
+              onChange={setPersonMode}
+              existingLabel="Existing contact"
+              newLabel="New person"
+              order={['new', 'existing']}
+            />
 
             {personMode === 'new' ? (
               <>
-                <PhoneFormField label="Person's name" hint={errors.person}>
+                <PhoneFormField label="Person's name" required hint={errors.person}>
                   <Input value={personName} onChange={e => setPersonName(e.target.value)} aria-invalid={Boolean(errors.person)} />
                 </PhoneFormField>
                 <PhoneFormField label="Person's mobile" hint={errors.personMobile}>
@@ -211,7 +233,7 @@ function PhoneNewAccount() {
                 </PhoneFormField>
               </>
             ) : (
-              <PhoneFormField label="Existing contact" hint={errors.person}>
+              <PhoneFormField label="Existing contact" required hint={errors.person}>
                 <PickerSheetField
                   label="Contact"
                   value={existingContact}
@@ -230,7 +252,7 @@ function PhoneNewAccount() {
           </>
         ) : null}
 
-        <PhoneFormField label="Account name" hint={errors.name}>
+        <PhoneFormField label="Account name" required={kind === 'Company'} hint={errors.name}>
           <Input
             value={name}
             onChange={e => setName(e.target.value)}
@@ -240,20 +262,41 @@ function PhoneNewAccount() {
         </PhoneFormField>
 
         <PhoneFormField label="Mobile" hint={errors.mobile}>
-          <Input inputMode="numeric" value={mobile} onChange={e => setMobile(e.target.value)} aria-invalid={Boolean(errors.mobile)} />
+          <Input type="tel" inputMode="numeric" value={mobile} onChange={e => setMobile(e.target.value)} aria-invalid={Boolean(errors.mobile)} />
         </PhoneFormField>
 
-        <PhoneFormMore summary="More details">
-          <PhoneFormField label="Email" hint={errors.email}>
-            <Input type="email" value={email} onChange={e => setEmail(e.target.value)} aria-invalid={Boolean(errors.email)} />
-          </PhoneFormField>
-          <PhoneFormField label="GST number" hint={errors.gst}>
-            <Input value={gst} onChange={e => setGst(e.target.value.toUpperCase())} aria-invalid={Boolean(errors.gst)} />
-          </PhoneFormField>
-          <PhoneFormField label="Notes">
-            <Textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} />
-          </PhoneFormField>
-        </PhoneFormMore>
+        {/* No "More details" toggle (owner decision) — every field is shown,
+            required fields first. */}
+        <PhoneFormField label="Email" hint={errors.email}>
+          <Input type="email" value={email} onChange={e => setEmail(e.target.value)} aria-invalid={Boolean(errors.email)} />
+        </PhoneFormField>
+        <PhoneFormField label="GST number" hint={errors.gst}>
+          <Input value={gst} onChange={e => setGst(e.target.value.toUpperCase())} aria-invalid={Boolean(errors.gst)} />
+        </PhoneFormField>
+        <PhoneFormField label="Notes">
+          <Textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} />
+        </PhoneFormField>
+
+        {/* Optional — so a rep is never blocked from creating the account on
+            the spot, but can add it now if they already have it, saving a
+            trip back through Edit account before the first order. */}
+        <PhoneFormField label="Address" hint="Optional — can be added later from Edit account.">
+          <Input value={addressLine} onChange={e => setAddressLine(e.target.value)} />
+        </PhoneFormField>
+        <PhoneFormField label="City">
+          <Input value={city} onChange={e => setCity(e.target.value)} />
+        </PhoneFormField>
+        <PhoneFormField label="State">
+          <SearchableSelect
+            options={Object.fromEntries(masters.states.map(s => [s.id, s.name]))}
+            value={stateId}
+            onValueChange={setStateId}
+            placeholder="Select state"
+          />
+        </PhoneFormField>
+        <PhoneFormField label="Pincode" hint={errors.pincode}>
+          <Input value={pincode} onChange={e => setPincode(e.target.value)} inputMode="numeric" aria-invalid={Boolean(errors.pincode)} />
+        </PhoneFormField>
 
         {errors.form ? <p className="text-label text-danger">{errors.form}</p> : null}
       </PhoneForm>

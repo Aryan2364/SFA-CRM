@@ -2,7 +2,19 @@
 
 import { useEffect, useMemo, useState } from 'react'
 
-import Modal from '@/components/ui/Modal'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { useUnsavedChanges } from '@/components/ui/unsaved-changes'
 import { useToast } from '@/contexts/ToastContext'
 import { getPosition, reverseGeocode, toDateStr } from './types'
 
@@ -44,6 +56,12 @@ export function CouldntMeetDialog({
   const [saving, setSaving] = useState(false)
 
   const canReschedule = target?.todo_kind !== 'plan' || !!target?.party_id
+
+  const unsaved = useUnsavedChanges({
+    changed: !!(reasonId || note.trim() || dateChoice !== 'none'),
+    noun: "couldn't meet note",
+    mode: 'create',
+  })
 
   useEffect(() => {
     if (!target) return
@@ -100,68 +118,83 @@ export function CouldntMeetDialog({
   if (!target) return null
 
   return (
-    <Modal
-      title="Couldn't meet"
-      isOpen={!!target}
-      onClose={onClose}
-      onSave={handleSave}
-      isSaving={saving}
-      saveLabel="Save"
+    <Dialog
+      open={!!target}
+      onOpenChange={unsaved.guard(open => {
+        if (!open && !saving) onClose()
+      })}
     >
-      <div className="flex flex-col gap-4">
-        <p className="text-body text-text-secondary">{target.heading}</p>
+      {unsaved.warning}
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Couldn&apos;t meet</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-4">
+            <p className="text-body text-text-secondary">{target.heading}</p>
 
-        <div>
-          <label htmlFor="cm-reason" className="block text-sm font-medium text-text-secondary mb-1">
-            Reason <span className="text-danger">*</span>
-          </label>
-          <select
-            id="cm-reason" value={reasonId} onChange={e => setReasonId(e.target.value)}
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring"
-          >
-            <option value="">Select a reason…</option>
-            {reasons.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        </div>
+            <div>
+              <Label htmlFor="cm-reason">
+                Reason <span className="text-danger">*</span>
+              </Label>
+              <Select value={reasonId} onValueChange={v => setReasonId(v ?? '')}>
+                <SelectTrigger id="cm-reason" className="mt-1.5 w-full">
+                  <SelectValue placeholder="Select a reason…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {reasons.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
 
-        <div>
-          <label htmlFor="cm-note" className="block text-sm font-medium text-text-secondary mb-1">Note (optional)</label>
-          <textarea
-            id="cm-note" value={note} onChange={e => setNote(e.target.value)} rows={2}
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring"
-          />
-        </div>
+            <div>
+              <Label htmlFor="cm-note">Note (optional)</Label>
+              <Textarea
+                id="cm-note" value={note} onChange={e => setNote(e.target.value)} rows={2}
+                className="mt-1.5 text-[16px] sm:text-body"
+              />
+            </div>
 
-        <div>
-          <span className="block text-sm font-medium text-text-secondary mb-1">New date (optional)</span>
-          {!canReschedule && (
-            <p className="mb-2 text-label text-text-muted">
-              This plan line has no account on file, so it cannot be rescheduled — it will simply close.
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2">
-            {(['none', 'tomorrow', 'nextweek', 'pick'] as const).map(choice => (
-              <button
-                key={choice}
-                type="button"
-                disabled={!canReschedule && choice !== 'none'}
-                onClick={() => setDateChoice(choice)}
-                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors duration-200 disabled:opacity-40 ${
-                  dateChoice === choice ? 'border-primary-border bg-primary-surface text-primary' : 'border-border text-text-secondary'
-                }`}
-              >
-                {choice === 'none' ? 'None' : choice === 'tomorrow' ? 'Tomorrow' : choice === 'nextweek' ? 'Next week' : 'Pick a date'}
-              </button>
-            ))}
+            <div>
+              <span className="mb-1 block text-sm font-medium text-text-secondary">New date (optional)</span>
+              {!canReschedule && (
+                <p className="mb-2 text-label text-text-muted">
+                  This plan line has no account on file, so it cannot be rescheduled — it will simply close.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {(['none', 'tomorrow', 'nextweek', 'pick'] as const).map(choice => (
+                  <button
+                    key={choice}
+                    type="button"
+                    disabled={!canReschedule && choice !== 'none'}
+                    onClick={() => setDateChoice(choice)}
+                    className={`rounded-lg border px-3 py-1.5 text-sm transition-colors duration-200 disabled:opacity-40 ${
+                      dateChoice === choice ? 'border-primary-border bg-primary-subtle text-primary' : 'border-border text-text-secondary'
+                    }`}
+                  >
+                    {choice === 'none' ? 'None' : choice === 'tomorrow' ? 'Tomorrow' : choice === 'nextweek' ? 'Next week' : 'Pick a date'}
+                  </button>
+                ))}
+              </div>
+              {dateChoice === 'pick' && (
+                <input
+                  type="date" min={today} value={pickedDate} onChange={e => setPickedDate(e.target.value)}
+                  className="mt-2 h-9 rounded-lg border border-border px-2 text-[16px] text-text-primary sm:text-body"
+                />
+              )}
+            </div>
           </div>
-          {dateChoice === 'pick' && (
-            <input
-              type="date" min={today} value={pickedDate} onChange={e => setPickedDate(e.target.value)}
-              className="mt-2 h-9 rounded-lg border border-border px-2 text-body text-text-primary"
-            />
-          )}
-        </div>
-      </div>
-    </Modal>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleSave} disabled={saving || !reasonId}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

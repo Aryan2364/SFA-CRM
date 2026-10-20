@@ -80,11 +80,21 @@ import type {
 } from '@/components/meeting/types'
 import { formatDuration } from '@/components/daily-activity/types'
 import { fmtAmount, fmtDate, fmtTime } from '@/lib/format'
+import { useLayout } from '@/lib/layout'
+import { PhoneMeetingDetailPage } from './phone-meeting-detail'
 
 type Stage = NamedRef & { sort_order: number }
 type LoadState = 'loading' | 'ok' | 'not-found' | 'failed'
 
 export default function MeetingPage() {
+  const { layout } = useLayout()
+  const params = useParams<{ id: string }>()
+  const visitId = params?.id ?? ''
+  if (layout === 'phone') return <PhoneMeetingDetailPage visitId={visitId} />
+  return <DesktopMeetingPage />
+}
+
+function DesktopMeetingPage() {
   const params = useParams<{ id: string }>()
   const visitId = params?.id ?? ''
   const me = useMe()
@@ -300,7 +310,7 @@ export default function MeetingPage() {
             <Badge
               variant={
                 visit.status === 'Active'
-                  ? 'primary'
+                  ? 'warning'
                   : visit.status === 'Completed'
                     ? 'success'
                     : 'neutral'

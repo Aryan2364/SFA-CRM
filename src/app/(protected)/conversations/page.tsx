@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ExternalLinkIcon } from 'lucide-react'
+import { ChevronRightIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import {
@@ -13,6 +13,7 @@ import {
   type ListPageProps,
 } from '@/components/templates/list-page'
 import { Badge } from '@/components/ui/badge'
+import { Count } from '@/components/ui/badge'
 import { ConversationThreadSheet } from '@/components/conversations/conversation-thread-sheet'
 import {
   addressFromParams,
@@ -241,9 +242,7 @@ function conversationColumns(): ListColumn<Conversation>[] {
          badge is the primary one rather than a status colour. */
       cell: conv =>
         conv.unread_count > 0 ? (
-          <Badge variant="primary">
-            {conv.unread_count > 9 ? '9+' : conv.unread_count}
-          </Badge>
+          <Count value={conv.unread_count} />
         ) : (
           <span className="text-text-muted">—</span>
         ),
@@ -273,8 +272,8 @@ function conversationColumns(): ListColumn<Conversation>[] {
             href={href}
             className="inline-flex min-h-[44px] items-center justify-end gap-1.5 text-text-secondary hover:text-primary hover:underline"
           >
-            <ExternalLinkIcon className="h-4 w-4" />
             Source
+            <ChevronRightIcon className="h-4 w-4" />
           </Link>
         )
       },

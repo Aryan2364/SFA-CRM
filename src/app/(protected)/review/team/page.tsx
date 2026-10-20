@@ -10,6 +10,15 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CategoryBarChart } from '@/components/ui/bar-chart'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableRowHeader,
+  TableCell,
+} from '@/components/ui/table'
 import { TeamMemberTable, type TeamMemberRow } from '@/components/review/team-member-table'
 import { fmtAmount, fmtNumber } from '@/lib/format'
 
@@ -135,7 +144,7 @@ export default function TeamSummaryPage() {
           <Button variant="secondary" size="icon" onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label="Next week">
             <ChevronRightIcon className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" onClick={() => setWeekStart(mondayOf(new Date().toISOString().slice(0, 10)))}>
+          <Button variant="secondary" onClick={() => setWeekStart(mondayOf(new Date().toISOString().slice(0, 10)))}>
             This week
           </Button>
         </div>
@@ -196,31 +205,31 @@ export default function TeamSummaryPage() {
 
             <Card>
               <CardHeader><CardTitle>Day-wise, across {data.tier === 'company' ? 'the company' : 'the team'}</CardTitle></CardHeader>
-              <CardContent className="overflow-x-auto py-4">
-                <table className="w-full min-w-[640px] text-body">
-                  <thead>
-                    <tr className="border-b border-border-light text-left text-caption text-text-secondary">
-                      <th className="py-2 pr-3">Day</th>
-                      <th className="py-2 pr-3 text-right">Planned</th>
-                      <th className="py-2 pr-3 text-right">Meetings</th>
-                      <th className="py-2 pr-3 text-right">Orders</th>
-                      <th className="py-2 pr-3 text-right">Order value</th>
-                      <th className="py-2 pr-3 text-right">Expenses</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <CardContent className="py-4">
+                <Table containerClassName="overflow-x-auto">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-grid-head">Day</TableHead>
+                      <TableHead numeric className="w-col-count">Planned</TableHead>
+                      <TableHead numeric className="w-col-count">Meetings</TableHead>
+                      <TableHead numeric className="w-col-count">Orders</TableHead>
+                      <TableHead numeric className="w-col-amount">Order value</TableHead>
+                      <TableHead numeric className="w-col-amount">Expenses</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {data.byDay.map(d => (
-                      <tr key={d.date} className="border-b border-border-light last:border-0">
-                        <td className="py-2 pr-3 font-medium">{fmtDayLabel(d.date)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{fmtNumber(d.plannedGoal)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{fmtNumber(d.achievedMeetings)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{fmtNumber(d.ordersCount)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{fmtAmount(d.ordersValue)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{fmtAmount(d.expenseTotal)}</td>
-                      </tr>
+                      <TableRow key={d.date}>
+                        <TableRowHeader frozen>{fmtDayLabel(d.date)}</TableRowHeader>
+                        <TableCell numeric>{fmtNumber(d.plannedGoal)}</TableCell>
+                        <TableCell numeric>{fmtNumber(d.achievedMeetings)}</TableCell>
+                        <TableCell numeric>{fmtNumber(d.ordersCount)}</TableCell>
+                        <TableCell numeric>{fmtAmount(d.ordersValue)}</TableCell>
+                        <TableCell numeric>{fmtAmount(d.expenseTotal)}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
 
@@ -258,29 +267,29 @@ export default function TeamSummaryPage() {
             {data.tier === 'company' && data.byManager.length > 0 && (
               <Card>
                 <CardHeader><CardTitle>By manager</CardTitle></CardHeader>
-                <CardContent className="overflow-x-auto py-4">
-                  <table className="w-full min-w-[560px] text-body">
-                    <thead>
-                      <tr className="border-b border-border-light text-left text-caption text-text-secondary">
-                        <th className="py-2 pr-3">Reports to</th>
-                        <th className="py-2 pr-3 text-right">People</th>
-                        <th className="py-2 pr-3 text-right">Meetings</th>
-                        <th className="py-2 pr-3 text-right">Order value</th>
-                        <th className="py-2 pr-3 text-right">Expenses</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                <CardContent className="py-4">
+                  <Table containerClassName="overflow-x-auto">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-grid-head">Reports to</TableHead>
+                        <TableHead numeric className="w-col-count">People</TableHead>
+                        <TableHead numeric className="w-col-count">Meetings</TableHead>
+                        <TableHead numeric className="w-col-amount">Order value</TableHead>
+                        <TableHead numeric className="w-col-amount">Expenses</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {data.byManager.map(m => (
-                        <tr key={m.managerUserId ?? 'none'} className="border-b border-border-light last:border-0">
-                          <td className="py-2 pr-3 font-medium">{m.managerName}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{fmtNumber(m.people)}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{fmtNumber(m.meetings)}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{fmtAmount(m.orderValue)}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{fmtAmount(m.expenseTotal)}</td>
-                        </tr>
+                        <TableRow key={m.managerUserId ?? 'none'}>
+                          <TableRowHeader frozen>{m.managerName}</TableRowHeader>
+                          <TableCell numeric>{fmtNumber(m.people)}</TableCell>
+                          <TableCell numeric>{fmtNumber(m.meetings)}</TableCell>
+                          <TableCell numeric>{fmtAmount(m.orderValue)}</TableCell>
+                          <TableCell numeric>{fmtAmount(m.expenseTotal)}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             )}

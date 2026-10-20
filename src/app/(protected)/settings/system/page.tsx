@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { InlineFieldError } from '@/components/ui/inline-field-error'
 import { Input } from '@/components/ui/input'
+import { LoadError } from '@/components/ui/load-error'
 import { Label } from '@/components/ui/label'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -80,7 +81,7 @@ export default function SystemSettingsPage() {
   const [ageing, setAgeing] = useState('')
   const [checkoutTime, setCheckoutTime] = useState<TimeValue | undefined>()
   const [saving, setSaving] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<{ forbidden: boolean } | null>(null)
   /* The GST switch commits on its own (kit: switch.tsx), so it is held apart
      from the form values and never waits for Save. */
   const [gstRequired, setGstRequired] = useState(true)
@@ -95,10 +96,9 @@ export default function SystemSettingsPage() {
     let cancelled = false
     fetch('/api/settings/system')
       .then(async r => {
-        if (!r.ok) {
-          const body = await r.json().catch(() => ({}))
-          throw new Error(body.error ?? 'Could not load settings.')
-        }
+        // A 403 is a standing condition, not a glitch: it gets the no-access
+        // state with no Retry (kit 26.6), never the server's raw "Forbidden".
+        if (!r.ok) throw Object.assign(new Error('load failed'), { forbidden: r.status === 403 })
         return r.json() as Promise<SystemSettingsResponse>
       })
       .then(data => {
@@ -114,8 +114,8 @@ export default function SystemSettingsPage() {
         setAgeing(String(data.deal_stage_ageing_days))
         setCheckoutTime(minutesToTimeValue(data.auto_checkout_minutes))
       })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message)
+      .catch((err: { forbidden?: boolean }) => {
+        if (!cancelled) setLoadError({ forbidden: err?.forbidden === true })
       })
     return () => {
       cancelled = true
@@ -213,14 +213,13 @@ export default function SystemSettingsPage() {
       </div>
 
       {loadError ? (
-        /* No dead ends: a failed load offers the way forward rather than an
-           empty screen. */
-        <div className="rounded-xl border border-border-light bg-surface p-6">
-          <p className="text-body text-text-primary">{loadError}</p>
-          <Button className="mt-4" onClick={() => window.location.reload()}>
-            Try again
-          </Button>
-        </div>
+        /* No dead ends: a 403 says so and the breadcrumb leads back; a failed
+           load offers a retry. */
+        <LoadError
+          forbidden={loadError.forbidden}
+          what="system settings"
+          onRetry={() => window.location.reload()}
+        />
       ) : settings === null ? (
         <div className="space-y-4">
           <Skeleton className="h-28" />

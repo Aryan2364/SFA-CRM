@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, type SessionUser } from '@/lib/auth'
 import { prisma, dbErrorResult } from '@/lib/db'
-import { signSession, sessionMaxAgeSeconds, COOKIE_NAME } from '@/lib/session'
+import { signSession, sessionMaxAgeSecondsFor, COOKIE_NAME } from '@/lib/session'
+import { getRequestLayout } from '@/lib/layout.server'
 import { getTenantId } from '@/lib/tenant'
 import bcrypt from 'bcryptjs'
 import { PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
     // The same payload, cookie name, attributes and maxAge as /api/auth/login.
     const effectiveRole =
       row.profile === 'Administrator' ? 'Administrator' : (row.roles?.name ?? 'NoRole')
+    const maxAge = sessionMaxAgeSecondsFor(getRequestLayout(req))
     const token = await signSession({
       phone: row.contact,
       userId: row.id,
@@ -107,9 +109,9 @@ export async function POST(req: NextRequest) {
       role: effectiveRole,
       tenantId: row.tenant_id,
       cv: nextVersion,
-    })
+    }, maxAge)
     const res = NextResponse.json({ ok: true })
-    res.cookies.set(COOKIE_NAME, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: sessionMaxAgeSeconds() })
+    res.cookies.set(COOKIE_NAME, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge })
     return res
   } catch (err) {
     const { error, status } = dbErrorResult(err)

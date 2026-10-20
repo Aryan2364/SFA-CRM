@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, ReactNode } from 'react'
-import SearchableSelect from '@/components/ui/SearchableSelect'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useToast } from '@/contexts/ToastContext'
 import { checkLandline } from '@/lib/validation'
 
@@ -218,8 +218,12 @@ export function BusinessPartnerFormFields({
         <p className="block text-sm font-medium text-text-secondary mb-1">
           Place {requirePlace && <span className="text-danger">*</span>}
         </p>
-        <SearchableSelect value={form.place} onChange={handlePlaceChange} options={placeOptions}
-          placeholder="Search by district, taluka or village…" />
+        <SearchableSelect
+          value={form.place}
+          onValueChange={handlePlaceChange}
+          options={Object.fromEntries(placeOptions.map(o => [o.value, o.label]))}
+          placeholder="Search by district, taluka or village…"
+        />
       </div>
 
       {midSlot}

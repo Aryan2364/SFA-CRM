@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { useToast } from '@/contexts/ToastContext'
 
 type Kind = 'went_well' | 'improve'
 
@@ -28,11 +27,17 @@ const PLACEHOLDER: Record<Kind, string> = {
  */
 export function JournalBox({ kind, weekStart }: { kind: Kind; weekStart: string }) {
   const router = useRouter()
-  const { toast: showToast } = useToast()
   const [text, setText] = useState('')
   const [savedText, setSavedText] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  // A failed load leaves the box locked: an empty box that autosaves would
+  // overwrite the real entry the load never delivered.
+  const [loadError, setLoadError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  // The last save failed and is being retried.
+  const [saveFailed, setSaveFailed] = useState(false)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /*
@@ -56,20 +61,31 @@ export function JournalBox({ kind, weekStart }: { kind: Kind; weekStart: string 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch(`/api/journal?weekStart=${weekStart}&kind=${kind}`)
-      .then(r => r.json())
-      .then((rows: { body: string | null }[]) => {
+    setLoadError(false)
+    setSaveFailed(false)
+    fetch(`/api/journal?weekStart=${weekStart}&kind=${kind}`, { signal: AbortSignal.timeout(20000) })
+      .then(async r => {
+        if (!r.ok) throw new Error('load failed')
+        const rows = await r.json()
+        // An error object is not "no entry yet" - only an array is an answer.
+        if (!Array.isArray(rows)) throw new Error('unexpected shape')
+        return rows as { body: string | null }[]
+      })
+      .then(rows => {
         if (cancelled) return
         const body = rows[0]?.body ?? ''
         savedRef.current = { weekStart, text: body }
         setText(body)
         setSavedText(body)
       })
-      .catch(() => { if (!cancelled) showToast('Could not load journal entry', 'error') })
+      .catch(() => { if (!cancelled) setLoadError(true) })
       .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, weekStart])
+  }, [kind, weekStart, attempt])
 
   function scheduleSave(next: string) {
     setText(next)
@@ -104,9 +120,19 @@ export function JournalBox({ kind, weekStart }: { kind: Kind; weekStart: string 
           const body = await res.json().catch(() => ({}))
           if (!res.ok) throw new Error(body.error || 'Could not save entry')
           savedRef.current = next
+          setSaveFailed(false)
           if (next.weekStart === currentWeek.current) setSavedText(next.text)
-        } catch (err) {
-          showToast(err instanceof Error ? err.message : 'Could not save entry', 'error')
+        } catch {
+          // Visible, not silent: the status line says so and the save is
+          // retried, unless newer text has already been queued behind it.
+          setSaveFailed(true)
+          if (!queued.current && next.weekStart === currentWeek.current) {
+            if (retryTimer.current) clearTimeout(retryTimer.current)
+            retryTimer.current = setTimeout(() => {
+              retryTimer.current = null
+              save(next.weekStart, next.text)
+            }, 5000)
+          }
         }
       }
     } finally {
@@ -139,13 +165,22 @@ export function JournalBox({ kind, weekStart }: { kind: Kind; weekStart: string 
           onChange={e => scheduleSave(e.target.value)}
           onBlur={handleBlur}
           placeholder={loading ? 'Loading…' : PLACEHOLDER[kind]}
-          disabled={loading}
+          disabled={loading || loadError}
           rows={4}
           className="min-h-[6rem] text-body transition-[height] duration-200"
         />
-        <div className="mt-1 h-4 text-caption text-text-secondary">
-          {saving ? 'Saving…' : text !== savedText ? 'Unsaved changes' : text ? 'Saved' : ''}
-        </div>
+        {loadError ? (
+          <div role="alert" className="mt-1 flex flex-wrap items-center gap-2 text-caption text-text-secondary">
+            <span>Couldn&apos;t load this entry. Check your connection and try again. Editing is off until it loads.</span>
+            <Button variant="secondary" size="sm" onClick={() => setAttempt(a => a + 1)}>Retry</Button>
+          </div>
+        ) : (
+          <div className="mt-1 min-h-4 text-caption text-text-secondary" role={saveFailed ? 'alert' : undefined}>
+            {saveFailed
+              ? 'Not saved. Retrying…'
+              : saving ? 'Saving…' : text !== savedText ? 'Unsaved changes' : text ? 'Saved' : ''}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

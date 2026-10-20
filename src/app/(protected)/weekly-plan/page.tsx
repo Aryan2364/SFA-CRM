@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon, MessageSquareIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
-import StatusBadge from '@/components/ui/StatusBadge'
+import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,7 +16,18 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import { useMeStatus } from '@/hooks/useMe'
+import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/contexts/ToastContext'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { ManagerChanges, changeCountLabel } from '@/components/weekly-plan/manager-changes'
@@ -324,9 +335,15 @@ type LineEdit = {
 }
 
 // ---- My Plan Tab ----
+const PLAN_EDIT_REASON = 'Only someone who can edit weekly plans can do this.'
+const NETWORK_FAILURE = 'Couldn\u2019t reach the server. Check your connection and try again.'
+
 /** `userId` is never null here: the page renders this only once
- *  /api/auth/me has answered and the answer carries a user record. */
-function MyPlanTab({ userId }: { userId: string }) {
+ *  /api/auth/me has answered and the answer carries a user record.
+ *  `canCreate` / `canEditPlan` mirror what the routes check: POST
+ *  /api/weekly-plans needs weekly_plan.create; every write on an existing
+ *  plan (PUT, submit, undo, request-reopen) needs weekly_plan.edit. */
+function MyPlanTab({ userId, canCreate, canEditPlan }: { userId: string; canCreate: boolean; canEditPlan: boolean }) {
   const { toast } = useToast()
   const [monday, setMonday] = useState(() => getMondayOf(new Date()))
   const [plan, setPlan] = useState<Plan | null>(null)
@@ -388,8 +405,8 @@ function MyPlanTab({ userId }: { userId: string }) {
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      fetch('/api/companies').then(r => r.ok ? r.json() : []),
-      fetch('/api/contacts').then(r => r.ok ? r.json() : []),
+      fetch('/api/companies').then(r => { if (!r.ok) throw new Error('companies'); return r.json() }),
+      fetch('/api/contacts').then(r => { if (!r.ok) throw new Error('contacts'); return r.json() }),
     ]).then(([companies, contacts]) => {
       if (cancelled) return
       const list: PartyOption[] = []
@@ -416,7 +433,7 @@ function MyPlanTab({ userId }: { userId: string }) {
       }
       list.sort((a, b) => a.name.localeCompare(b.name))
       setParties(list)
-    }).catch(() => toast('Failed to load accounts and contacts', 'error'))
+    }).catch(() => toast('Couldn\u2019t load accounts and contacts, so lines can\u2019t be added yet. Reload the page to try again.', 'error'))
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -491,17 +508,24 @@ function MyPlanTab({ userId }: { userId: string }) {
     return () => clearInterval(interval)
   }, [plan])
 
-  const fetchLogs = useCallback(async (planId: string) => {
-    const r = await fetch(`/api/weekly-plans/${planId}/logs`)
-    if (!r.ok) return
-    const data = await r.json()
-    setLogs(Array.isArray(data) ? data : [])
+  /** Resolves true when the log is loaded; a failure is never read as "no entries". */
+  const fetchLogs = useCallback(async (planId: string): Promise<boolean> => {
+    try {
+      const r = await fetch(`/api/weekly-plans/${planId}/logs`, { signal: AbortSignal.timeout(20000) })
+      if (!r.ok) return false
+      const data = await r.json()
+      if (!Array.isArray(data)) return false
+      setLogs(data)
+      return true
+    } catch {
+      return false
+    }
   }, [])
 
   async function loadLogs() {
     if (!plan) return
-    await fetchLogs(plan.id)
-    setLogsOpen(true)
+    if (await fetchLogs(plan.id)) setLogsOpen(true)
+    else toast('Couldn\u2019t load the audit log. Check your connection and try again.', 'error')
   }
 
   useEffect(() => {
@@ -559,21 +583,26 @@ function MyPlanTab({ userId }: { userId: string }) {
 
   async function saveDraft() {
     setSaving(true)
-    const items = dayDataToPlanItems(dayData)
-    if (!plan) {
-      const r = await fetch('/api/weekly-plans', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, goals: goalsPayload() })
-      })
-      if (!r.ok) { toast((await r.json()).error, 'error') } else { toast('Draft created'); loadPlan(true) }
-    } else {
-      const r = await fetch(`/api/weekly-plans/${plan.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload(), expected_version: plan.version ?? undefined })
-      })
-      if (!r.ok) { await refuse(r) } else { toast('Saved'); loadPlan(true) }
+    try {
+      const items = dayDataToPlanItems(dayData)
+      if (!plan) {
+        const r = await fetch('/api/weekly-plans', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, goals: goalsPayload() })
+        })
+        if (!r.ok) { await refuse(r) } else { toast('Draft created'); loadPlan(true) }
+      } else {
+        const r = await fetch(`/api/weekly-plans/${plan.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload(), expected_version: plan.version ?? undefined })
+        })
+        if (!r.ok) { await refuse(r) } else { toast('Saved'); loadPlan(true) }
+      }
+    } catch {
+      toast(NETWORK_FAILURE, 'error')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   /**
@@ -583,7 +612,7 @@ function MyPlanTab({ userId }: { userId: string }) {
    */
   async function refuse(r: Response) {
     const body = await r.json().catch(() => ({}))
-    toast(body?.error ?? 'Could not save the plan', 'error')
+    toast(body?.error ?? 'Could not save the plan. Please try again.', 'error')
     if (r.status === 409) loadPlan(true)
   }
 
@@ -606,62 +635,99 @@ function MyPlanTab({ userId }: { userId: string }) {
       return
     }
     setSaving(true)
-    let planId = plan?.id ?? null
-    // The version Submit claims: the one this screen shows, or the one the
-    // create / save just below left — so Submit sends exactly what was saved.
-    let version = plan?.version ?? undefined
-    if (!plan) {
-      const r = await fetch('/api/weekly-plans', {
+    try {
+      let planId = plan?.id ?? null
+      // The version Submit claims: the one this screen shows, or the one the
+      // create / save just below left — so Submit sends exactly what was saved.
+      let version = plan?.version ?? undefined
+      if (!plan) {
+        const r = await fetch('/api/weekly-plans', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, goals: goalsPayload() })
+        })
+        if (!r.ok) { await refuse(r); return }
+        const created = await r.json().catch(() => null)
+        if (!created?.id) { toast(NETWORK_FAILURE, 'error'); return }
+        planId = created.id
+        version = created.version ?? undefined
+      } else if (['Draft', 'Rejected', 'Edited by Manager'].includes(plan.status)) {
+        const r = await fetch(`/api/weekly-plans/${plan.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload(), expected_version: version })
+        })
+        if (!r.ok) { await refuse(r); return }
+        version = (await r.json().catch(() => null))?.version ?? undefined
+      }
+      const r = await fetch(`/api/weekly-plans/${planId}/submit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_start_date: weekStart, week_end_date: weekEnd, items, day_notes: dayNotes, goals: goalsPayload() })
+        body: JSON.stringify({ expected_version: version }),
       })
-      if (!r.ok) { toast((await r.json()).error, 'error'); setSaving(false); return }
-      const created = await r.json()
-      planId = created.id
-      version = created.version ?? undefined
-    } else if (['Draft', 'Rejected', 'Edited by Manager'].includes(plan.status)) {
-      const r = await fetch(`/api/weekly-plans/${plan.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, day_notes: dayNotes, goals: goalsPayload(), expected_version: version })
-      })
-      if (!r.ok) { await refuse(r); setSaving(false); return }
-      version = (await r.json())?.version ?? undefined
+      if (!r.ok) { await refuse(r) } else { toast('Submitted for review!'); loadPlan(true) }
+    } catch {
+      toast(NETWORK_FAILURE, 'error')
+    } finally {
+      setSaving(false)
     }
-    const r = await fetch(`/api/weekly-plans/${planId}/submit`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expected_version: version }),
-    })
-    if (!r.ok) { await refuse(r) } else { toast('Submitted for review!'); loadPlan(true) }
-    setSaving(false)
   }
 
   async function handleUndo() {
     if (!plan) return
     setSaving(true)
-    const r = await fetch(`/api/weekly-plans/${plan.id}/undo-submit`, { method: 'POST' })
-    if (!r.ok) { toast((await r.json()).error, 'error') } else { toast('Submit undone — plan is editable again'); loadPlan(true) }
-    setSaving(false)
+    try {
+      const r = await fetch(`/api/weekly-plans/${plan.id}/undo-submit`, { method: 'POST' })
+      if (!r.ok) { await refuse(r) } else { toast('Submit undone — plan is editable again'); loadPlan(true) }
+    } catch {
+      toast(NETWORK_FAILURE, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleRequestReopen() {
     if (!plan || !reopenMessage.trim()) return
     setReopening(true)
-    const r = await fetch(`/api/weekly-plans/${plan.id}/request-reopen`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: reopenMessage.trim() })
-    })
-    if (!r.ok) { toast((await r.json()).error, 'error') } else {
-      toast('Reopen request sent to manager')
-      setReopenModal(false)
-      setReopenMessage('')
-      loadPlan(true)
+    try {
+      const r = await fetch(`/api/weekly-plans/${plan.id}/request-reopen`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: reopenMessage.trim() })
+      })
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        toast(body?.error ?? 'Could not send the reopen request. Please try again.', 'error')
+      } else {
+        toast('Reopen request sent to manager')
+        setReopenModal(false)
+        setReopenMessage('')
+        loadPlan(true)
+      }
+    } catch {
+      toast(NETWORK_FAILURE, 'error')
+    } finally {
+      setReopening(false)
     }
-    setReopening(false)
   }
 
-  const canEdit = !plan || ['Draft', 'Rejected', 'Edited by Manager'].includes(plan.status)
+  /** The plan's status allows editing. */
+  const statusEditable = !plan || ['Draft', 'Rejected', 'Edited by Manager'].includes(plan.status)
+  /** Status AND permission: creating a first draft needs weekly_plan.create,
+   *  changing an existing plan needs weekly_plan.edit (the routes' own checks). */
+  const canWrite = plan ? canEditPlan : canCreate
+  const canEdit = statusEditable && canWrite
+  // Submitting a brand-new plan creates it, then submits it: both actions.
+  const canSubmit = canEditPlan && (plan ? true : canCreate)
+  const reopenLink = (colorClass: string) => (
+    <PermissionTooltip allowed={canEditPlan} reason={PLAN_EDIT_REASON}>
+      <button
+        onClick={() => setReopenModal(true)}
+        disabled={!canEditPlan}
+        className={`text-meta underline disabled:cursor-not-allowed disabled:opacity-50 ${colorClass}`}
+      >
+        Request Reopen
+      </button>
+    </PermissionTooltip>
+  )
   const isSubmittedAwaitingReview = plan && ['Submitted', 'Resubmitted'].includes(plan.status)
-  const canRequestReopen = plan && !canEdit && !plan.reopen_requested && undoSecondsLeft === 0
+  const canRequestReopen = plan && !statusEditable && !plan.reopen_requested && undoSecondsLeft === 0
 
   // ---- the board's data ----
 
@@ -863,13 +929,17 @@ function MyPlanTab({ userId }: { userId: string }) {
     const next = !goal.is_done
     setGoals(prev => prev.map(g => g.key === key ? { ...g, is_done: next } : g))
     if (!goal.id || !plan) return
-    const r = await fetch(`/api/weekly-plans/${plan.id}/goals/${goal.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_done: next }),
-    })
-    if (!r.ok) {
+    let ok = false
+    try {
+      const r = await fetch(`/api/weekly-plans/${plan.id}/goals/${goal.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_done: next }),
+      })
+      ok = r.ok
+    } catch { /* reverted below */ }
+    if (!ok) {
       setGoals(prev => prev.map(g => g.key === key ? { ...g, is_done: goal.is_done } : g))
-      toast('Could not update that goal', 'error')
+      toast('Could not update that goal. Please try again.', 'error')
     }
   }
 
@@ -905,7 +975,7 @@ function MyPlanTab({ userId }: { userId: string }) {
       <div className="shrink-0 pb-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-xl font-medium text-text-primary">Weekly Plan</h2>
-          {plan && <StatusBadge status={plan.status} />}
+          {plan && <StatusBadge vocabulary={WEEKLY_PLAN_STATUS} status={plan.status} />}
           {/*
             No add button here. Adding a line is a per-DAY action and it lives
             on the day's own column heading, next to the count of what is
@@ -943,7 +1013,7 @@ function MyPlanTab({ userId }: { userId: string }) {
           <div className="flex items-center justify-between gap-3">
             <span className="text-label font-medium text-success">Plan Approved</span>
             {canRequestReopen && (
-              <button onClick={() => setReopenModal(true)} className="text-meta text-success underline">Request Reopen</button>
+              reopenLink('text-success')
             )}
           </div>
           {plan.manager_comment && <p className="mt-1 text-label text-success">{plan.manager_comment}</p>}
@@ -984,7 +1054,7 @@ function MyPlanTab({ userId }: { userId: string }) {
           <div className="flex items-center justify-between gap-3">
             <span className="text-label font-medium text-warning">Plan On Hold</span>
             {canRequestReopen && (
-              <button onClick={() => setReopenModal(true)} className="text-meta text-warning underline">Request Reopen</button>
+              reopenLink('text-warning')
             )}
           </div>
           {plan.manager_comment && <p className="mt-1 text-label text-warning">{plan.manager_comment}</p>}
@@ -996,11 +1066,13 @@ function MyPlanTab({ userId }: { userId: string }) {
           <div className="flex items-center justify-between gap-3">
             <span className="text-label font-medium text-primary">Awaiting manager review</span>
             {undoSecondsLeft > 0 ? (
-              <Button variant="secondary" size="sm" onClick={handleUndo} disabled={saving}>
-                Undo ({formatCountdown(undoSecondsLeft)})
-              </Button>
+              <PermissionTooltip allowed={canEditPlan} reason={PLAN_EDIT_REASON}>
+                <Button variant="secondary" size="sm" onClick={handleUndo} disabled={saving || !canEditPlan}>
+                  Undo ({formatCountdown(undoSecondsLeft)})
+                </Button>
+              </PermissionTooltip>
             ) : canRequestReopen ? (
-              <button onClick={() => setReopenModal(true)} className="text-meta text-primary underline">Request Reopen</button>
+              reopenLink('text-primary')
             ) : plan?.reopen_requested ? (
               <span className="text-meta text-primary italic">Reopen request sent</span>
             ) : null}
@@ -1077,14 +1149,24 @@ function MyPlanTab({ userId }: { userId: string }) {
             />
           </div>
 
-          {canEdit && (
+          {statusEditable && (
             <div className="mt-3 flex shrink-0 items-center justify-end gap-2">
-              <Button variant="secondary" onClick={handleSaveDraft} disabled={saving} className="min-h-11 flex-1 sm:flex-initial">
-                Save Draft
-              </Button>
-              <Button onClick={handleSubmit} disabled={saving} className="min-h-11 flex-1 sm:flex-initial">
-                Submit Plan
-              </Button>
+              <PermissionTooltip
+                allowed={canWrite}
+                reason={plan ? 'Only someone who can edit weekly plans can save changes to one.' : 'Only someone who can create weekly plans can save one.'}
+              >
+                <Button variant="secondary" onClick={handleSaveDraft} disabled={saving || !canWrite} className="min-h-11 flex-1 sm:flex-initial">
+                  Save Draft
+                </Button>
+              </PermissionTooltip>
+              <PermissionTooltip
+                allowed={canSubmit}
+                reason={canEditPlan ? 'Only someone who can create weekly plans can submit a new one.' : 'Only someone who can edit weekly plans can submit one.'}
+              >
+                <Button onClick={handleSubmit} disabled={saving || !canSubmit} className="min-h-11 flex-1 sm:flex-initial">
+                  Submit Plan
+                </Button>
+              </PermissionTooltip>
             </div>
           )}
         </>
@@ -1142,56 +1224,59 @@ function MyPlanTab({ userId }: { userId: string }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Audit Log Modal */}
-      {logsOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
-          <div className="absolute inset-0 bg-(--backdrop)" onClick={() => setLogsOpen(false)} />
-          <div className="relative flex max-h-[70vh] w-full max-w-lg flex-col rounded-2xl bg-surface shadow-xl">
-            <div className="flex items-center justify-between border-b border-border-light px-6 py-4">
-              <h3 className="font-medium text-text-primary">Audit Log</h3>
-              <button onClick={() => setLogsOpen(false)} className="text-xl text-text-muted hover:text-text-secondary">&times;</button>
-            </div>
-            <div className="space-y-3 overflow-y-auto px-6 py-4">
-              {logs.map(log => (
-                <div key={log.id} className="flex gap-3 text-sm">
-                  <div className="w-1 shrink-0 rounded-full bg-primary-subtle" />
-                  <div>
-                    <p className="font-medium text-text-primary">{log.action_type} <span className="text-xs font-normal text-text-muted">by {log.users?.name ?? log.actor_role}</span></p>
-                    {(log.previous_status || log.new_status) && <p className="text-xs text-text-secondary">{log.previous_status} → {log.new_status}</p>}
-                    {log.comment && <p className="mt-0.5 rounded bg-warning-bg px-2 py-0.5 text-xs text-warning">&ldquo;{log.comment}&rdquo;</p>}
-                    {log.changes && <ManagerChanges changes={log.changes} className="mt-1" />}
-                    <p className="text-xs text-text-secondary">{new Date(log.timestamp).toLocaleString('en-IN')}</p>
-                  </div>
+      {/* Audit Log */}
+      <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Audit Log</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 overflow-y-auto px-6 py-4">
+            {logs.map(log => (
+              <div key={log.id} className="flex gap-3 text-sm">
+                <div className="w-1 shrink-0 rounded-full bg-primary-subtle" />
+                <div>
+                  <p className="font-medium text-text-primary">{log.action_type} <span className="text-xs font-normal text-text-muted">by {log.users?.name ?? log.actor_role}</span></p>
+                  {(log.previous_status || log.new_status) && <p className="text-xs text-text-secondary">{log.previous_status} → {log.new_status}</p>}
+                  {log.comment && <p className="mt-0.5 rounded bg-warning-bg px-2 py-0.5 text-xs text-warning">&ldquo;{log.comment}&rdquo;</p>}
+                  {log.changes && <ManagerChanges changes={log.changes} className="mt-1" />}
+                  <p className="text-xs text-text-secondary">{new Date(log.timestamp).toLocaleString('en-IN')}</p>
                 </div>
-              ))}
-              {logs.length === 0 && <p className="text-sm text-text-muted">No log entries yet.</p>}
-            </div>
+              </div>
+            ))}
+            {logs.length === 0 && <p className="text-sm text-text-muted">No log entries yet.</p>}
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {/* Item 7: Request Reopen Modal */}
-      {reopenModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
-          <div className="absolute inset-0 bg-(--backdrop)" onClick={() => { setReopenModal(false); setReopenMessage('') }} />
-          <div className="relative w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl">
-            <h3 className="mb-1 font-medium text-text-primary">Request Plan Reopen</h3>
-            <p className="mb-4 text-xs text-text-muted">Explain why you need to edit this plan. Your manager will be notified.</p>
-            <textarea
+      {/* Item 7: Request Reopen */}
+      <Dialog
+        open={reopenModal}
+        onOpenChange={next => { setReopenModal(next); if (!next) setReopenMessage('') }}
+      >
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Request Plan Reopen</DialogTitle>
+          </DialogHeader>
+          <p className="px-6 text-xs text-text-muted">
+            Explain why you need to edit this plan. Your manager will be notified.
+          </p>
+          <div className="px-6 py-2">
+            <Textarea
               value={reopenMessage}
               onChange={e => setReopenMessage(e.target.value)}
-              rows={4} placeholder="Reason for reopen request…"
-              className="mb-4 w-full resize-none rounded-xl border border-border-light px-3 py-2 text-sm focus:ring-2 focus:ring-primary-ring focus:outline-none"
+              rows={4}
+              placeholder="Reason for reopen request…"
+              className="resize-none text-[16px] sm:text-sm"
             />
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => { setReopenModal(false); setReopenMessage('') }}>Cancel</Button>
-              <Button onClick={handleRequestReopen} disabled={reopening || !reopenMessage.trim()}>
-                {reopening ? 'Sending…' : 'Send Request'}
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary" />}>Cancel</DialogClose>
+            <Button onClick={handleRequestReopen} disabled={reopening || !reopenMessage.trim()}>
+              {reopening ? 'Sending…' : 'Send Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Remarks / Chat Panel */}
       {plan && (
@@ -1221,36 +1306,25 @@ function MyPlanTab({ userId }: { userId: string }) {
  * The request carries its own deadline because `fetch` has none (section 14.4)
  * — without it a stalled response never settles and the skeleton is forever.
  */
-type MeState =
-  | { status: 'loading' }
-  | { status: 'failed' }
-  | { status: 'ready'; userId: string | null; canAddUsers: boolean }
-
 function DesktopWeeklyPlanPage() {
   const router = useRouter()
-  const [me, setMe] = useState<MeState>({ status: 'loading' })
-
-  const loadMe = useCallback(() => {
-    setMe({ status: 'loading' })
-    fetch('/api/auth/me', { signal: AbortSignal.timeout(20000) })
-      .then(async r => {
-        if (!r.ok) throw new Error(`auth/me ${r.status}`)
-        return r.json()
-      })
-      .then((d: { userId: string | null; permissions?: Record<string, { view?: boolean; create?: boolean; edit?: boolean }> }) => {
-        const users = d.permissions?.users
-        setMe({
+  // One shared /me load (cached, with its own timeout and retry) instead of a
+  // private fetch of the same endpoint.
+  const { me: meData, error: meError, retry: retryMe } = useMeStatus()
+  const me: { status: 'loading' } | { status: 'failed' } | { status: 'ready'; userId: string | null; canAddUsers: boolean } =
+    meData
+      ? {
           status: 'ready',
-          userId: d.userId ?? null,
+          userId: meData.userId ?? null,
           // `create ?? edit` is the same expression /api/auth/me and
           // permissions.ts use for the create question.
-          canAddUsers: Boolean(users?.create ?? users?.edit),
-        })
-      })
-      .catch(() => setMe({ status: 'failed' }))
-  }, [])
-
-  useEffect(() => { loadMe() }, [loadMe])
+          canAddUsers: Boolean(meData.permissions?.users?.create ?? meData.permissions?.users?.edit),
+        }
+      : meError ? { status: 'failed' } : { status: 'loading' }
+  const wp = meData?.permissions?.weekly_plan
+  const canEditPlan = Boolean(wp?.edit)
+  const canCreatePlan = Boolean(wp?.create ?? wp?.edit)
+  const loadMe = retryMe
 
   // `h-full` so the board inside gets a definite height to fill.
   return (
@@ -1284,7 +1358,7 @@ function DesktopWeeklyPlanPage() {
             : 'A weekly plan belongs to a user record, and this login has none yet. Ask an administrator to add you in Masters → Users.'}
         </EmptyState>
       ) : (
-        <MyPlanTab userId={me.userId} />
+        <MyPlanTab userId={me.userId} canCreate={canCreatePlan} canEditPlan={canEditPlan} />
       )}
     </div>
   )

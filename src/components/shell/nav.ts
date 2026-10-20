@@ -291,14 +291,18 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     /*
-     * Settings holds Access Control and Points Config, so it appears
-     * when either child is reachable. Showing it to a user who could
+     * Settings holds Access Control, Points Config and System Settings,
+     * so it appears when any child is reachable (each gated on the section
+     * its own API checks). Showing it to a user who could
      * open neither would be an empty page reached in one click.
      */
     label: 'Settings',
     href: '/settings',
     icon: Settings,
-    visible: me => canView(me, 'points_config') || canReachAccessControl(me),
+    visible: me =>
+      canView(me, 'points_config') ||
+      canView(me, 'system_settings') ||
+      canReachAccessControl(me),
   },
 ]
 

@@ -29,6 +29,9 @@ export async function GET(req: NextRequest) {
   const from = req.nextUrl.searchParams.get('from')
   const to = req.nextUrl.searchParams.get('to')
   const date = req.nextUrl.searchParams.get('date')
+  // Phone Activity search (§41.5): a free-text query searches this caller's
+  // own expenses across EVERY date — category or notes, case-insensitive.
+  const q = req.nextUrl.searchParams.get('q')?.trim() ?? ''
   // Strict "YYYY-MM-DD" format only (not calendar validity), matching the
   // pattern used elsewhere (e.g. src/app/api/journal/route.ts).
   const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
@@ -46,10 +49,17 @@ export async function GET(req: NextRequest) {
       where: {
         tenant_id: getTenantId(),
         ...scopeWhere(ids),
-        // expense_date is @db.Date.
-        expense_date: expenseDateFilter,
+        ...(q
+          ? {
+              OR: [
+                { category: { contains: q, mode: 'insensitive' } },
+                { notes: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : { expense_date: expenseDateFilter }), // expense_date is @db.Date.
       },
-      orderBy: { created_at: from || to ? 'desc' : 'asc' },
+      orderBy: { created_at: q ? 'desc' : from || to ? 'desc' : 'asc' },
+      ...(q ? { take: 25 } : {}),
     })
     // amount is NUMERIC and expense_date is DATE (PLAN.md 5.1).
     // photo_url is rendered as an <a href>; a row written before POST

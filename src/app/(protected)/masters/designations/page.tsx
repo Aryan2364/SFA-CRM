@@ -1,55 +1,18 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import CrudPage, { Column, masterLocks } from '@/components/ui/CrudPage'
-import Modal from '@/components/ui/Modal'
-import { useCrud } from '@/hooks/useCrud'
-import { useMe } from '@/hooks/useMe'
-
-const COLS: Column[] = [
-  { key: 'name', label: 'Name' },
-]
+import { MasterNamePage } from '@/components/masters/master-name-page'
 
 export default function DesignationsPage() {
-  const crud = useCrud('/api/masters/designations')
-  const me = useMe()
-  // The real permission map, never a role name — Administrators get every
-  // section from /api/auth/me. Denied actions show disabled with a reason.
-  const locks = masterLocks(me, 'designations', 'designations')
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
-  const [name, setName] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  function openAdd() { setEditing(null); setName(''); setOpen(true) }
-  function openEdit(row: Record<string, unknown>) { setEditing(row); setName(String(row.name)); setOpen(true) }
-
-  async function handleSave() {
-    if (!name.trim()) return
-    setSaving(true)
-    const ok = editing
-      ? await crud.update(editing.id as string, { name: name.trim() })
-      : await crud.create({ name: name.trim() })
-    setSaving(false)
-    if (ok !== false && ok !== null) setOpen(false)
-  }
-
   return (
-    <>
-      <CrudPage title="Designations" backHref="/masters" columns={COLS} rows={crud.rows} allRowsCount={crud.allRows.length}
-        isLoading={crud.isLoading} search={crud.search} onSearchChange={crud.setSearch}
-        loadError={crud.loadError} onRetry={crud.refetch} locks={locks}
-        page={crud.page} totalPages={crud.totalPages} onPage={crud.setPage}
-        onAdd={openAdd}
-        onEdit={openEdit}
-        onDelete={r => crud.remove(r.id as string)} deleteMode="hard" />
-      <Modal title={editing ? 'Edit Designation' : 'Add Designation'} isOpen={open} onClose={() => setOpen(false)} onSave={handleSave} isSaving={saving}>
-        <div>
-          <label htmlFor="designation-name" className="block text-sm font-medium text-text-secondary mb-1">Designation Name <span className="text-danger">*</span></label>
-          <input id="designation-name" name="name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Enter designation name"
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring" />
-        </div>
-      </Modal>
-    </>
+    <MasterNamePage
+      title="Designations"
+      noun={{ one: 'designation', many: 'designations' }}
+      apiPath="/api/masters/designations"
+      section="designations"
+      nameLabel="Designation Name"
+      namePlaceholder="Enter designation name"
+      deleteMode="hard"
+      emptyBody="Designations describe the job titles users hold."
+    />
   )
 }

@@ -1,15 +1,26 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense, type CSSProperties, type ComponentProps } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
-import StatusBadge from '@/components/ui/StatusBadge'
-import Modal from '@/components/ui/Modal'
+import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
 import { useToast } from '@/contexts/ToastContext'
-import CalendarPicker from '@/components/ui/CalendarPicker'
+import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { RemarkThread } from '@/components/remark-thread'
 import { Button } from '@/components/ui/button'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   DECISIONS,
   NOT_REVIEWER_REASON,
@@ -75,6 +86,9 @@ type Plan = {
   version: string | null
 }
 
+/** `canDecide` is the server's own answer to weekly_plan EDIT, which every decision route checks first. */
+const NO_DECIDE_REASON = 'Only someone who can edit weekly plans can decide on one.'
+
 /** The order the four decisions sit in, as on the approval panel. */
 const DECISION_ORDER: DecisionKey[] = ['approve', 'reject', 'hold', 'suggest']
 
@@ -84,6 +98,7 @@ const DECISION_ORDER: DecisionKey[] = ['approve', 'reject', 'hold', 'suggest']
  * status (the allowed-from table in `approval-types.ts`, a 409).
  */
 function verbLock(plan: Plan, allowedFrom: readonly string[]): string | null {
+  if (!plan.canDecide) return NO_DECIDE_REASON
   if (!plan.canReview) return NOT_REVIEWER_REASON
   return allowedFrom.includes(plan.status) ? null : notActionableReason(plan.status)
 }
@@ -105,10 +120,23 @@ type Expense = {
 
 type RemarksState = { contextType: 'meeting' | 'expense' | 'weekly_plan'; contextId: string; title: string; earlierNote?: string | null } | null
 
-const CATEGORY_COLORS: Record<string, string> = {
-  Travel: 'bg-blue-100 text-blue-700', Food: 'bg-orange-100 text-orange-700',
-  Accommodation: 'bg-purple-100 text-purple-700', Phone: 'bg-teal-100 text-teal-700',
-  Stationary: 'bg-yellow-100 text-yellow-700', Miscellaneous: 'bg-gray-100 text-gray-600',
+/*
+ * Expense categories are tenant-editable text, not a fixed enum, so they
+ * cannot each own a semantic (success/warning/danger) badge colour — those
+ * are reserved for actual status meaning (section 2.4). Instead each
+ * category is assigned one of the six chart tokens by a stable hash, so the
+ * same category always reads the same colour without hardcoding raw
+ * Tailwind colours anywhere on this screen.
+ */
+const CHART_VARS = ['--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5', '--chart-6'] as const
+function categoryStyle(category: string): CSSProperties {
+  let hash = 0
+  for (let i = 0; i < category.length; i++) hash = (hash * 31 + category.charCodeAt(i)) >>> 0
+  const v = CHART_VARS[hash % CHART_VARS.length]
+  return {
+    backgroundColor: `color-mix(in srgb, var(${v}) 16%, transparent)`,
+    color: `var(${v})`,
+  }
 }
 
 // ---- Week Strip (read-only variant) ----
@@ -120,6 +148,41 @@ function WeekStrip({ selectedDate, onSelectDate, onPrevWeek, onNextWeek, calenda
   const selDate = new Date(selectedDate + 'T00:00:00')
   const weekDates = getWeekDates(selDate)
   const [showCalendar, setShowCalendar] = useState(false)
+  const [viewMonth, setViewMonth] = useState(() => new Date(selectedDate + 'T00:00:00'))
+  const [filledDates, setFilledDates] = useState<Set<string>>(new Set())
+
+  const loadFilled = useCallback(async () => {
+    if (!calendarApiBase) return
+    const monthKey = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth() + 1).padStart(2, '0')}`
+    try {
+      const url = `${calendarApiBase}${calendarApiBase.includes('?') ? '&' : '?'}month=${monthKey}`
+      const r = await fetch(url)
+      if (r.ok) {
+        const { filledDates: arr } = await r.json()
+        if (Array.isArray(arr)) setFilledDates(new Set(arr))
+      }
+    } catch { /* ignore */ }
+  }, [calendarApiBase, viewMonth])
+
+  useEffect(() => { if (showCalendar) loadFilled() }, [showCalendar, loadFilled])
+
+  function FilledDayButton(dayProps: ComponentProps<typeof CalendarDayButton>) {
+    const dateStr = toDateStr(dayProps.day.date)
+    const isFilled = filledDates.has(dateStr)
+    return (
+      <CalendarDayButton {...dayProps}>
+        {dayProps.children}
+        {isFilled && (
+          <span
+            className={`pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 size-1 rounded-full ${
+              dayProps.modifiers.selected ? 'bg-primary-foreground/60' : 'bg-success'
+            }`}
+          />
+        )}
+      </CalendarDayButton>
+    )
+  }
+
   return (
     <div className="relative mb-4">
       <div className="flex items-center gap-1 bg-surface rounded-2xl border border-border-light px-2 py-2 shadow-sm">
@@ -142,24 +205,37 @@ function WeekStrip({ selectedDate, onSelectDate, onPrevWeek, onNextWeek, calenda
         <button onClick={onNextWeek} className="p-1.5 rounded-lg hover:bg-surface-control text-text-muted transition shrink-0">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
         </button>
-        <button
-          onClick={() => setShowCalendar(v => !v)}
-          className={`p-1.5 rounded-lg transition shrink-0 ${showCalendar ? 'bg-primary-subtle text-primary' : 'hover:bg-surface-control text-text-muted'}`}
-          title="Open calendar"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-          </svg>
-        </button>
+        <Popover open={showCalendar} onOpenChange={setShowCalendar}>
+          <PopoverTrigger
+            render={
+              <button
+                className={`p-1.5 rounded-lg transition shrink-0 ${showCalendar ? 'bg-primary-subtle text-primary' : 'hover:bg-surface-control text-text-muted'}`}
+                title="Open calendar"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                </svg>
+              </button>
+            }
+          />
+          <PopoverContent align="end" className="w-auto p-2">
+            <Calendar
+              mode="single"
+              month={viewMonth}
+              onMonthChange={setViewMonth}
+              selected={selDate}
+              onSelect={d => { if (d) { onSelectDate(toDateStr(d)); setShowCalendar(false) } }}
+              components={calendarApiBase ? { DayButton: FilledDayButton } : undefined}
+            />
+            {calendarApiBase && (
+              <div className="flex items-center gap-1.5 border-t border-border-light px-1 pt-2">
+                <span className="size-2 rounded-full bg-success" />
+                <span className="text-meta text-text-muted">Has activity</span>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
-      {showCalendar && (
-        <CalendarPicker
-          selectedDate={selectedDate}
-          onSelectDate={d => { onSelectDate(d); setShowCalendar(false) }}
-          onClose={() => setShowCalendar(false)}
-          calendarApiBase={calendarApiBase}
-        />
-      )}
     </div>
   )
 }
@@ -175,6 +251,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
   const [commentModal, setCommentModal] = useState<{ action: string; planId: string; version: string | null } | null>(null)
   const [comment, setComment] = useState('')
   const [acting, setActing] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
   const weekOptions = useMemo(() => {
     const opts: string[] = []
@@ -185,14 +262,23 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
 
   const loadPlans = useCallback(async () => {
     setLoading(true)
+    setLoadError(false)
     const p = new URLSearchParams({ userId })
     if (filterStatus) p.set('status', filterStatus)
     if (filterWeek) p.set('weekStart', filterWeek)
-    const r = await fetch(`/api/weekly-plans/review?${p}`)
-    const d = await r.json()
-    const list: Plan[] = Array.isArray(d) ? d : []
-    setPlans(list)
-    setLoading(false)
+    let list: Plan[] = []
+    try {
+      const r = await fetch(`/api/weekly-plans/review?${p}`, { signal: AbortSignal.timeout(20000) })
+      if (!r.ok) throw new Error('load failed')
+      const d = await r.json()
+      if (!Array.isArray(d)) throw new Error('unexpected shape')
+      list = d
+      setPlans(list)
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
     return list
   }, [userId, filterStatus, filterWeek])
 
@@ -200,10 +286,11 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
 
   async function action(planId: string, type: string, body: Record<string, unknown> = {}) {
     setActing(true)
+    try {
     const r = await fetch(`/api/weekly-plans/${planId}/${type}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const d = await r.json()
+    const d = await r.json().catch(() => ({}))
     if (!r.ok) {
-      toast(d.error, 'error')
+      toast(d?.error ?? 'Could not complete that action. Please try again.', 'error')
       // 409: the plan moved on since this list loaded. Reload it and show the
       // plan as it is now (or close it if the filters no longer match it),
       // rather than leave the stale copy up to be decided on again.
@@ -213,7 +300,11 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
         setSelected(fresh.find(p => p.id === planId) ?? null)
       }
     } else { toast(`Done`); loadPlans(); setSelected(null); setCommentModal(null) }
-    setActing(false)
+    } catch {
+      toast('Could not reach the server. Check your connection and try again.', 'error')
+    } finally {
+      setActing(false)
+    }
   }
 
   const STATUS_OPTS = ['', 'Submitted', 'Approved', 'Rejected', 'On Hold', 'Edited by Manager', 'Resubmitted']
@@ -233,7 +324,12 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
         </select>
       </div>
 
-      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : plans.length === 0 ? (
+      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : loadError ? (
+        <div className="rounded-2xl border border-border-light bg-surface p-6 text-center">
+          <p className="text-sm text-text-primary">Couldn&apos;t load the weekly plans. Check your connection and try again.</p>
+          <button onClick={() => { void loadPlans() }} className="mt-3 text-sm font-medium text-primary hover:text-primary-hover">Try again</button>
+        </div>
+      ) : plans.length === 0 ? (
         <div className="text-center py-12 text-text-muted">No plans found.</div>
       ) : (
         <div className="bg-surface rounded-xl border border-border-light overflow-hidden">
@@ -252,7 +348,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
                   <td className="px-4 py-3 text-xs text-text-secondary">{formatWeekRange(new Date(p.week_start_date + 'T00:00:00'))}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      <StatusBadge status={p.status} />
+                      <StatusBadge vocabulary={WEEKLY_PLAN_STATUS} status={p.status} />
                       {p.reopen_requested && (
                         <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-full bg-warning-bg text-warning">Reopen Req.</span>
                       )}
@@ -277,12 +373,12 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
             <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
               <div>
                 <h3 className="font-medium text-text-primary">Week of {selected.week_start_date}</h3>
-                <div className="flex items-center gap-2 mt-1"><StatusBadge status={selected.status} /></div>
+                <div className="flex items-center gap-2 mt-1"><StatusBadge vocabulary={WEEKLY_PLAN_STATUS} status={selected.status} /></div>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { setSelected(null); onOpenRemarks({ contextType: 'weekly_plan', contextId: selected.id, title: `Weekly Plan — Week of ${selected.week_start_date}` }) }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary-subtle hover:bg-primary-subtle-hover rounded-lg transition"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
@@ -341,7 +437,7 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
               reason — an Approved plan shows all four, each saying why —
               rather than hidden, or offered to fail with a 403 or 409.
             */}
-            {selected.canDecide && (
+            {(
               <div className="px-6 py-4 border-t border-border-light flex flex-wrap gap-2">
                 {DECISION_ORDER.map(key => {
                   const lock = verbLock(selected, DECISIONS[key].allowedFrom)
@@ -368,16 +464,16 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
                   <p className="text-xs text-warning mb-3 bg-surface rounded-lg px-3 py-2 border border-warning-border">{selected.reopen_request_message}</p>
                 )}
                 {/* Both routes gate on `weekly_plan` EDIT and `canReview`, as the decisions do. */}
-                {selected.canDecide && (
+                {(
                   <div className="flex gap-2">
-                    <PermissionTooltip allowed={selected.canReview} reason={NOT_REVIEWER_REASON}>
-                      <Button size="sm" variant="primary" disabled={acting || !selected.canReview}
+                    <PermissionTooltip allowed={selected.canDecide && selected.canReview} reason={selected.canDecide ? NOT_REVIEWER_REASON : NO_DECIDE_REASON}>
+                      <Button size="sm" variant="primary" disabled={acting || !selected.canDecide || !selected.canReview}
                         onClick={() => action(selected.id, 'accept-reopen')}>
                         Accept (Allow Edit)
                       </Button>
                     </PermissionTooltip>
-                    <PermissionTooltip allowed={selected.canReview} reason={NOT_REVIEWER_REASON}>
-                      <Button size="sm" variant="danger" disabled={acting || !selected.canReview}
+                    <PermissionTooltip allowed={selected.canDecide && selected.canReview} reason={selected.canDecide ? NOT_REVIEWER_REASON : NO_DECIDE_REASON}>
+                      <Button size="sm" variant="danger" disabled={acting || !selected.canDecide || !selected.canReview}
                         onClick={() => action(selected.id, 'decline-reopen')}>
                         Decline
                       </Button>
@@ -390,26 +486,54 @@ function WeeklyPlansTab({ userId, onOpenRemarks }: { userId: string; onOpenRemar
         </div>
       )}
 
-      <Modal
-        title={commentModal?.action === 'approve' ? 'Approve Plan' : commentModal?.action === 'reject' ? 'Reject Plan' : commentModal?.action === 'hold' ? 'Put On Hold' : 'Suggest Changes'}
-        isOpen={!!commentModal} onClose={() => setCommentModal(null)}
-        onSave={() => {
-          if (commentModal) {
-            action(commentModal.planId, commentModal.action, {
-              comment, expected_version: commentModal.version ?? undefined,
-            })
-          }
+      <Dialog
+        open={!!commentModal}
+        onOpenChange={open => {
+          if (!open && !acting) setCommentModal(null)
         }}
-        isSaving={acting} saveLabel="Confirm">
-        <div>
-          <label htmlFor="review-comment" className="block text-sm font-medium text-text-secondary mb-1">
-            Comment {commentModal?.action === 'reject' || commentModal?.action === 'suggest' ? '(required)' : '(optional)'}
-          </label>
-          <textarea id="review-comment" name="comment" value={comment} onChange={e => setComment(e.target.value)} rows={3}
-            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-ring resize-none"
-            placeholder={commentModal?.action === 'approve' ? 'Add an optional note for approval…' : 'Enter your comment…'} />
-        </div>
-      </Modal>
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>
+              {commentModal?.action === 'approve' ? 'Approve Plan' : commentModal?.action === 'reject' ? 'Reject Plan' : commentModal?.action === 'hold' ? 'Put On Hold' : 'Suggest Changes'}
+            </DialogTitle>
+            <DialogDescription>
+              Comment {commentModal?.action === 'reject' || commentModal?.action === 'suggest' ? '(required)' : '(optional)'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <Label htmlFor="review-comment">Comment</Label>
+            <Textarea
+              id="review-comment"
+              name="comment"
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              rows={3}
+              autoFocus
+              className="mt-1.5 text-[16px] sm:text-body"
+              placeholder={commentModal?.action === 'approve' ? 'Add an optional note for approval…' : 'Enter your comment…'}
+            />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setCommentModal(null)} disabled={acting}>
+              Cancel
+            </Button>
+            <Button
+              variant={commentModal?.action === 'reject' ? 'danger' : 'primary'}
+              disabled={acting || ((commentModal?.action === 'reject' || commentModal?.action === 'suggest') && !comment.trim())}
+              onClick={() => {
+                if (commentModal) {
+                  action(commentModal.planId, commentModal.action, {
+                    comment, expected_version: commentModal.version ?? undefined,
+                  })
+                }
+              }}
+            >
+              {acting ? 'Working…' : 'Confirm'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -446,8 +570,8 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
   const endMismatch = v.location_flagged
 
   return (
-    <div className={`bg-surface rounded-2xl border overflow-hidden ${v.status === 'Active' ? 'border-amber-300' : 'border-gray-200'}`}>
-      {v.status === 'Active' && <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-400 animate-pulse" />}
+    <div className={`bg-surface rounded-2xl border overflow-hidden ${v.status === 'Active' ? 'border-warning-border' : 'border-border-light'}`}>
+      {v.status === 'Active' && <div className="h-1 bg-warning animate-pulse" />}
       {v.status === 'Completed' && <div className="h-1 bg-success-border" />}
       <div className="px-5 py-4">
         <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -466,7 +590,7 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
         <div className="mt-2 pt-2 border-t border-border-light flex items-center gap-2">
           {hasLocation && (
             <button onClick={() => setLocationOpen(o => !o)}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${locationOpen ? 'bg-teal-50 text-teal-700' : 'text-gray-500 hover:text-teal-700 hover:bg-teal-50'}`}>
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition ${locationOpen ? 'bg-primary-subtle text-primary' : 'text-text-muted hover:text-primary hover:bg-primary-subtle'}`}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
@@ -491,21 +615,21 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
           <div className="mt-3 pt-3 border-t border-border-light">
             <p className="text-xs font-normal text-text-muted uppercase tracking-wide mb-2">Location Details</p>
             <div className="space-y-2">
-              <div className="bg-teal-50 rounded-lg px-3 py-2">
-                <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">Start Location</p>
+              <div className="bg-primary-subtle rounded-lg px-3 py-2">
+                <p className="text-[10px] font-normal text-primary uppercase mb-0.5">Start Location</p>
                 <p className="text-xs text-text-secondary">{v.address ?? `${v.latitude}, ${v.longitude}`}</p>
               </div>
               {v.end_latitude != null && (
-                <div className={`rounded-lg px-3 py-2 ${endMismatch ? 'bg-red-50 border border-red-200' : 'bg-teal-50'}`}>
+                <div className={`rounded-lg px-3 py-2 ${endMismatch ? 'bg-danger-bg border border-danger-border' : 'bg-primary-subtle'}`}>
                   <div className="flex items-center gap-1.5">
-                    <p className="text-[10px] font-normal text-teal-600 uppercase mb-0.5">End Location</p>
+                    <p className="text-[10px] font-normal text-primary uppercase mb-0.5">End Location</p>
                     {endMismatch && <span className="text-[10px] font-normal text-danger bg-danger-bg px-1.5 py-0.5 rounded-full">Mismatch</span>}
                   </div>
                   <p className="text-xs text-text-secondary">{v.end_address ?? `${v.end_latitude}, ${v.end_longitude}`}</p>
                 </div>
               )}
               <button onClick={() => setMapOpen(o => !o)}
-                className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition">
+                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-hover bg-primary-subtle hover:bg-primary-subtle-hover px-3 py-1.5 rounded-lg transition">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
                 </svg>
@@ -532,6 +656,8 @@ function DailyActivityTab({ userId, onOpenRemarks }: { userId: string; onOpenRem
   const [weekOffset, setWeekOffset] = useState(0)
   const [visits, setVisits] = useState<Visit[]>([])
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   function getWeekStart(offset: number) {
     const today = new Date()
@@ -544,11 +670,20 @@ function DailyActivityTab({ userId, onOpenRemarks }: { userId: string; onOpenRem
   }
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    fetch(`/api/review/daily-activity?userId=${userId}&date=${selectedDate}`)
-      .then(r => r.json()).then(d => { setVisits(Array.isArray(d) ? d : []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [userId, selectedDate])
+    setFailed(false)
+    fetch(`/api/review/daily-activity?userId=${userId}&date=${selectedDate}`, { signal: AbortSignal.timeout(20000) })
+      .then(async r => {
+        if (!r.ok) throw new Error('load failed')
+        const d = await r.json()
+        if (!Array.isArray(d)) throw new Error('unexpected shape')
+        return d as Visit[]
+      })
+      .then(d => { if (!cancelled) { setVisits(d); setLoading(false) } })
+      .catch(() => { if (!cancelled) { setFailed(true); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [userId, selectedDate, attempt])
 
   return (
     <div>
@@ -560,7 +695,12 @@ function DailyActivityTab({ userId, onOpenRemarks }: { userId: string; onOpenRem
         calendarApiBase={`/api/daily-activity/calendar?userId=${userId}`}
       />
 
-      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : visits.length === 0 ? (
+      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : failed ? (
+        <div className="rounded-2xl border border-border-light bg-surface p-6 text-center">
+          <p className="text-sm text-text-primary">Couldn&apos;t load this day&apos;s meetings. Check your connection and try again.</p>
+          <button onClick={() => setAttempt(a => a + 1)} className="mt-3 text-sm font-medium text-primary hover:text-primary-hover">Try again</button>
+        </div>
+      ) : visits.length === 0 ? (
         <div className="text-center py-12 text-text-muted">No meetings on this day.</div>
       ) : (
         <div className="space-y-3">
@@ -680,6 +820,7 @@ function SummaryTab({ userId, initialDate }: { userId: string; initialDate?: str
   const [summary, setSummary] = useState<DailySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   function getWeekStart(offset: number) {
     const today = new Date()
@@ -695,7 +836,7 @@ function SummaryTab({ userId, initialDate }: { userId: string; initialDate?: str
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetch(`/api/review/daily-summary?userId=${userId}&date=${selectedDate}`)
+    fetch(`/api/review/daily-summary?userId=${userId}&date=${selectedDate}`, { signal: AbortSignal.timeout(20000) })
       .then(async r => {
         if (!r.ok) {
           const body = await r.json().catch(() => ({}))
@@ -704,9 +845,9 @@ function SummaryTab({ userId, initialDate }: { userId: string; initialDate?: str
         return r.json() as Promise<DailySummary>
       })
       .then(d => { if (!cancelled) { setSummary(d); setLoading(false) } })
-      .catch((e: Error) => { if (!cancelled) { setError(e.message); setLoading(false) } })
+      .catch((e: Error) => { if (!cancelled) { setError(e.name === 'TimeoutError' || e.name === 'TypeError' ? 'Couldn’t load this day’s summary. Check your connection and try again.' : e.message); setLoading(false) } })
     return () => { cancelled = true }
-  }, [userId, selectedDate])
+  }, [userId, selectedDate, attempt])
 
   return (
     <div>
@@ -724,7 +865,7 @@ function SummaryTab({ userId, initialDate }: { userId: string; initialDate?: str
         /* No dead ends: say what happened and offer the way forward. */
         <div className="rounded-2xl border border-border-light bg-surface p-6 text-center">
           <p className="text-sm text-text-primary">{error}</p>
-          <button onClick={() => setSelectedDate(d => d)} className="mt-3 text-sm font-medium text-primary hover:text-primary-hover">
+          <button onClick={() => setAttempt(a => a + 1)} className="mt-3 text-sm font-medium text-primary hover:text-primary-hover">
             Try again
           </button>
         </div>
@@ -967,6 +1108,8 @@ function ExpensesTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks:
   const [weekOffset, setWeekOffset] = useState(0)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   function getWeekStart(offset: number) {
     const today = new Date()
@@ -979,11 +1122,20 @@ function ExpensesTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks:
   }
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    fetch(`/api/review/expenses?userId=${userId}&date=${selectedDate}`)
-      .then(r => r.json()).then(d => { setExpenses(Array.isArray(d) ? d : []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [userId, selectedDate])
+    setFailed(false)
+    fetch(`/api/review/expenses?userId=${userId}&date=${selectedDate}`, { signal: AbortSignal.timeout(20000) })
+      .then(async r => {
+        if (!r.ok) throw new Error('load failed')
+        const d = await r.json()
+        if (!Array.isArray(d)) throw new Error('unexpected shape')
+        return d as Expense[]
+      })
+      .then(d => { if (!cancelled) { setExpenses(d); setLoading(false) } })
+      .catch(() => { if (!cancelled) { setFailed(true); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [userId, selectedDate, attempt])
 
   const total = expenses.reduce((s, e) => s + Number(e.amount), 0)
 
@@ -997,7 +1149,12 @@ function ExpensesTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks:
         calendarApiBase={`/api/expenses/calendar?userId=${userId}`}
       />
 
-      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : expenses.length === 0 ? (
+      {loading ? <div className="text-center py-12 text-text-muted">Loading...</div> : failed ? (
+        <div className="rounded-2xl border border-border-light bg-surface p-6 text-center">
+          <p className="text-sm text-text-primary">Couldn&apos;t load this day&apos;s expenses. Check your connection and try again.</p>
+          <button onClick={() => setAttempt(a => a + 1)} className="mt-3 text-sm font-medium text-primary hover:text-primary-hover">Try again</button>
+        </div>
+      ) : expenses.length === 0 ? (
         <div className="text-center py-12 text-text-muted">No expenses on this day.</div>
       ) : (
         <div className="space-y-3">
@@ -1008,7 +1165,7 @@ function ExpensesTab({ userId, onOpenRemarks }: { userId: string; onOpenRemarks:
           {expenses.map(exp => (
             <div key={exp.id} className="bg-surface rounded-2xl border border-border-light px-5 py-4">
               <div className="flex items-center gap-2">
-                <span className={`text-[11px] font-normal px-2 py-0.5 rounded-full ${CATEGORY_COLORS[exp.category] ?? 'bg-gray-100 text-gray-600'}`}>{exp.category}</span>
+                <span className="text-[11px] font-normal px-2 py-0.5 rounded-full" style={categoryStyle(exp.category)}>{exp.category}</span>
                 <span className="text-base font-medium text-text-primary ml-auto">₹{Number(exp.amount).toFixed(0)}</span>
               </div>
               {exp.notes && <p className="text-sm text-text-muted mt-1.5">{exp.notes}</p>}
@@ -1061,8 +1218,8 @@ function ReviewUserInner() {
   }, [initialRemarks, tab])
 
   useEffect(() => {
-    fetch('/api/review/summary-cards').then(r => r.json()).then((cards: { id: string; name: string; level: string }[]) => {
-      const found = cards.find((c) => c.id === userId)
+    fetch('/api/review/summary-cards').then(r => r.ok ? r.json() : []).then((cards: { id: string; name: string; level: string }[]) => {
+      const found = Array.isArray(cards) ? cards.find((c) => c.id === userId) : undefined
       if (found) { setUserName(found.name); setUserLevel(found.level) }
       setMeLoaded(true)
     }).catch(() => setMeLoaded(true))

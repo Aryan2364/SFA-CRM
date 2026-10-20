@@ -165,31 +165,37 @@ export function OrderEntryDialog({
     const validItems = items.filter(i => i.product_name.trim())
     if (validItems.length === 0) { toast('Add at least one product', 'error'); return }
     setSaving(true)
-    const r = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        visit_id: visit.id,
-        // The meeting's LOCAL calendar date. Slicing the ISO string took the
-        // UTC date, which is the previous day for a meeting started before
-        // 05:30 IST.
-        order_date: toDateStr(visit.start_time ? new Date(visit.start_time) : new Date()),
-        // A product line sends no rate: the server would discard it. Each line
-        // carries its discount, or a re-punch would save it without one.
-        items: validItems.map(i => ({
-          ...(i.product_id
-            ? { product_id: i.product_id, product_name: i.product_name, qty: i.qty }
-            : { product_id: null, product_name: i.product_name, qty: i.qty, rate: i.rate }),
-          discount_type: i.discount_type ?? 'none',
-          discount_value: i.discount_value ?? 0,
-        })),
-        order_discount_type: orderDiscount.type,
-        order_discount_value: orderDiscount.value,
-      }),
-    })
-    if (!r.ok) toast((await r.json()).error ?? 'Failed to save the order', 'error')
-    else { toast('Order saved'); onSaved(); onClose() }
-    setSaving(false)
+    try {
+      const r = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_id: visit.id,
+          // The meeting's LOCAL calendar date. Slicing the ISO string took the
+          // UTC date, which is the previous day for a meeting started before
+          // 05:30 IST.
+          order_date: toDateStr(visit.start_time ? new Date(visit.start_time) : new Date()),
+          // A product line sends no rate: the server would discard it. Each line
+          // carries its discount, or a re-punch would save it without one.
+          items: validItems.map(i => ({
+            ...(i.product_id
+              ? { product_id: i.product_id, product_name: i.product_name, qty: i.qty }
+              : { product_id: null, product_name: i.product_name, qty: i.qty, rate: i.rate }),
+            discount_type: i.discount_type ?? 'none',
+            discount_value: i.discount_value ?? 0,
+          })),
+          order_discount_type: orderDiscount.type,
+          order_discount_value: orderDiscount.value,
+        }),
+      })
+      if (!r.ok) toast((await r.json().catch(() => ({}))).error ?? 'Failed to save the order', 'error')
+      else { toast('Order saved'); onSaved(); onClose() }
+    } catch {
+      // The dialog stays open with the lines as typed.
+      toast('The connection dropped. The order was not saved.', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

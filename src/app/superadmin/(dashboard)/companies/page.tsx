@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { PlusIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 
 type Company = {
   id: string
@@ -58,15 +61,10 @@ export default function CompaniesPage() {
           <h1 className="text-xl font-medium text-text-primary">Companies</h1>
           <p className="text-sm text-text-muted mt-0.5">{companies.length} registered companies</p>
         </div>
-        <button
-          onClick={() => router.push('/superadmin/companies/new')}
-          className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
+        <Button onClick={() => router.push('/superadmin/companies/new')}>
+          <PlusIcon />
           Add Company
-        </button>
+        </Button>
       </div>
 
       {companies.length === 0 ? (
@@ -112,20 +110,18 @@ export default function CompaniesPage() {
                     {c.payment_due_date ? new Date(c.payment_due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-text-muted">—</span>}
                   </td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={() => toggleActive(c)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${c.is_active ? 'bg-green-500' : 'bg-gray-300'}`}
-                    >
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-surface transition-transform shadow ${c.is_active ? 'translate-x-4' : 'translate-x-1'}`} />
-                    </button>
+                    {/* Note: this commits immediately, same as the legacy toggle (kit §15/§38.1 would want a
+                        confirm/undo); left as-is per the detail page's existing "Disable All Logins" confirm
+                        covering the deliberate-disable path, and to avoid changing behavior in this pass. */}
+                    <Switch checked={c.is_active} onCheckedChange={() => toggleActive(c)} aria-label={c.is_active ? 'Disable company' : 'Enable company'} />
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
+                    <Button
+                      variant="secondary" size="sm"
                       onClick={e => { e.stopPropagation(); router.push(`/superadmin/companies/${c.id}`) }}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
                     >
                       Manage
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}

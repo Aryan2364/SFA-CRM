@@ -98,3 +98,50 @@ const [photos, setPhotos] = useState<CapturedPhoto[]>([])
 
 ## Record summary / connection banner — pre-existing, unchanged
 `src/components/ui/record-summary.tsx`, `src/components/ui/connection-banner.tsx`.
+
+## KIT GAP (blocking, not ours to fix) — `bottom-keyboard-inset` never resolves
+
+`src/components/ui/sheet.tsx`'s `SheetContent` positions every phone bottom
+sheet and full-screen layer with the Tailwind v4 utility class
+`bottom-keyboard-inset` (and `top-0 bottom-keyboard-inset` for the screen
+presentation). That utility only resolves if `--keyboard-inset` is
+registered under Tailwind's **spacing** namespace, i.e. defined in
+`globals.css` as `--spacing-keyboard-inset: 0px`. It is instead defined as
+plain `--keyboard-inset: 0px` (`src/app/globals.css:227`), so Tailwind drops
+the class as unrecognized and the sheet gets `position: fixed` with no
+`bottom` at all — it falls back to its static flow position, which (being
+portalled to the end of `<body>`) sits below the last pixel of page content,
+off-screen.
+
+Confirmed in headless Chrome: opening `PickerSheetField` on `/orders/new` or
+`BottomSheet`-based sheets (e.g. the + sheet on `/today`) shows only the
+backdrop — `getComputedStyle` on `[data-slot=sheet-content]` reports
+`position: fixed; bottom: -759.59px` (exactly minus its own height) with
+`display: flex` and `opacity: 1`, i.e. rendered and "open" per the DOM/React
+state, but entirely below the viewport. History/back-close, swipe, and
+focus all still work correctly (confirmed via `history.back()` closing the
+sheet and returning to the same route) — only the visual position is wrong.
+
+This affects **every** phone bottom sheet and full-screen sheet in the app,
+not just the ones rebuilt this round (`bottom-sheet.tsx`, `picker-sheet.tsx`,
+`contact-actions.tsx`, `photo-capture.tsx`'s full-screen viewer, any
+`Sheet`/`SheetContent` usage anywhere) — it is a one-line fix in
+`src/app/globals.css`, not in any file this round owns. `sheet.tsx` is
+explicitly off-limits this round (synced from the kit by sfacrm-93), and
+`globals.css` is currently being edited by other agents in parallel, so
+fixing it here would conflict.
+
+It is also not just `--keyboard-inset`: `--safe-top`/`--safe-bottom`/
+`--safe-left`/`--safe-right` (`globals.css:753-756`) have the same problem —
+declared as plain custom properties, not under `@theme`'s `--spacing-*`
+namespace, so `pt-safe-top`/`pr-safe-right`/`pb-safe-bottom`/`pl-safe-left`
+(used throughout `sheet.tsx`, `dialog.tsx`, and elsewhere in the
+kit-synced `components/ui`) are unrecognized Tailwind utilities too — they
+compile to nothing. Grep for `grep -rn 'safe-top\|safe-bottom\|safe-left\|safe-right\|keyboard-inset' src/components/ui`
+to see the full blast radius. `phone-shell.tsx` and `app-bar.tsx` (this
+round) avoid it entirely by setting the safe-area padding via inline
+`style={{ paddingTop: 'var(--safe-top)', … }}` instead of those utility
+classes — the same workaround would unblock everything else, but the
+correct fix is registering `--spacing-safe-top` etc. (and
+`--spacing-keyboard-inset`) in `globals.css`'s `@theme` block so the bare
+utility names resolve everywhere they're already written.

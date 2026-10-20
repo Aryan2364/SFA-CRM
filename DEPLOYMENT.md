@@ -110,7 +110,7 @@ from inside AWS.
 
 1. **Set the new env vars** in `.env.production`: `APP_URL` (the public base URL,
    e.g. `https://admin.example.com`) and the `SMTP_*` set. Optionally
-   `SESSION_MAX_AGE_DAYS` (default 7).
+   `SESSION_MAX_AGE_DAYS` (default 7) and `PHONE_SESSION_MAX_AGE_DAYS` (default 30, for sign-ins from a phone).
    Then run the **read-only readiness check** against RDS. It opens a read-only
    session (`default_transaction_read_only=on`, `BEGIN READ ONLY … ROLLBACK`), runs
    only SELECTs, and prints a summary: missing tables and columns against
@@ -206,7 +206,7 @@ so those cannot be changed from `.env.production`. Server-only names (no
 
 Every variable this app needs is server-only and read at runtime — `DATABASE_URL`,
 `SESSION_SECRET`, `DEFAULT_TENANT_ID`, `APP_URL`, the `SMTP_*` set and the five `R2_*`
-values, plus the optional `SESSION_MAX_AGE_DAYS` (login lifetime in days, default 7).
+values, plus the optional `SESSION_MAX_AGE_DAYS` (login lifetime in days, default 7) and `PHONE_SESSION_MAX_AGE_DAYS` (the same for a phone sign-in, default 30).
 `APP_URL` and `SMTP_HOST`/`SMTP_USER` are required in production: without them
 "Forgot password" answers "not available" (503) for everyone.
 **Do not introduce a `NEXT_PUBLIC_*` name for any of them**; a database URL or an
