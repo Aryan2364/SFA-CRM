@@ -118,6 +118,9 @@ export type MeetingVisit = {
   duration_secs: number | null
   address: string | null
   end_address: string | null
+  /** Metres, as the phone reported it at Start / Stop; null until the accuracy columns exist. */
+  accuracy_m?: number | null
+  end_accuracy_m?: number | null
   notes: string | null
   is_manual_entry: boolean
   location_flagged: boolean

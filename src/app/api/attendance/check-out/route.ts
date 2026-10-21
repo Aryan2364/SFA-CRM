@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { awardPoint, logAwardFailure } from '@/lib/points'
 import { addDays, businessDate } from '@/lib/business-date'
+import { writeAccuracy } from '@/lib/location-accuracy'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
   const user = await requireUser()
   if (!user.userId) return NextResponse.json({ error: 'User not found' }, { status: 400 })
 
-  const { latitude, longitude, address } = await req.json()
+  const { latitude, longitude, address, accuracy } = await req.json()
   // Business date, not the server's UTC date — see src/lib/business-date.ts.
   const today = businessDate()
   const yesterday = addDays(today, -1)
@@ -68,6 +69,8 @@ export async function POST(req: NextRequest) {
     if (count !== 1) {
       return NextResponse.json({ error: 'Already checked out' }, { status: 400 })
     }
+
+    await writeAccuracy('attendance.check_out_accuracy_m', tid, open.id, accuracy)
 
     const closedDate = dateOnlyString(open.date)
     // The response is the row the attendance card should now show for TODAY.

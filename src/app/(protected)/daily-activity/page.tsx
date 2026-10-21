@@ -464,6 +464,7 @@ function DailyActivityInner() {
     if (pos) {
       body.latitude = pos.latitude
       body.longitude = pos.longitude
+      body.accuracy = pos.accuracy ?? null
       body.address = await reverseGeocode(pos.latitude, pos.longitude)
     }
     try {
@@ -499,6 +500,7 @@ function DailyActivityInner() {
     if (pos) {
       body.end_latitude = pos.latitude
       body.end_longitude = pos.longitude
+      body.end_accuracy = pos.accuracy ?? null
       body.end_address = await reverseGeocode(pos.latitude, pos.longitude)
     }
     try {

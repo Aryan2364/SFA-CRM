@@ -275,11 +275,11 @@ export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
  * shows the dialog; on timeout it proceeds with nulls. So lat/long are
  * nullable in practice and every consumer must handle null.
  */
-export function getPosition(): Promise<{ latitude: number; longitude: number } | { denied: true } | null> {
+export function getPosition(): Promise<{ latitude: number; longitude: number; accuracy?: number } | { denied: true } | null> {
   return new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return }
     navigator.geolocation.getCurrentPosition(
-      pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
       err => resolve(err?.code === 1 ? { denied: true } : null),
       { timeout: 8000 }
     )

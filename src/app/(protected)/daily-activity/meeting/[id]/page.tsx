@@ -51,6 +51,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { CalendarClockIcon, MapPinIcon, TriangleAlertIcon } from 'lucide-react'
+import { accuracyLabel } from '@/lib/accuracy-label'
 
 import { useMe } from '@/hooks/useMe'
 import {
@@ -336,6 +337,15 @@ function DesktopMeetingPage() {
             ) : null}
           </div>
         </div>
+
+        {visit.accuracy_m != null || visit.end_accuracy_m != null ? (
+          <p className="text-label text-text-secondary">
+            {[
+              visit.accuracy_m != null ? `Start location: ${accuracyLabel(visit.accuracy_m)}` : null,
+              visit.end_accuracy_m != null ? `End location: ${accuracyLabel(visit.end_accuracy_m)}` : null,
+            ].filter(Boolean).join(' · ')}
+          </p>
+        ) : null}
 
         {/* "Set next meeting" is ALWAYS available here, whatever the
             meeting's status — including Completed — but it is a write on

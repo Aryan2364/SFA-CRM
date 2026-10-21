@@ -57,6 +57,7 @@ import { useMe } from '@/hooks/useMe'
 import { useToast } from '@/contexts/ToastContext'
 import { formatDuration } from '@/components/daily-activity/types'
 import { LocationCheckSheet, type LocationReading } from '@/components/daily-activity/location-check-sheet'
+import { accuracyLabel } from '@/lib/accuracy-label'
 import { sendStartStop } from '@/components/daily-activity/start-stop'
 import { whenLayersSettled } from '@/components/ui/sheet'
 import { fmtDate, fmtDateTime, fmtTime } from '@/lib/format'
@@ -481,12 +482,18 @@ export function PhoneMeetingDetailPage({ visitId }: { visitId: string }) {
             <div>
               <p className="text-label text-text-secondary">Started at</p>
               <p className="text-body text-text-primary">{visit.address}</p>
+              {visit.accuracy_m != null ? (
+                <p className="text-meta text-text-secondary">{accuracyLabel(visit.accuracy_m).replace(/^./, c => c.toUpperCase())}</p>
+              ) : null}
             </div>
           ) : null}
           {visit.end_address ? (
             <div>
               <p className="text-label text-text-secondary">Ended at</p>
               <p className="text-body text-text-primary">{visit.end_address}</p>
+              {visit.end_accuracy_m != null ? (
+                <p className="text-meta text-text-secondary">{accuracyLabel(visit.end_accuracy_m).replace(/^./, c => c.toUpperCase())}</p>
+              ) : null}
               {visit.location_flagged ? (
                 <p className="text-meta text-text-secondary">
                   Further from the start than your company allows. Noted for review only.

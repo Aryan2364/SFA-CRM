@@ -16,12 +16,13 @@ export async function sendStartStop(
 ): Promise<string | null> {
   const body =
     action === 'start'
-      ? { action, latitude: reading?.latitude ?? null, longitude: reading?.longitude ?? null, address: reading?.address ?? null }
+      ? { action, latitude: reading?.latitude ?? null, longitude: reading?.longitude ?? null, address: reading?.address ?? null, accuracy: reading?.accuracy ?? null }
       : {
           action,
           end_latitude: reading?.latitude ?? null,
           end_longitude: reading?.longitude ?? null,
           end_address: reading?.address ?? null,
+          end_accuracy: reading?.accuracy ?? null,
         }
   try {
     const r = await fetch(`/api/daily-activity/${visitId}`, {

@@ -8,6 +8,7 @@ import { scopedUserIds, scopeWhere } from '@/lib/scope'
 import { getTenantSettings } from '@/lib/settings'
 import { businessDate } from '@/lib/business-date'
 import { readVisitContact, VISIT_SELECT } from '@/lib/visit-contact'
+import { readVisitAccuracy, writeAccuracy } from '@/lib/location-accuracy'
 import { getGstRequiredForOrders } from '@/lib/gst-setting'
 import { effectiveBlockedReason, withGstPolicy } from '@/lib/gst-policy'
 import { withMobileCompleteness } from '@/lib/completeness'
@@ -272,9 +273,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     /* The person met, when one was named. Null while the column is unpushed,
        and the screen then falls back to `entity_name` as it always did. */
     const contact = await readVisitContact(tid, visit.id)
+    /* How accurate the Start / Stop readings were, in metres. Both null while
+       the columns are missing (src/lib/location-accuracy.ts). */
+    const accuracy = await readVisitAccuracy(tid, visit.id)
 
     return NextResponse.json({
-      visit: { ...(serialize(visit, 'daily_visits') as Record<string, unknown>), contact },
+      visit: { ...(serialize(visit, 'daily_visits') as Record<string, unknown>), contact, ...accuracy },
       // False only when the meeting was reached through sharing rather than
       // the caller's own `meetings` scope (see the header). The page uses
       // this to show the meeting read-only — every write route still re-checks
@@ -378,6 +382,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         data: { status: 'Active', start_time: new Date(), latitude: latitude ?? null, longitude: longitude ?? null, address: address ?? null },
         select: VISIT_SELECT,
       })
+      await writeAccuracy('daily_visits.accuracy_m', tid, params.id, body.accuracy)
       return NextResponse.json(serialize(data, 'daily_visits'))
     }
 
@@ -430,6 +435,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
         select: VISIT_SELECT,
       })
+      await writeAccuracy('daily_visits.end_accuracy_m', tid, params.id, body.end_accuracy)
 
       /*
        * Auto-done: a follow-up to-do "started" by opening this meeting from it

@@ -108,3 +108,13 @@ CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions (te
 CREATE UNIQUE INDEX IF NOT EXISTS notifications_reminder_once_uq
   ON notifications (tenant_id, recipient_id, context_type, context_id)
   WHERE context_type LIKE 'follow_up_due@%' OR context_type LIKE 'next_meeting_due@%';
+
+-- 10. How accurate each captured location was, in metres (reported by the phone).
+--     Nullable and additive; the app saves lat/lng without it until this is run.
+ALTER TABLE daily_visits
+  ADD COLUMN IF NOT EXISTS accuracy_m real NULL,
+  ADD COLUMN IF NOT EXISTS end_accuracy_m real NULL;
+ALTER TABLE todo_outcomes ADD COLUMN IF NOT EXISTS accuracy_m real NULL;
+ALTER TABLE attendance
+  ADD COLUMN IF NOT EXISTS check_in_accuracy_m real NULL,
+  ADD COLUMN IF NOT EXISTS check_out_accuracy_m real NULL;

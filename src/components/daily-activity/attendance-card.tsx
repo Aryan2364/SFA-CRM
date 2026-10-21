@@ -160,6 +160,7 @@ export function AttendanceCard({
     if (pos && !('denied' in pos)) {
       body.latitude = pos.latitude
       body.longitude = pos.longitude
+      body.accuracy = pos.accuracy ?? null
       body.address = await reverseGeocode(pos.latitude, pos.longitude)
     }
     const res = await fetch(`/api/attendance/check-${kind}`, {

@@ -286,17 +286,36 @@ function TodoPhone() {
   // ---- Start meeting --------------------------------------------------------
   const [locationOpen, setLocationOpen] = useState(false)
   const [couldntMeet, setCouldntMeet] = useState<CouldntMeetTarget | null>(null)
+  // Couldn't meet confirms where the person is first, like Start: the location
+  // sheet, then - once it has fully closed - the dialog, carrying that reading.
+  // A dialog opened while the sheet is still closing is dismissed by the
+  // sheet's history step, hence the draft and the effect below.
+  const [cmLocationOpen, setCmLocationOpen] = useState(false)
+  const [cmDraft, setCmDraft] = useState<{ target: CouldntMeetTarget; reading: LocationReading | null; confirmed: boolean } | null>(null)
+  const [cmReading, setCmReading] = useState<LocationReading | null>(null)
+  useEffect(() => {
+    if (cmLocationOpen || !cmDraft) return
+    if (!cmDraft.confirmed) { setCmDraft(null); return }
+    let cancelled = false
+    void whenLayersSettled().then(() => {
+      if (cancelled) return
+      setCmReading(cmDraft.reading)
+      setCouldntMeet(cmDraft.target)
+      setCmDraft(null)
+    })
+    return () => { cancelled = true }
+  }, [cmLocationOpen, cmDraft])
   // A sheet's close is a step back in history; a navigation started in the
   // same tap races it and is discarded. So: close, let it land, then go.
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   useEffect(() => {
-    if (locationOpen || couldntMeet || !pendingHref) return
+    if (locationOpen || cmLocationOpen || couldntMeet || !pendingHref) return
     let cancelled = false
     void whenLayersSettled().then(() => {
       if (!cancelled) router.replace(pendingHref)
     })
     return () => { cancelled = true }
-  }, [locationOpen, couldntMeet, pendingHref, router])
+  }, [locationOpen, cmLocationOpen, couldntMeet, pendingHref, router])
 
   // Each gate is what its route checks: POST /api/daily-activity checks
   // meetings.create, the start PATCH meetings.edit, and Couldn't meet
@@ -479,15 +498,20 @@ function TodoPhone() {
               variant="secondary"
               className="w-full"
               disabled={canCouldntMeet !== true}
-              onClick={() =>
-                setCouldntMeet({
-                  todo_kind: todo.kind === 'next-meeting' ? 'next_meeting' : todo.kind,
-                  todo_ref: todo.id,
-                  party_id: todo.partyId,
-                  due_date: todo.dueDate,
-                  heading: todo.heading,
+              onClick={() => {
+                setCmDraft({
+                  target: {
+                    todo_kind: todo.kind === 'next-meeting' ? 'next_meeting' : todo.kind,
+                    todo_ref: todo.id,
+                    party_id: todo.partyId,
+                    due_date: todo.dueDate,
+                    heading: todo.heading,
+                  },
+                  reading: null,
+                  confirmed: false,
                 })
-              }
+                setCmLocationOpen(true)
+              }}
             >
               Couldn&apos;t meet
             </Button>
@@ -518,8 +542,22 @@ function TodoPhone() {
         onConfirm={createAndStart}
       />
 
+      <LocationCheckSheet
+        open={cmLocationOpen}
+        onOpenChange={setCmLocationOpen}
+        title="Record this here?"
+        confirmLabel="Continue"
+        busyLabel="Continuing..."
+        requireLocation={false}
+        onConfirm={async reading => {
+          setCmDraft(d => (d ? { ...d, reading, confirmed: true } : d))
+          return true
+        }}
+      />
+
       <CouldntMeetDialog
         target={couldntMeet}
+        location={cmReading}
         onClose={() => setCouldntMeet(null)}
         onSaved={() => {
           setCouldntMeet(null)

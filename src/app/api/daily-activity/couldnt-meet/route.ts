@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { businessDate } from '@/lib/business-date'
+import { writeAccuracy } from '@/lib/location-accuracy'
 import { recordCouldntMeet, listUnmetReasons, TodoKind } from '@/lib/todo-outcomes'
 
 export const dynamic = 'force-dynamic'
@@ -112,6 +113,7 @@ export async function POST(req: NextRequest) {
     if (result === 'unavailable') {
       return NextResponse.json({ error: 'This needs a database update first.' }, { status: 503 })
     }
+    await writeAccuracy('todo_outcomes.accuracy_m', tid, result.id, body.accuracy)
     return NextResponse.json({ ok: true, id: result.id })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

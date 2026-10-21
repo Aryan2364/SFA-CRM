@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { useUnsavedChanges } from '@/components/ui/unsaved-changes'
 import { useToast } from '@/contexts/ToastContext'
+import type { LocationReading } from './location-check-sheet'
 import { getPosition, reverseGeocode, toDateStr } from './types'
 
 export type CouldntMeetTarget = {
@@ -34,16 +35,21 @@ type Reason = { id: string; name: string }
  * optional. No behaviour here branches on WHICH reason was picked — reasons
  * are free-form rows a tenant edits, never a hardcoded id or name.
  *
- * Location is captured unconditionally on save, for every reason, the same
- * way the meeting Start flow does (`getPosition`/`reverseGeocode`); a
- * denial or failure saves the outcome anyway with a null location.
+ * Location: on phone the caller confirms it first through `LocationCheckSheet`
+ * and passes the reading as `location` (null when the person went on without
+ * one) - nothing is captured here then. With `location` undefined (desktop) it
+ * is captured silently on save, for every reason, the way the meeting Start
+ * flow does (`getPosition`/`reverseGeocode`); a denial or failure saves the
+ * outcome anyway with a null location.
  */
 export function CouldntMeetDialog({
   target,
+  location,
   onClose,
   onSaved,
 }: {
   target: CouldntMeetTarget | null
+  location?: LocationReading | null
   onClose: () => void
   onSaved: () => void
 }) {
@@ -86,13 +92,21 @@ export function CouldntMeetDialog({
     if (!target || !reasonId) return
     setSaving(true)
     let latitude: number | null = null, longitude: number | null = null, address: string | null = null
-    try {
-      const pos = await getPosition()
-      if (pos && 'latitude' in pos) {
-        latitude = pos.latitude; longitude = pos.longitude
-        address = await reverseGeocode(pos.latitude, pos.longitude)
+    let accuracy: number | null = null
+    if (location !== undefined) {
+      if (location) {
+        latitude = location.latitude; longitude = location.longitude
+        address = location.address; accuracy = location.accuracy
       }
-    } catch { /* denied/unavailable — save with null location, per spec */ }
+    } else {
+      try {
+        const pos = await getPosition()
+        if (pos && 'latitude' in pos) {
+          latitude = pos.latitude; longitude = pos.longitude; accuracy = pos.accuracy ?? null
+          address = await reverseGeocode(pos.latitude, pos.longitude)
+        }
+      } catch { /* denied/unavailable — save with null location, per spec */ }
+    }
 
     try {
       const res = await fetch('/api/daily-activity/couldnt-meet', {
@@ -101,7 +115,7 @@ export function CouldntMeetDialog({
         body: JSON.stringify({
           todo_kind: target.todo_kind, todo_ref: target.todo_ref, party_id: target.party_id,
           due_date: target.due_date, reason_id: reasonId, note: note.trim() || null,
-          new_date: newDate, latitude, longitude, address,
+          new_date: newDate, latitude, longitude, address, accuracy,
         }),
       })
       const data = await res.json().catch(() => ({}))

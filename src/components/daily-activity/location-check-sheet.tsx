@@ -6,6 +6,7 @@ import { MapPinIcon } from 'lucide-react'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { isApproximateLocation } from '@/lib/accuracy-label'
 import { reverseGeocode } from './types'
 
 /**
@@ -47,6 +48,14 @@ type ReadState =
   | { kind: 'unsupported' }
 
 const ACCURATE_ENOUGH_M = 100
+
+/** Which platform's steps to show for Precise location; both when unknown. */
+function preciseSteps(): { android: boolean; ios: boolean } {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
+  const ios = /iPhone|iPad|iPod/i.test(ua)
+  const android = /Android/i.test(ua)
+  return ios || android ? { android, ios } : { android: true, ios: true }
+}
 
 export function LocationCheckSheet({
   open,
@@ -151,7 +160,26 @@ export function LocationCheckSheet({
                 {state.reading.address ?? 'No address found for this spot. The place is still recorded.'}
               </p>
             </div>
-            {state.reading.accuracy > ACCURATE_ENOUGH_M ? (
+            {isApproximateLocation(state.reading.accuracy) ? (
+              <div className="flex flex-col gap-1">
+                <p className="text-body text-warning">
+                  Your phone is sharing approximate location only. Turn on Precise location.
+                </p>
+                {preciseSteps().android ? (
+                  <p className="text-body text-text-secondary">
+                    Android (Chrome): Settings &gt; Apps &gt; Chrome &gt; Permissions &gt; Location &gt; turn on
+                    &quot;Use precise location&quot;.
+                  </p>
+                ) : null}
+                {preciseSteps().ios ? (
+                  <p className="text-body text-text-secondary">
+                    iPhone (Safari): Settings &gt; Privacy &amp; Security &gt; Location Services &gt; Safari Websites
+                    &gt; turn on &quot;Precise Location&quot;.
+                  </p>
+                ) : null}
+                <p className="text-label text-text-secondary">Then tap Read again.</p>
+              </div>
+            ) : state.reading.accuracy > ACCURATE_ENOUGH_M ? (
               <p className="text-body text-warning">
                 Accurate only to about {Math.round(state.reading.accuracy)} m. Move to an open spot and read again for a
                 better reading.

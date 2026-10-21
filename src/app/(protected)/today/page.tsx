@@ -162,6 +162,7 @@ function ActivityPhone() {
           latitude: reading?.latitude ?? null,
           longitude: reading?.longitude ?? null,
           address: reading?.address ?? null,
+          accuracy: reading?.accuracy ?? null,
         }),
       })
       if (!r.ok) {

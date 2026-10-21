@@ -4,6 +4,7 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { awardPoint, logAwardFailure } from '@/lib/points'
 import { businessDate } from '@/lib/business-date'
+import { writeAccuracy } from '@/lib/location-accuracy'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
   const user = await requireUser()
   if (!user.userId) return NextResponse.json({ error: 'User not found' }, { status: 400 })
 
-  const { latitude, longitude, address } = await req.json()
+  const { latitude, longitude, address, accuracy } = await req.json()
   // Business date, not the server's UTC date — see src/lib/business-date.ts.
   const today = businessDate()
   const tid = getTenantId()
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
     const data = existing
       ? await prisma.attendance.update({ where: { id: existing.id }, data: payload })
       : await prisma.attendance.create({ data: payload })
+    await writeAccuracy('attendance.check_in_accuracy_m', tid, data.id, accuracy)
 
     void awardPoint(tid, user.userId, 'daily_checkin', { description: `Daily check-in on ${today}` })
       .catch(logAwardFailure('daily_checkin'))
