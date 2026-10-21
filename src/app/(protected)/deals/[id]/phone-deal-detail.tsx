@@ -17,7 +17,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronRightIcon, EllipsisVerticalIcon, PencilIcon, PlusIcon, ThumbsDownIcon, TrophyIcon } from 'lucide-react'
+import { ChevronRightIcon, EllipsisVerticalIcon, PencilIcon, ThumbsDownIcon, TrophyIcon } from 'lucide-react'
+import { PhoneFollowUps } from './phone-follow-ups'
+import type { FollowUp } from '@/components/deals/follow-ups-section'
 
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { ActionBar } from '@/components/ui/action-bar'
@@ -25,8 +27,6 @@ import { RecordSummary } from '@/components/ui/record-summary'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { BottomSheet, BottomSheetOption } from '@/components/ui/bottom-sheet'
 import {
   DropdownMenu,
@@ -68,14 +68,6 @@ type Meeting = {
   users: { name: string } | null
 }
 
-type FollowUp = {
-  id: string
-  due_date: string
-  mode: string
-  status: string
-  notes: string | null
-}
-
 type RelatedCounts = { meetings: number; followUps: number }
 
 const REQUEST_TIMEOUT_MS = 15000
@@ -107,10 +99,6 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
   const [followUps, setFollowUps] = useState<FollowUp[]>([])
   const [meetingsSheetOpen, setMeetingsSheetOpen] = useState(false)
   const [followUpsSheetOpen, setFollowUpsSheetOpen] = useState(false)
-  const [addingFollowUp, setAddingFollowUp] = useState(false)
-  const [followUpDate, setFollowUpDate] = useState('')
-  const [followUpNote, setFollowUpNote] = useState('')
-  const [savingFollowUp, setSavingFollowUp] = useState(false)
 
   const related: RelatedCounts = { meetings: meetings.length, followUps: followUps.length }
 
@@ -142,33 +130,6 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
     }
   }
 
-  async function addFollowUp() {
-    if (!followUpDate || savingFollowUp) return
-    setSavingFollowUp(true)
-    try {
-      const res = await fetchWithDeadline(`/api/deals/${id}/follow-ups`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ due_date: followUpDate, mode: 'call', notes: followUpNote.trim() || undefined }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        toast(body.error ?? 'Could not add the follow-up.', 'error')
-        return
-      }
-      const created = (await res.json()) as FollowUp
-      setFollowUps(rows => [...rows, created].sort((a, b) => a.due_date.localeCompare(b.due_date)))
-      setFollowUpDate('')
-      setFollowUpNote('')
-      setAddingFollowUp(false)
-      toast('Follow-up added.', 'success')
-    } catch {
-      toast('The connection dropped. Nothing has been saved.', 'error')
-    } finally {
-      setSavingFollowUp(false)
-    }
-  }
-
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,6 +138,9 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
   const viewOnly = deal?.access === 'view'
   const canEdit: boolean | null = viewOnly ? false : me ? Boolean(me.permissions?.deals?.edit) : null
   const editReason = viewOnly ? VIEW_ONLY_REASON : EDIT_REASON
+  // Deleting a follow-up is `deals.delete` on the route (edit/add/mark-done are `deals.edit`).
+  const canDelete: boolean | null = viewOnly ? false : me ? Boolean(me.permissions?.deals?.delete) : null
+  const deleteReason = viewOnly ? VIEW_ONLY_REASON : 'Only someone who can delete opportunities can remove a follow-up.'
   const canLogMeeting: boolean | null = me ? Boolean(me.permissions?.meetings?.create) : null
   const closed = deal?.outcome === 'won' || deal?.outcome === 'lost'
   const open = openStagesOf(stages)
@@ -382,64 +346,15 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
       </BottomSheet>
 
       <BottomSheet open={followUpsSheetOpen} onOpenChange={setFollowUpsSheetOpen} title="Follow-ups">
-        <div className="flex flex-col gap-3 px-1">
-          {followUps.length === 0 ? (
-            <p className="px-2 py-1 text-body text-text-secondary">No follow-ups yet.</p>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {followUps.map(f => (
-                <div
-                  key={f.id}
-                  className="flex min-h-11 flex-col gap-0.5 rounded-lg border border-border-light px-3 py-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-body text-text-primary">{fmtDate(f.due_date)}</span>
-                    <Badge variant={f.status === 'done' ? 'success' : 'neutral'}>
-                      {f.status === 'done' ? 'Done' : 'Open'}
-                    </Badge>
-                  </div>
-                  {f.notes ? <span className="text-label text-text-secondary">{f.notes}</span> : null}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {addingFollowUp ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-border-light p-3">
-              <Input
-                type="date"
-                value={followUpDate}
-                onChange={e => setFollowUpDate(e.target.value)}
-                style={{ fontSize: 16 }}
-              />
-              <Textarea
-                value={followUpNote}
-                onChange={e => setFollowUpNote(e.target.value)}
-                placeholder="Note (optional)"
-                style={{ fontSize: 16 }}
-              />
-              <div className="flex gap-2">
-                <Button variant="secondary" className="flex-1" onClick={() => setAddingFollowUp(false)}>
-                  Cancel
-                </Button>
-                <Button className="flex-1" disabled={!followUpDate || savingFollowUp} onClick={addFollowUp}>
-                  Add
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <PermissionTooltip allowed={canEdit !== false} reason={editReason}>
-              <Button
-                variant="secondary"
-                className="w-full"
-                disabled={canEdit !== true}
-                onClick={() => setAddingFollowUp(true)}
-              >
-                <PlusIcon className="size-4" /> Add follow-up
-              </Button>
-            </PermissionTooltip>
-          )}
-        </div>
+        <PhoneFollowUps
+          dealId={id}
+          rows={followUps}
+          onRows={setFollowUps}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          editReason={editReason}
+          deleteReason={deleteReason}
+        />
       </BottomSheet>
     </div>
   )

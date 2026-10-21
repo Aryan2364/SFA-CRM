@@ -62,6 +62,16 @@ import { Badge } from '@/components/ui/badge'
 import { Banner, BannerDescription, BannerTitle } from '@/components/ui/banner'
 import { Button } from '@/components/ui/button'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Card,
   CardContent,
   CardHeader,
@@ -354,6 +364,9 @@ function PhoneAccountDetail({
   linksLoading,
   me,
   router,
+  onChangeKind,
+  onDelete,
+  onToggleActive,
 }: {
   id: string
   company: Company | null
@@ -364,7 +377,15 @@ function PhoneAccountDetail({
   linksLoading: boolean
   me: Me | null
   router: ReturnType<typeof useRouter>
+  /** The same record-level actions the desktop ⋮ menu has; the dialogs live in CompanyDetail. */
+  onChangeKind: () => void
+  onDelete: () => void
+  onToggleActive: () => void
 }) {
+  // Tri-state like the desktop menu: while `me` is loading the items are
+  // disabled with no reason; only a real "no" shows who may do it.
+  const canEditMenu = me ? Boolean(me.permissions?.companies?.edit) : null
+  const canDeleteMenu = me ? Boolean(me.permissions?.companies?.delete) : null
   usePhoneAppBar({
     title: company?.name ?? 'Account',
     back: '/parties',
@@ -383,12 +404,17 @@ function PhoneAccountDetail({
             <EllipsisVerticalIcon aria-hidden className="size-5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              disabled={!(me.permissions?.companies?.edit ?? false)}
-              onClick={() => router.push(`/parties/companies/${id}/edit`)}
+            <PermissionTooltip
+              allowed={canEditMenu !== false}
+              reason="Only someone who can edit accounts can edit this one."
             >
-              Edit
-            </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={canEditMenu !== true}
+                onClick={() => router.push(`/parties/companies/${id}/edit`)}
+              >
+                Edit
+              </DropdownMenuItem>
+            </PermissionTooltip>
             <DropdownMenuItem
               disabled={!(me.permissions?.deals?.create ?? false)}
               onClick={() => router.push(`/deals/new?account=${id}`)}
@@ -407,6 +433,34 @@ function PhoneAccountDetail({
             >
               Add contact
             </DropdownMenuItem>
+            <PermissionTooltip
+              allowed={canEditMenu !== false}
+              reason="Only someone who can edit accounts can change its kind."
+            >
+              <DropdownMenuItem disabled={canEditMenu !== true} onClick={onChangeKind}>
+                Change to {(company.account_kind ?? 'Company') === 'Individual' ? 'Company' : 'Individual'}
+              </DropdownMenuItem>
+            </PermissionTooltip>
+            <PermissionTooltip
+              allowed={canEditMenu !== false}
+              reason="Only someone who can edit accounts can make this one active or inactive."
+            >
+              <DropdownMenuItem disabled={canEditMenu !== true} onClick={onToggleActive}>
+                {company.is_active ? 'Make inactive' : 'Make active'}
+              </DropdownMenuItem>
+            </PermissionTooltip>
+            <PermissionTooltip
+              allowed={canDeleteMenu !== false}
+              reason="Only someone who can delete accounts can delete this one."
+            >
+              <DropdownMenuItem
+                disabled={canDeleteMenu !== true}
+                variant="danger"
+                onClick={onDelete}
+              >
+                Delete
+              </DropdownMenuItem>
+            </PermissionTooltip>
           </DropdownMenuContent>
         </DropdownMenu>
       ) : undefined,
@@ -830,19 +884,70 @@ function CompanyDetail() {
     .map(part => part.trim())
     .filter(Boolean)
 
+  // Phone ⋮ menu: Make inactive / active is the same `PUT { is_active }` the
+  // desktop list's Active switch sends (companies.edit). Reversible, so no
+  // confirmation.
+  async function togglePhoneActive() {
+    if (!company) return
+    const value = !company.is_active
+    try {
+      const res = await fetch(`/api/companies/${company.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: value }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast((data as { error?: string }).error ?? 'Update failed', 'error')
+        return
+      }
+      toast(value ? `${company.name} marked active` : `${company.name} marked inactive`, 'success')
+      void load()
+    } catch {
+      toast('The connection dropped. Nothing was changed.', 'error')
+    }
+  }
+
   if (layout === 'phone') {
     return (
-      <PhoneAccountDetail
-        id={id}
-        company={company}
-        error={error}
-        loading={loading}
-        load={load}
-        links={links}
-        linksLoading={linksLoading || linksFailed}
-        me={me}
-        router={router}
-      />
+      <>
+        <PhoneAccountDetail
+          id={id}
+          company={company}
+          error={error}
+          loading={loading}
+          load={load}
+          links={links}
+          linksLoading={linksLoading || linksFailed}
+          me={me}
+          router={router}
+          onChangeKind={() => setKindDialogOpen(true)}
+          onDelete={() => setDeleteDialogOpen(true)}
+          onToggleActive={() => void togglePhoneActive()}
+        />
+        {company && !error && (
+          <>
+            <KindChangeDialog
+              open={kindDialogOpen}
+              onOpenChange={setKindDialogOpen}
+              companyId={company.id}
+              currentKind={company.account_kind ?? 'Company'}
+              links={links}
+              roles={roles}
+              onDone={() => { setKindDialogOpen(false); void Promise.all([load(), loadLinks()]) }}
+            />
+            <PhoneDeleteAccountAlert
+              open={deleteDialogOpen}
+              onOpenChange={setDeleteDialogOpen}
+              companyId={company.id}
+              companyName={company.name}
+              isActive={company.is_active}
+              onDeleted={() => router.push(listHref)}
+              onMadeInactive={() => { setDeleteDialogOpen(false); void load() }}
+            />
+          </>
+        )}
+      </>
     )
   }
 
@@ -1930,6 +2035,112 @@ function DeleteAccountDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Phone twin of DeleteAccountDialog: the kit's confirmation pattern (an alert
+ * dialog that closes only through its buttons) over the same two calls —
+ * `DELETE /api/companies/[id]`, and on its 409 ("has meetings, opportunities
+ * or orders") the same way out the desktop offers, `PUT { is_active: false }`.
+ */
+function PhoneDeleteAccountAlert({
+  open,
+  onOpenChange,
+  companyId,
+  companyName,
+  isActive,
+  onDeleted,
+  onMadeInactive,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  companyId: string
+  companyName: string
+  isActive: boolean
+  onDeleted: () => void
+  onMadeInactive: () => void
+}) {
+  const { toast } = useToast()
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!open) setBlockedMessage(null)
+  }, [open])
+
+  async function doDelete() {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/companies/${companyId}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 409) {
+        setBlockedMessage((data as { error?: string }).error ?? 'This account has history and cannot be deleted.')
+        return
+      }
+      if (!res.ok) {
+        toast((data as { error?: string }).error ?? 'Could not delete this account', 'error')
+        return
+      }
+      toast(`${companyName} deleted`, 'success')
+      onDeleted()
+    } catch {
+      toast('The connection dropped. Nothing was deleted.', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function makeInactive() {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/companies/${companyId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: false }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast((data as { error?: string }).error ?? 'Could not mark this account inactive', 'error')
+        return
+      }
+      toast(`${companyName} marked inactive`, 'success')
+      onMadeInactive()
+    } catch {
+      toast('The connection dropped. Nothing was changed.', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {blockedMessage ? 'This account can’t be deleted' : `Delete ${companyName}?`}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {blockedMessage ??
+              'This permanently removes the account and its links to people. This cannot be undone.'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          {blockedMessage ? (
+            isActive && (
+              <AlertDialogAction variant="primary" onClick={() => void makeInactive()} disabled={busy}>
+                {busy ? 'Saving…' : 'Make inactive'}
+              </AlertDialogAction>
+            )
+          ) : (
+            <AlertDialogAction onClick={() => void doDelete()} disabled={busy}>
+              {busy ? 'Deleting…' : 'Delete account'}
+            </AlertDialogAction>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

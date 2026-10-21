@@ -94,6 +94,10 @@ import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
 import { EMPTY, fmtDate, fmtDateTime, parseApiDate } from '@/lib/format'
 import { requestNotificationOffer } from '@/components/shell/notification-offer-host'
+// Pure constants only (the file has no imports), so it is safe in a client bundle.
+import { FOLLOW_UP_MODES } from '@/app/api/deals/_shape'
+
+export { FOLLOW_UP_MODES }
 
 /** The row as the API returns it (`serialize(rows, 'deal_follow_ups')`). */
 export type FollowUp = {
@@ -111,18 +115,18 @@ export type FollowUp = {
  * not drift. Five options, one under the six past which section 16.3 wants a
  * SearchableSelect instead.
  */
-const MODES = ['Meeting', 'Call', 'Email', 'WhatsApp', 'Other'] as const
+const MODES = FOLLOW_UP_MODES
 
 /** How far ahead the "schedule the next one" prompt suggests. A suggestion. */
-const NEXT_FOLLOW_UP_SUGGESTION_DAYS = 7
+export const NEXT_FOLLOW_UP_SUGGESTION_DAYS = 7
 
-function startOfToday(): Date {
+export function startOfToday(): Date {
   const now = new Date()
   return new Date(now.getFullYear(), now.getMonth(), now.getDate())
 }
 
 /** Date-only on both sides: a follow-up due TODAY is not yet overdue (§10). */
-function isOverdue(dueDate: string | null | undefined): boolean {
+export function isOverdue(dueDate: string | null | undefined): boolean {
   const due = parseApiDate(dueDate ?? null)
   if (!due) return false
   return due.getTime() < startOfToday().getTime()
@@ -136,18 +140,18 @@ function isOverdue(dueDate: string | null | undefined): boolean {
  * picked as the 5th in IST (UTC+5:30) is sent as the 4th. The local parts are
  * exactly what the user chose in the calendar.
  */
-function toWireDate(date: Date): string {
+export function toWireDate(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${date.getFullYear()}-${m}-${d}`
 }
 
 /** "YYYY-MM-DD" → a local midnight `Date` for the picker. */
-function fromWireDate(value: string | null): Date | undefined {
+export function fromWireDate(value: string | null): Date | undefined {
   return parseApiDate(value) ?? undefined
 }
 
-function addDays(date: Date, days: number): Date {
+export function addDays(date: Date, days: number): Date {
   const next = new Date(date)
   next.setDate(next.getDate() + days)
   return next
@@ -166,9 +170,27 @@ function orEmpty(value: string | null | undefined) {
 // their title, their wording and what pressing the primary button does.
 // ─────────────────────────────────────────────────────────────
 
-type FormState = { due: Date | undefined; mode: string; notes: string }
+export type FormState = { due: Date | undefined; mode: string; notes: string }
 
 const BLANK_FORM: FormState = { due: undefined, mode: '', notes: '' }
+
+/** The two compulsory fields the POST route enforces, checked before it does,
+ *  so they land inline on the field rather than in a toast (§7.1). */
+export function validateFollowUpForm(state: FormState): Record<string, string> {
+  const next: Record<string, string> = {}
+  if (!state.due) next.due_date = 'Pick the date this follow-up is due.'
+  if (!state.mode) next.mode = 'Choose how you will follow up.'
+  return next
+}
+
+/** The body POST and PATCH both take. Call only after validateFollowUpForm passes. */
+export function followUpBody(state: FormState) {
+  return {
+    due_date: toWireDate(state.due as Date),
+    mode: state.mode,
+    notes: state.notes.trim() || null,
+  }
+}
 
 function FollowUpFields({
   idPrefix,
@@ -494,14 +516,7 @@ export function FollowUpsSection({
     setEditing(followUp.id)
   }
 
-  /** The two compulsory fields the POST route enforces, checked before it does,
-   *  so they land inline on the field rather than in a toast (§7.1). */
-  function validate(state: FormState): Record<string, string> {
-    const next: Record<string, string> = {}
-    if (!state.due) next.due_date = 'Pick the date this follow-up is due.'
-    if (!state.mode) next.mode = 'Choose how you will follow up.'
-    return next
-  }
+  const validate = validateFollowUpForm
 
   // ── writes ───────────────────────────────────────────────
 
@@ -511,11 +526,7 @@ export function FollowUpsSection({
     if (Object.keys(found).length > 0) return setErrors(found)
 
     setSaving(true)
-    const body = {
-      due_date: toWireDate(form.due as Date),
-      mode: form.mode,
-      notes: form.notes.trim() || null,
-    }
+    const body = followUpBody(form)
     const creating = editing === 'new'
 
     try {
@@ -606,11 +617,7 @@ export function FollowUpsSection({
       const res = await fetch(`/api/deals/${dealId}/follow-ups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          due_date: toWireDate(promptForm.due as Date),
-          mode: promptForm.mode,
-          notes: promptForm.notes.trim() || null,
-        }),
+        body: JSON.stringify(followUpBody(promptForm)),
       })
       const data = (await res.json().catch(() => ({}))) as FollowUp & { error?: string }
       if (!res.ok) {

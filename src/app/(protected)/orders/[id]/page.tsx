@@ -22,13 +22,16 @@ import { RecordSummary } from '@/components/ui/record-summary'
 import { StatusBadge, SpecBadge, DISCOUNT_FLAG, ORDER_STATUS } from '@/components/status-badge'
 import { fmtAmount, fmtDate, fmtQty } from '@/lib/format'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
+import { OptionSelect } from '@/components/orders/option-select'
+import { useMe } from '@/hooks/useMe'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { DiscountType, OrderStatus } from '@/lib/order-math'
+import { ORDER_STATUSES, type DiscountType, type OrderStatus } from '@/lib/order-math'
 
 type OrderDetail = {
   id: string
@@ -58,18 +61,57 @@ type OrderDetail = {
   }[]
 }
 
+/** Two words and no third (§4.10) — the same picker options as the desktop drawer. */
+const STATUS_OPTIONS: Record<string, string> = Object.fromEntries(ORDER_STATUSES.map(s => [s, s]))
+
 function PhoneOrderDetail({ id }: { id: string }) {
   const router = useRouter()
   const { toast } = useToast()
+  const me = useMe()
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [state, setState] = useState<'loading' | 'failed' | 'ready'>('loading')
+  const [savingStatus, setSavingStatus] = useState(false)
+  // §3.5's refusal, kept on screen after the toast has gone: why an order
+  // cannot be placed is a property of the record until the party is fixed.
+  const [blockedReason, setBlockedReason] = useState<string | null>(null)
+
+  // PATCH /api/orders/[id] checks orders.edit. `null` while /me is loading:
+  // disabled, with no reason given yet.
+  const canEdit: boolean | null = me ? Boolean(me.permissions?.orders?.edit) : null
+  const canEditAccount: boolean | null = me ? Boolean(me.permissions?.companies?.edit) : null
+
+  async function updateStatus(newStatus: OrderStatus) {
+    if (!order || savingStatus || newStatus === order.status) return
+    setSavingStatus(true)
+    try {
+      const r = await fetch(`/api/orders/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!r.ok) {
+        // The API says WHY — an incomplete party, and which fields.
+        const err = (await r.json().catch(() => ({}))) as { error?: string; blocked_reason?: string }
+        setBlockedReason(err.blocked_reason ?? null)
+        toast(err.error ?? 'Failed to update status', 'error')
+        return
+      }
+      setOrder(o => (o ? { ...o, status: newStatus, blocked_reason: null } : o))
+      setBlockedReason(null)
+      toast('Status updated')
+    } catch {
+      toast('The connection dropped. The status was not changed.', 'error')
+    } finally {
+      setSavingStatus(false)
+    }
+  }
 
   useEffect(() => {
     let live = true
     setState('loading')
     fetch(`/api/orders/${id}`)
       .then(r => (r.ok ? r.json() : Promise.reject(r)))
-      .then(d => { if (live) { setOrder(d); setState('ready') } })
+      .then(d => { if (live) { setOrder(d); setBlockedReason(d.blocked_reason ?? null); setState('ready') } })
       .catch(() => { if (live) setState('failed') })
     return () => { live = false }
   }, [id])
@@ -134,10 +176,42 @@ function PhoneOrderDetail({ id }: { id: string }) {
         ]}
       />
 
-      {order.status === 'Draft' && order.blocked_reason ? (
-        <p className="rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-label text-warning">
-          This order cannot be placed. {order.blocked_reason}
-        </p>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="order-detail-status" className="text-label font-medium text-text-secondary">Status</label>
+        <PermissionTooltip allowed={canEdit !== false} reason="Only someone who can edit orders can change the status">
+          <OptionSelect
+            id="order-detail-status"
+            options={STATUS_OPTIONS}
+            value={order.status}
+            onValueChange={v => void updateStatus(v as OrderStatus)}
+            disabled={savingStatus || canEdit !== true}
+            className="max-w-none"
+          />
+        </PermissionTooltip>
+      </div>
+
+      {order.status === 'Draft' && blockedReason ? (
+        <div className="flex flex-col gap-2 rounded-lg bg-warning-bg border border-warning-border px-3 py-2">
+          <p className="text-label text-warning">This order cannot be placed. {blockedReason}</p>
+          {order.entity_id ? (
+            <PermissionTooltip
+              allowed={canEditAccount !== false}
+              reason="Only someone who can edit accounts can add these details"
+            >
+              <Button
+                size="sm"
+                disabled={canEditAccount !== true}
+                onClick={() =>
+                  router.push(
+                    `/parties/companies/${order.entity_id}/edit?next=${encodeURIComponent(`/orders/${order.id}`)}`
+                  )
+                }
+              >
+                Add details
+              </Button>
+            </PermissionTooltip>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="flex flex-col gap-2">

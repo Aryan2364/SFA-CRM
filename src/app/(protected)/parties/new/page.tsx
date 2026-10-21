@@ -23,7 +23,6 @@ import { useLayout } from '@/lib/layout'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { PhoneForm, PhoneFormField, usePhoneFormGuard } from '@/components/ui/phone-form'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { PickerSheetField, type PickerOption } from '@/components/ui/picker-sheet'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Button } from '@/components/ui/button'
@@ -37,8 +36,9 @@ import {
 } from '@/components/ui/dialog'
 import { useToast } from '@/contexts/ToastContext'
 import { isSafeReturnPath } from '@/lib/session-expiry'
-import { usePartyMasters } from '../party-masters'
-import { checkEmail, checkGstin, checkMobile, checkPincode, firstError } from '@/lib/validation'
+import { useOwnerChoice, usePartyMasters } from '../party-masters'
+import { checkMobile, checkPincode, firstError } from '@/lib/validation'
+import { AccountDetailFields, BLANK_DETAILS, validateAccountDetails, type AccountDetails } from '../phone-account-fields'
 import { AccountKindChoice } from '@/components/parties/account-kind-choice'
 import { PersonModeChoice } from '@/components/parties/person-mode-choice'
 
@@ -62,13 +62,26 @@ function PhoneNewAccount() {
   const router = useRouter()
   const { toast } = useToast()
   const masters = usePartyMasters()
+  // Owner defaults to the signed-in user and is locked to them on `own` scope,
+  // as on the desktop form (the route refuses any other owner with a 403).
+  const ownerChoice = useOwnerChoice('companies')
 
   const [kind, setKind] = useState<AccountKind>('Company')
   const [name, setName] = useState('')
-  const [mobile, setMobile] = useState('')
-  const [email, setEmail] = useState('')
-  const [gst, setGst] = useState('')
-  const [notes, setNotes] = useState('')
+  const [details, setDetails] = useState<AccountDetails>(BLANK_DETAILS)
+  const patchDetails = (patch: Partial<AccountDetails>) => {
+    setDetails(d => ({ ...d, ...patch }))
+    setErrors(e => {
+      const next = { ...e }
+      for (const k of Object.keys(patch)) delete next[k]
+      delete next.form
+      return next
+    })
+  }
+  const ownerValue =
+    ownerChoice.state === 'self'
+      ? ownerChoice.userId
+      : details.owner_user_id || masters.currentUserId || ''
   const [addressLine, setAddressLine] = useState('')
   const [city, setCity] = useState('')
   const [stateId, setStateId] = useState('')
@@ -89,7 +102,9 @@ function PhoneNewAccount() {
   }, [])
 
   const changed = Boolean(
-    name || mobile || email || gst || notes || personName || personMobile || existingContact ||
+    name || details.mobile_1 || details.mobile_2 || details.landline || details.email || details.website ||
+      details.gst_number || details.description || details.type || details.industry_id || details.owner_user_id ||
+      personName || personMobile || existingContact ||
       addressLine || city || stateId || pincode
   )
   const { requestLeave, warning } = usePhoneFormGuard(changed)
@@ -105,12 +120,7 @@ function PhoneNewAccount() {
         if (pm) next.personMobile = pm
       }
     }
-    const m = checkMobile(mobile, 'Mobile Number')
-    if (m) next.mobile = m
-    const e = checkEmail(email)
-    if (e) next.email = e
-    const g = checkGstin(gst)
-    if (g) next.gst = g
+    Object.assign(next, validateAccountDetails(details))
     const p = firstError(checkPincode(pincode))
     if (p) next.pincode = p
     setErrors(next)
@@ -160,11 +170,17 @@ function PhoneNewAccount() {
           ...(kind === 'Individual' && personMode === 'new'
             ? { self_new_person: { name: personName.trim(), mobile: personMobile.trim() || undefined } }
             : {}),
-          mobile_1: mobile.trim() || null,
-          email: email.trim() || null,
-          gst_number: gst.trim() || null,
-          description: notes.trim() || null,
-          owner_user_id: masters.currentUserId || null,
+          // Blank stays blank; the route stores '' for "no type".
+          type: details.type || null,
+          industry_id: details.industry_id || null,
+          owner_user_id: ownerValue || null,
+          mobile_1: details.mobile_1.trim() || null,
+          mobile_2: details.mobile_2.trim() || null,
+          landline: details.landline.trim() || null,
+          email: details.email.trim() || null,
+          website: details.website.trim() || null,
+          gst_number: details.gst_number.trim() || null,
+          description: details.description.trim() || null,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -261,21 +277,18 @@ function PhoneNewAccount() {
           />
         </PhoneFormField>
 
-        <PhoneFormField label="Mobile" hint={errors.mobile}>
-          <Input type="tel" inputMode="numeric" value={mobile} onChange={e => setMobile(e.target.value)} aria-invalid={Boolean(errors.mobile)} />
-        </PhoneFormField>
-
         {/* No "More details" toggle (owner decision) — every field is shown,
-            required fields first. */}
-        <PhoneFormField label="Email" hint={errors.email}>
-          <Input type="email" value={email} onChange={e => setEmail(e.target.value)} aria-invalid={Boolean(errors.email)} />
-        </PhoneFormField>
-        <PhoneFormField label="GST number" hint={errors.gst}>
-          <Input value={gst} onChange={e => setGst(e.target.value.toUpperCase())} aria-invalid={Boolean(errors.gst)} />
-        </PhoneFormField>
-        <PhoneFormField label="Notes">
-          <Textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} />
-        </PhoneFormField>
+            required fields first. Same fields and rules as the desktop form. */}
+        <AccountDetailFields
+          values={details}
+          onChange={patchDetails}
+          errors={errors}
+          kind={kind}
+          masters={masters}
+          ownerChoice={ownerChoice}
+          ownerValue={ownerValue}
+          clearStaleType
+        />
 
         {/* Optional — so a rep is never blocked from creating the account on
             the spot, but can add it now if they already have it, saving a
