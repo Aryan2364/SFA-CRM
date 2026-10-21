@@ -226,6 +226,10 @@ type PhoneNotificationsText = {
   turnOn: string
   on: string
   off: string
+  /** PORT NOTE: the kit has no way to turn them off again; see onTurnOff. */
+  turnOff: string
+  turningOff: string
+  turnOffFailed: string
   /** An iPhone that has not installed the app (41.12 rule 5). */
   needsInstall: string
   installLink: string
@@ -241,8 +245,11 @@ const SETTING_TEXT: PhoneNotificationsText = {
   // Full width here, so the full action fits; it opens the sheet whose
   // primary reads "Turn on".
   turnOn: "Turn on notifications",
-  on: "Phone notifications are on. The switches above choose which ones you get.",
+  on: "Phone notifications are on for this phone.",
   off: "Phone notifications are off. You still see every notification in the app.",
+  turnOff: "Turn off on this phone",
+  turningOff: "Turning off",
+  turnOffFailed: "Notifications could not be turned off. Check your connection and try again.",
   needsInstall:
     "On iPhone, phone notifications work only once the app is on your home screen. Install it from More, then turn them on here.",
   installLink: "Install the app",
@@ -298,10 +305,23 @@ function PhoneNotificationsSetting({
   appName = APP_NAME,
   installHref,
   onSubscribe,
+  subscribed,
+  onTurnOff,
   text,
   sheetText,
 }: {
   person: string
+  /**
+   * PORT NOTE: the kit's block ends at "they are on" and reads the phone's
+   * permission alone. A product with a plain on/off per phone needs two
+   * more things, both optional here: `subscribed` (does THIS phone hold a
+   * subscription; false with permission "granted" is "off" - permission
+   * cannot be taken back by the app - and null is "not read yet", which
+   * shows nothing), and `onTurnOff`, which renders "Turn off on this phone"
+   * in the on state. Logged in docs/kit-audit/kit-gaps.md.
+   */
+  subscribed?: boolean | null
+  onTurnOff?: () => Promise<void>
   /** The installed app's name, as the phone's settings list it. The install settings' name (41.12 rule 9) unless given. */
   appName?: string
   /** Where the install option is: More (41.12 rule 8). */
@@ -315,9 +335,23 @@ function PhoneNotificationsSetting({
   const phone = useLayout().layout === "phone"
   const push = usePushPermission(person)
   const [open, setOpen] = React.useState(false)
+  const [turningOff, setTurningOff] = React.useState(false)
   const headingId = React.useId()
 
   if (!phone || !push.ready) return null
+  if (push.configured && push.supported && push.permission === "granted" && subscribed === null) return null
+
+  const turnOff = async () => {
+    if (!onTurnOff || turningOff) return
+    setTurningOff(true)
+    try {
+      await onTurnOff()
+    } catch {
+      toast.error(t.turnOffFailed)
+    } finally {
+      setTurningOff(false)
+    }
+  }
 
   let line: string
   let next: React.ReactNode = null
@@ -334,8 +368,15 @@ function PhoneNotificationsSetting({
     line = t.unsupported
   } else if (push.permission === "denied") {
     line = t.denied(push.platform, push.installed, appName)
-  } else if (push.permission === "granted") {
+  } else if (push.permission === "granted" && subscribed !== false) {
     line = t.on
+    if (onTurnOff) {
+      next = (
+        <Button variant="secondary" className="w-full" loading={turningOff} loadingLabel={t.turningOff} onClick={() => void turnOff()}>
+          {t.turnOff}
+        </Button>
+      )
+    }
   } else {
     line = t.off
     next = (

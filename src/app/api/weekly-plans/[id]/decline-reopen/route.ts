@@ -64,7 +64,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       context_id: params.id,
       redirect_path: '/weekly-plan',
       message: 'Your reopen request was declined by the manager.',
-    })
+    }, { title: 'Weekly plan', body: 'Your reopen request was answered' })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

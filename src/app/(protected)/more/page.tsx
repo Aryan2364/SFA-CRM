@@ -2,59 +2,30 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CalendarIcon, ChevronRightIcon, DownloadIcon, LogOutIcon, ReceiptIcon, UserIcon } from 'lucide-react'
+import { BellIcon, CalendarIcon, ChevronRightIcon, DownloadIcon, LogOutIcon, ReceiptIcon, UserIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { useLayout } from '@/lib/layout'
 import { invalidateMeCache, useMe } from '@/hooks/useMe'
+import { useInstall } from '@/lib/install'
+import { releasePushOnSignOut } from '@/lib/push-device'
+import { resetNotifications } from '@/lib/phone-notifications'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { Button } from '@/components/ui/button'
 
 /** package.json's own version — the one source, so this never drifts from the build. */
 import pkg from '../../../../package.json'
 
-/**
- * Phone foundation — §41.12 rules 7-8: the install option lives in More
- * only, never a pop-up, and is hidden once installed. Android uses the
- * browser's own beforeinstallprompt; iPhone gets a sheet with the
- * Share → Add to Home Screen steps, since Safari exposes no install
- * prompt API.
- */
-function useInstallPrompt() {
-  const [installed, setInstalled] = useState(false)
-  const [deferred, setDeferred] = useState<Event | null>(null)
-
-  useEffect(() => {
-    const standalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (navigator as Navigator & { standalone?: boolean }).standalone === true
-    setInstalled(standalone)
-
-    const onPrompt = (event: Event) => {
-      event.preventDefault()
-      setDeferred(event)
-    }
-    const onInstalled = () => setInstalled(true)
-    window.addEventListener('beforeinstallprompt', onPrompt)
-    window.addEventListener('appinstalled', onInstalled)
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt)
-      window.removeEventListener('appinstalled', onInstalled)
-    }
-  }, [])
-
-  const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)
-
-  return { installed, canPromptAndroid: deferred !== null, isIOS, deferred }
-}
-
 export default function MorePage() {
   const { layout } = useLayout()
   const router = useRouter()
   const me = useMe()
   const [signingOut, setSigningOut] = useState(false)
-  const [iosSheetOpen, setIosSheetOpen] = useState(false)
-  const install = useInstallPrompt()
+  const [stepsSheetOpen, setStepsSheetOpen] = useState(false)
+  // §41.12 rules 7-8: the install option lives in More only, never a
+  // pop-up, and is hidden once installed. The kit's useInstall (lib/install.ts)
+  // keeps the browser's own question from the moment the page opens.
+  const install = useInstall()
 
   useEffect(() => {
     if (layout === 'desktop') router.replace('/')
@@ -66,8 +37,13 @@ export default function MorePage() {
     if (signingOut) return
     setSigningOut(true)
     try {
+      // Before the session ends, so the next person on this phone does not
+      // get this person's notifications (lib/push.ts). Best effort; sign-out
+      // never waits on it for more than about 2 seconds.
+      await releasePushOnSignOut()
       await fetch('/api/auth/logout', { method: 'POST' })
       invalidateMeCache()
+      resetNotifications()
       router.push('/login')
     } catch {
       setSigningOut(false)
@@ -75,12 +51,13 @@ export default function MorePage() {
   }
 
   async function promptInstall() {
-    if (install.isIOS) {
-      setIosSheetOpen(true)
-      return
+    // Where the browser can ask itself (Chrome-based on Android) it does;
+    // everywhere else (Safari on iPhone, other browsers) the steps are shown.
+    if (install.canPrompt) {
+      const outcome = await install.prompt()
+      if (outcome !== 'unavailable') return
     }
-    const event = install.deferred as (Event & { prompt?: () => Promise<void> }) | null
-    await event?.prompt?.()
+    setStepsSheetOpen(true)
   }
 
   // Permission-aware (CLAUDE.md, kit §4): a whole area the user cannot see
@@ -99,7 +76,8 @@ export default function MorePage() {
     rows.push({ label: 'Weekly plan', icon: CalendarIcon, onClick: () => router.push('/weekly-plan') })
   }
   rows.push({ label: 'Profile', icon: UserIcon, onClick: () => router.push('/profile') })
-  if (!install.installed) {
+  rows.push({ label: 'Phone notifications', icon: BellIcon, onClick: () => router.push('/notifications#phone-notifications') })
+  if (install.ready && !install.installed) {
     rows.push({ label: 'Install app', icon: DownloadIcon, onClick: promptInstall })
   }
 
@@ -137,15 +115,22 @@ export default function MorePage() {
       <p className="px-1 text-center text-meta text-text-muted">RGB SFA v{pkg.version}</p>
 
       <BottomSheet
-        open={iosSheetOpen}
-        onOpenChange={setIosSheetOpen}
+        open={stepsSheetOpen}
+        onOpenChange={setStepsSheetOpen}
         title="Install RGB SFA"
-        footer={<Button onClick={() => setIosSheetOpen(false)}>Got it</Button>}
+        footer={<Button onClick={() => setStepsSheetOpen(false)}>Got it</Button>}
       >
-        <ol className="list-decimal space-y-2 pl-5 text-body text-text-primary">
-          <li>Tap the Share button in Safari&apos;s toolbar.</li>
-          <li>Scroll down and tap &quot;Add to Home Screen&quot;.</li>
-        </ol>
+        {install.platform === 'ios' ? (
+          <ol className="list-decimal space-y-2 pl-5 text-body text-text-primary">
+            <li>Tap the Share button in Safari&apos;s toolbar.</li>
+            <li>Scroll down and tap &quot;Add to Home Screen&quot;.</li>
+          </ol>
+        ) : (
+          <ol className="list-decimal space-y-2 pl-5 text-body text-text-primary">
+            <li>Open your browser&apos;s menu.</li>
+            <li>Tap &quot;Install app&quot; or &quot;Add to Home screen&quot;.</li>
+          </ol>
+        )}
       </BottomSheet>
     </div>
   )

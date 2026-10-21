@@ -135,6 +135,10 @@ DEFAULT_TENANT_ID=                 # UUID; also the tenant the public auth route
 APP_URL=                           # public base URL; builds reset links. Required in prod (reset 503s without it)
 R2_ACCOUNT_ID= R2_ENDPOINT= R2_BUCKET= R2_ACCESS_KEY_ID= R2_SECRET_ACCESS_KEY=
 SMTP_HOST= SMTP_PORT= SMTP_SECURE= SMTP_USER= SMTP_PASS= SMTP_FROM=   # required in prod
+VAPID_PUBLIC_KEY=                  # phone push: public key, served to the phone by /api/push/vapid-public-key (npx web-push generate-vapid-keys)
+VAPID_PRIVATE_KEY=                 # phone push: private key; unset = push is a silent no-op
+VAPID_SUBJECT=                     # optional; default mailto:admin@rgbindia.com
+CRON_SECRET=                       # Bearer secret for POST /api/cron/follow-up-reminders; unset = 401
 ```
 
 Password-reset links are built from `APP_URL`, never from the request `Host` header (a forged Host

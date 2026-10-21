@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { getInitialLayout } from '@/lib/layout.server'
 import { LayoutProvider } from '@/lib/layout'
 import { APP_NAME, IPHONE_STATUS_BAR } from '@/lib/install-settings'
+import { InstallPromptCapture } from '@/lib/install'
 
 /**
  * Phone foundation: §41.12 rule 8 — the install tags (the manifest link,
@@ -76,6 +77,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <ToastProvider>{children}</ToastProvider>
           </TooltipProvider>
           <Toaster />
+          {/* §41.12 rule 7: catches the browser's install question as early
+              as it fires, so More can offer it later. Renders nothing. */}
+          <InstallPromptCapture />
         </LayoutProvider>
       </body>
     </html>

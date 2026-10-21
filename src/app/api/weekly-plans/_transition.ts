@@ -5,6 +5,7 @@ import type { SessionUser } from '@/lib/auth'
 import { getDataScope } from '@/lib/permissions'
 import { canView, getVisibleUserIds } from '@/lib/visibility'
 import { awardPoint } from '@/lib/points'
+import { notify } from '@/lib/notify'
 import { notActionableReason } from '@/components/weekly-plan/approval-types'
 
 /**
@@ -54,6 +55,48 @@ export async function reviewableUserIds(
   if ((await getDataScope(user, 'weekly_plan')) === 'own') return []
   const ids = await getVisibleUserIds(user.userId, tenantId)
   return ids.filter(id => id !== user.userId)
+}
+
+/**
+ * Who reviews this owner's plan - the people to tell when it is submitted. The
+ * inverse of `canReview`, by the same rule: whoever has the owner below them in
+ * `user_visibility` (the manager chain plus manual grants), excluding the
+ * owner, deactivated users, and any role whose `weekly_plan` scope is Self.
+ * If that leaves nobody (no manager, or a deactivated / Self-scoped one),
+ * the Administrator backstop applies: every active Administrator.
+ * Always filtered by tenant.
+ */
+export async function planReviewerIds(ownerId: string, tenantId: string): Promise<string[]> {
+  const viewers = await prisma.user_visibility.findMany({
+    where: { tenant_id: tenantId, target_user_id: ownerId, viewer_user_id: { not: ownerId } },
+    select: { viewer_user_id: true },
+  })
+  const ids = viewers.map(v => v.viewer_user_id)
+  if (ids.length) {
+    const candidates = await prisma.users.findMany({
+      where: { tenant_id: tenantId, id: { in: ids }, status: { not: 'Inactive' } },
+      select: { id: true, profile: true, roles: { select: { name: true } } },
+    })
+    const roleNames = Array.from(new Set(
+      candidates.filter(c => c.profile !== 'Administrator' && c.roles?.name).map(c => c.roles!.name),
+    ))
+    const perms = roleNames.length
+      ? await prisma.role_permissions.findMany({
+          where: { tenant_id: tenantId, section: 'weekly_plan', profile: { in: roleNames } },
+          select: { profile: true, data_scope: true },
+        })
+      : []
+    const scopeOf = new Map(perms.map(p => [p.profile, p.data_scope]))
+    const out = candidates
+      .filter(c => c.profile === 'Administrator' || (c.roles?.name && (scopeOf.get(c.roles.name) ?? 'own') !== 'own'))
+      .map(c => c.id)
+    if (out.length) return out
+  }
+  const admins = await prisma.users.findMany({
+    where: { tenant_id: tenantId, profile: 'Administrator', status: { not: 'Inactive' }, id: { not: ownerId } },
+    select: { id: true },
+  })
+  return admins.map(a => a.id)
 }
 
 /**
@@ -317,15 +360,14 @@ export async function staleConflict(id: string, tenantId: string, readStatus?: s
  */
 export async function notifyAfterCommit(
   data: Prisma.notificationsUncheckedCreateInput,
+  /** Lock-screen text: no free text (comments, reasons) - see `notify`. */
+  push: { title: string; body: string } = {
+    title: 'Weekly plan',
+    body: 'There is an update on your weekly plan',
+  },
 ): Promise<void> {
-  try {
-    await prisma.notifications.create({ data })
-  } catch (err) {
-    console.error(
-      `[weekly-plans] notification for plan ${data.context_id} to ${data.recipient_id} failed`,
-      err,
-    )
-  }
+  // notify() writes the row and pushes; it logs and swallows its own failures.
+  await notify({ row: data, push: { ...push, tag: `weekly-plan-${data.context_id}` } })
 }
 
 /**
@@ -362,6 +404,17 @@ export function awardOncePerPlan(
   })().catch(err => {
     console.error(`[weekly-plans] ${actionType} point for plan ${planId} failed`, err)
   })
+}
+
+/** Lock-screen text for a manager's decision - the outcome only, never the comment. */
+function decisionPush(newStatus: string): { title: string; body: string } {
+  switch (newStatus) {
+    case 'Approved': return { title: 'Weekly plan', body: 'Your weekly plan was approved' }
+    case 'Rejected': return { title: 'Weekly plan', body: 'Your weekly plan needs changes' }
+    case 'On Hold': return { title: 'Weekly plan', body: 'Your weekly plan was put on hold' }
+    case 'Edited by Manager': return { title: 'Weekly plan', body: 'Your manager edited your weekly plan' }
+    default: return { title: 'Weekly plan', body: 'There is an update on your weekly plan' }
+  }
 }
 
 /**
@@ -450,7 +503,7 @@ export async function runDecision(opts: {
     context_id: planId,
     redirect_path: '/weekly-plan',
     message: opts.message,
-  })
+  }, decisionPush(opts.newStatus))
 
   return { response: NextResponse.json({ ok: true }), ownerId: plan.user_id }
 }

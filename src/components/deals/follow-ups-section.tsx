@@ -93,6 +93,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
 import { EMPTY, fmtDate, fmtDateTime, parseApiDate } from '@/lib/format'
+import { requestNotificationOffer } from '@/components/shell/notification-offer-host'
 
 /** The row as the API returns it (`serialize(rows, 'deal_follow_ups')`). */
 export type FollowUp = {
@@ -538,6 +539,8 @@ export function FollowUpsSection({
       publish(creating ? [...rows, data] : rows.map(r => (r.id === data.id ? data : r)))
       setEditing(null)
       toast(creating ? 'Follow-up added.' : 'Follow-up updated.')
+      // §41.12 rule 4: a reminder will come back - offer phone notifications.
+      requestNotificationOffer()
     } catch {
       setErrors({ form: 'The connection dropped. Nothing has been saved.' })
     } finally {

@@ -11,9 +11,15 @@ import { cn } from "@/lib/utils"
  * Validation colours the border danger; the message sits below the
  * field, never in a toast (section 7.1).
  */
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+// PORT NOTE: the kit (React 19) takes `ref` as an ordinary prop; React 18 strips it from a
+// function component, so Input is a forwardRef here. The sign-in template focuses these fields.
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(function Input(
+  { className, type, ...props },
+  ref
+) {
   return (
     <InputPrimitive
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
@@ -57,6 +63,6 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       {...props}
     />
   )
-}
+})
 
 export { Input }

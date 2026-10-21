@@ -151,12 +151,15 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
-function InputGroupInput({
-  className,
-  ...props
-}: React.ComponentProps<"input">) {
+// PORT NOTE: the kit (React 19) takes `ref` as an ordinary prop; React 18 strips it from a
+// function component, so InputGroupInput is a forwardRef here. The sign-in template focuses these fields.
+const InputGroupInput = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(function InputGroupInput(
+  { className, ...props },
+  ref
+) {
   return (
     <Input
+      ref={ref}
       data-slot="input-group-control"
       className={cn(
         /*
@@ -180,7 +183,7 @@ function InputGroupInput({
       {...props}
     />
   )
-}
+})
 
 function InputGroupTextarea({
   className,

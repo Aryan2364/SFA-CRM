@@ -430,7 +430,10 @@ export function DealDialog({
           ) : null}
 
           {!editing && (
-          <div className="col-span-12 sm:col-span-4">
+          <div className="col-span-12 sm:col-span-8">
+            {/* Section 17: as wide as the data. Stage names are master data
+                and run long ("F0 Target Identification"); the menu is exactly
+                the field's width (16.2), so a narrow field cuts every option. */}
             <Label htmlFor="dd-stage">Stage</Label>
             <SearchableSelect
               id="dd-stage"
@@ -489,14 +492,14 @@ export function DealDialog({
             <InlineFieldError>{errors.expected_value}</InlineFieldError>
           </div>
 
-          <div className="col-span-12 sm:col-span-8">
+          <div className="col-span-12 sm:col-span-4">
             <Label htmlFor="dd-source">Source</Label>
             <Input
               id="dd-source"
               className="mt-1.5"
               value={form.source}
               onChange={e => set('source')(e.target.value)}
-              placeholder="Where this opportunity came from"
+              placeholder="Where it came from"
             />
           </div>
 

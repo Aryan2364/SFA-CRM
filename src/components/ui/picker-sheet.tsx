@@ -4,7 +4,7 @@ import * as React from 'react'
 import { CheckIcon, ChevronLeftIcon, PlusIcon, SearchIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { Sheet, SheetContent, SheetHeader, SheetBody, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetBody, SheetTitle, whenLayersSettled } from '@/components/ui/sheet'
 
 /**
  * Phone foundation — FRONTEND_RULES_PHONE.md §41.8 rule 7: select and
@@ -128,6 +128,16 @@ function OptionRow({
       {chosen ? <CheckIcon aria-hidden className="size-4 shrink-0 text-primary" /> : null}
     </button>
   )
+}
+
+/**
+ * Close the sheet first, then run onCreate once its history entry is
+ * popped. The other order loses a navigation: onCreate's router.push lands,
+ * then the sheet's own step back undoes it, and the person stays put.
+ */
+function createAfterClose(query: string, onCreate: (query: string) => void, setOpen: (open: boolean) => void) {
+  setOpen(false)
+  void whenLayersSettled().then(() => onCreate(query))
 }
 
 function CreateNewRow({ query, onCreate }: { query: string; onCreate: (query: string) => void }) {
@@ -259,7 +269,7 @@ export function PickerSheetField({
             ))
           )}
         </div>
-        {onCreate ? <CreateNewRow query={query} onCreate={q => { onCreate(q); setOpen(false) }} /> : null}
+        {onCreate ? <CreateNewRow query={query} onCreate={q => createAfterClose(q, onCreate, setOpen)} /> : null}
       </PickerSheetShell>
     </>
   )
@@ -320,7 +330,7 @@ export function StaticPickerSheetField({
             ))
           )}
         </div>
-        {onCreate ? <CreateNewRow query={query} onCreate={q => { onCreate(q); setOpen(false) }} /> : null}
+        {onCreate ? <CreateNewRow query={query} onCreate={q => createAfterClose(q, onCreate, setOpen)} /> : null}
       </PickerSheetShell>
     </>
   )

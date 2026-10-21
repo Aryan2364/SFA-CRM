@@ -43,17 +43,19 @@ import {
  * them by reflex: no strength meter, no confirm-password field. See
  * section 32.
  */
-function PasswordInput({
-  className,
-  disabled,
-  showLabel = "Show password",
-  hideLabel = "Hide password",
-  ...props
-}: Omit<React.ComponentProps<"input">, "type"> & {
-  /** Overridden only where "password" is the wrong word for the secret. */
-  showLabel?: string
-  hideLabel?: string
-}) {
+// PORT NOTE: the kit (React 19) takes `ref` as an ordinary prop; React 18 strips it from a
+// function component, so PasswordInput is a forwardRef here. The sign-in template focuses these fields.
+const PasswordInput = React.forwardRef<
+  HTMLInputElement,
+  Omit<React.ComponentProps<"input">, "type"> & {
+    /** Overridden only where "password" is the wrong word for the secret. */
+    showLabel?: string
+    hideLabel?: string
+  }
+>(function PasswordInput(
+  { className, disabled, showLabel = "Show password", hideLabel = "Hide password", ...props },
+  ref
+) {
   /**
    * Deliberately plain component state, initialised to false.
    *
@@ -74,6 +76,7 @@ function PasswordInput({
     >
       <Input
         {...props}
+        ref={ref}
         type={shown ? "text" : "password"}
         disabled={disabled}
         // Section 23: leaves room for the 32px button plus its inset.
@@ -104,6 +107,6 @@ function PasswordInput({
       </Tooltip>
     </div>
   )
-}
+})
 
 export { PasswordInput }

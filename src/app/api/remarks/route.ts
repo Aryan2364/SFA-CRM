@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { denySummaryThreadViolation, resolveRemarkContext } from './_access'
 import { isSummaryContext } from './_context'
 import { businessDate } from '@/lib/business-date'
+import { notify } from '@/lib/notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -264,8 +265,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (recipientId) {
-      await prisma.notifications.create({
-        data: {
+      // Lock-screen text names the person and the thing, never the remark.
+      const noun = section === 'weekly_plan' ? 'weekly plan' : section === 'expense' ? 'expense' : 'meeting'
+      const toOwner = message.startsWith('New remark on your')
+      await notify({
+        row: {
           tenant_id: tenantId,
           recipient_id: recipientId,
           actor_id: user.userId,
@@ -275,6 +279,11 @@ export async function POST(req: NextRequest) {
           remark_id: remark.id as string,
           redirect_path: redirectPath,
           message,
+        },
+        push: {
+          title: 'Remark',
+          body: `${user.name} added a remark on ${toOwner ? 'your' : 'their'} ${noun}`,
+          tag: `remark-${context_type}-${context_id}`,
         },
       })
     }

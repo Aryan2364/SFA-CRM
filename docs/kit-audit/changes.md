@@ -1905,3 +1905,27 @@ checked out.
   `6-company-kind-change-dialog.jpeg`, `8-profile-unsaved-dialog.jpeg`,
   `10-remarks-desktop-typed.jpeg`, `11-remarks-phone.jpeg` (and others
   taken during iteration, not all re-read).
+
+## Sign-in page on the kit template (mobile number + password)
+
+- Kit change (authorised by Aryan, sign-in template only): `components/templates/sign-in-page.tsx` gained a
+  `"phone"` method (mobile number + password, `onSubmitMobile`), `onSubmit` outcomes carrying a server
+  `message` or a `choose` list of organisations (second call carries `organisationId`), and an in-page
+  forgot-password step (`onForgotPassword`). Spec updated in FRONTEND_RULES.md 0.1 item 10,
+  FRONTEND_RULES_ACCESS.md 11.7 (methods, rules 7 to 9), FRONTEND_RULES_COMPONENTS.md; demo `/demo/sign-in-phone`.
+- App: `src/app/login/page.tsx` now renders the template with `methods={['phone']}`; the template is copied
+  verbatim except a React 18 port of `useEffectEvent` (PORT NOTE). `Input`, `InputGroupInput` and
+  `PasswordInput` became `forwardRef` (PORT NOTE; React 18 drops `ref` on function components). Kit
+  `emailError` / `mobileDigits` / `mobileError` appended to `src/lib/validation.ts`. The login route wraps the
+  template in a `min-h-dvh` flex column because this app's body is not one.
+- Wording: the company step is called "company" via `text` overrides. Verified on :3007, desktop and phone:
+  wrong password shows the API message, sign-in lands on `/` and `?next=/deals`, forgot password submits.
+  The company step could not be exercised locally (no demo phone belongs to two companies).
+
+## Phone push notifications (phone side)
+
+- Bell in the phone app bar of every tab screen (`components/shell/phone-notifications-bell.tsx`, drawn by `phone-shell.tsx` after a screen's own actions, so Activity's attendance action keeps its place). Unread count from one shared store (`lib/phone-notifications.ts`): loaded when the shell mounts and when the app is shown again, at most every 30 seconds, no polling.
+- `/notifications` (phone only; desktop returns to `/`): the kit's notifications page (ported, PORT NOTEs; `components/templates/notifications-page.tsx`) with loading / failed-with-Try-again / empty states, mark read/unread (swipe or dot), "Mark all as read", and `PhoneNotificationsSetting` at its foot (on/off, needs-install, unsupported, denied steps, not-set-up). More has a "Phone notifications" row opening it at that block.
+- Moment-of-use offer: `requestNotificationOffer()` (`components/shell/notification-offer-host.tsx`, host mounted in the phone shell) after the weekly plan is submitted, a remark is sent, a next meeting is saved, or a deal follow-up is saved. Once per person, never on first open; a "Skip for now" only returns from `/notifications`.
+- Service worker (`public/sw.js`, `public/sw-push.js`, `lib/service-worker.ts`, `/offline`), registered by the phone shell only; the new-version banner is in `connection-banner.tsx`. `InstallPromptCapture` is mounted in the root layout and More uses the kit's `useInstall`. Sign-out in More removes the subscription (and tells the server) first, waiting at most 2 seconds.
+- `lib/push-device.ts` is sfacrm's side of the API contract (subscribe, unsubscribe, per-person off flag, start-of-session re-sync).

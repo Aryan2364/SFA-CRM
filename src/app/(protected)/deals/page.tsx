@@ -1029,9 +1029,9 @@ function DealsScreen() {
          * filters, same pagination bar. The template hands over the rows it
          * has already fetched and filtered, so the two views cannot disagree
          * about what is on screen, and it keeps every other zone-3 state for
-         * itself: skeleton, failed, nothing-found and nothing-yet are read
-         * before this, so an all-empty board is §35.9's empty SCREEN rather
-         * than a row of columns each saying they are empty.
+         * itself: skeleton, failed and nothing-found are read before this.
+         * With no opportunities at all the board still draws every stage,
+         * each saying it is empty (§35.9); emptyYet below is the list's.
          */
         renderData={
           view === 'board'
@@ -1048,6 +1048,7 @@ function DealsScreen() {
               )
             : undefined
         }
+        renderEmpty={view === 'board'}
         searchPlaceholder="Search opportunities"
         searchHint={SEARCH_HINT}
         emptyYet={{

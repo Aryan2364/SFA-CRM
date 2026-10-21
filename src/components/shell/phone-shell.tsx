@@ -15,6 +15,11 @@ import { PhoneAppBar } from './app-bar'
 import { PhoneLeaveGuardProvider, useGuardedNavigate, useInterceptLeave } from './phone-leave-guard'
 import { usePermissionRefresh } from './use-permission-refresh'
 import { useKeyboardInset } from '@/lib/use-keyboard-inset'
+import { useServiceWorker } from '@/lib/service-worker'
+import { usePhoneNotificationsRefresh } from '@/lib/phone-notifications'
+import { usePushSync } from '@/lib/push-device'
+import { PhoneNotificationsBell } from './phone-notifications-bell'
+import { NotificationOfferHost } from './notification-offer-host'
 
 /**
  * Phone foundation — FRONTEND_RULES_PHONE.md §41.4: the phone shell.
@@ -76,6 +81,11 @@ function PhoneShellInner({
   const tabs = visiblePhoneTabs(me)
   const topLevel = PHONE_TABS.some(tab => tab.href === pathname)
   const keyboardOpen = useKeyboardInset()
+  // §41.14 rules 9-11: the service worker (offline screen, new-version
+  // banner) and §41.12 phone notifications live on the phone shell only.
+  useServiceWorker()
+  usePhoneNotificationsRefresh(me?.userId)
+  usePushSync(me?.userId)
 
   // §41.4 rule 4: the page below the top level owns its own app bar. No
   // page has registered one (true on every tab-root screen) -> fall back
@@ -128,10 +138,12 @@ function PhoneShellInner({
           ) : null
         }
         actions={
-          resolvedActions || resolvedMenu ? (
+          resolvedActions || resolvedMenu || topLevel ? (
             <>
               {resolvedActions}
               {resolvedMenu}
+              {/* §41.12 rule 1: the bell, on every tab screen, in one place. */}
+              {topLevel ? <PhoneNotificationsBell /> : null}
             </>
           ) : null
         }
@@ -141,6 +153,8 @@ function PhoneShellInner({
         <ConnectionBanner className="mb-4" />
         {children}
       </main>
+
+      <NotificationOfferHost />
 
       {showTabBar ? <PhoneTabBar tabs={tabs} pathname={pathname} userId={me?.userId} /> : null}
     </div>

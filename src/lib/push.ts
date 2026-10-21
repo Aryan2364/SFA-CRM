@@ -113,14 +113,50 @@ type PushPermissionState = PushDevice &
     decline: () => void
   }
 
-/**
- * The product's public VAPID key, set at build time. Its private half
- * stays on the backend and never reaches the browser.
+/*
+ * PORT NOTE: the kit reads the public VAPID key from
+ * process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY at build time. sfacrm forbids any
+ * NEXT_PUBLIC_ variable (CLAUDE.md), so the key is fetched at runtime from
+ * GET /api/push/vapid-public-key ({ key: string | null }) and cached in
+ * module scope. null means the server has no key: phone notifications are
+ * "not set up" and never offered. Until the first answer `ready` is false,
+ * so nothing is shown that depends on it; a request that fails is retried
+ * the next time something asks, and meanwhile reads as not set up.
+ * Logged in docs/kit-audit/kit-gaps.md.
  */
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""
+let vapidKey: string | null = null
+let vapidKnown = false
+let vapidRequest: Promise<void> | null = null
 
-/** Phone notifications are set up for this app: the product configured its public key. */
-const PUSH_CONFIGURED = VAPID_PUBLIC_KEY !== ""
+/** Phone notifications are set up for this app: the server has a public key. */
+function pushConfigured(): boolean {
+  return vapidKey !== null
+}
+
+/** Asks the server for the public key once; a failed request is asked again next time. */
+function ensureVapidKey(): Promise<void> {
+  if (vapidKnown) return Promise.resolve()
+  if (vapidRequest) return vapidRequest
+  vapidRequest = (async () => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 10_000)
+    try {
+      const response = await fetch("/api/push/vapid-public-key", { signal: controller.signal })
+      if (!response.ok) throw new Error(String(response.status))
+      const body = (await response.json()) as { key?: unknown }
+      vapidKey = typeof body.key === "string" && body.key !== "" ? body.key : null
+      vapidKnown = true
+    } catch {
+      // Not cached as "not set up": the next ask tries again.
+      vapidKey = null
+    } finally {
+      window.clearTimeout(timer)
+      vapidRequest = null
+      notify()
+    }
+  })()
+  return vapidRequest
+}
 
 /** 14 rule 4: the deadline for waiting on the service worker and the push service. */
 const PUSH_DEADLINE_MS = 10_000
@@ -131,7 +167,7 @@ const PUSH_DEADLINE_MS = 10_000
 
 const SERVER_DEVICE: PushDevice = Object.freeze({
   ready: false,
-  configured: PUSH_CONFIGURED,
+  configured: false,
   supported: false,
   needsInstall: false,
   installed: false,
@@ -163,11 +199,13 @@ function deviceSnapshot(): PushDevice {
     device.needsInstall === next.needsInstall &&
     device.installed === next.installed &&
     device.platform === next.platform &&
-    device.permission === next.permission
+    device.permission === next.permission &&
+    device.ready === vapidKnown &&
+    device.configured === pushConfigured()
   ) {
     return device
   }
-  device = { ready: true, configured: PUSH_CONFIGURED, ...next }
+  device = { ready: vapidKnown, configured: pushConfigured(), ...next }
   return device
 }
 
@@ -289,6 +327,7 @@ function choiceSnapshot(person: string): PushChoice {
 
 function subscribe(listener: () => void) {
   listeners.add(listener)
+  void ensureVapidKey()
   if (!detach) detach = attach()
   const onStorage = (event: StorageEvent) => {
     // null: the whole storage was cleared.
@@ -345,10 +384,11 @@ function sameKey(a: ArrayBuffer | null | undefined, b: Uint8Array): boolean {
 
 async function subscribePush(): Promise<PushSubscriptionJSON | null> {
   if (!measureDevice().supported || Notification.permission !== "granted") return null
-  if (!PUSH_CONFIGURED) {
+  await ensureVapidKey()
+  if (vapidKey === null) {
     if (process.env.NODE_ENV !== "production") {
       console.warn(
-        "lib/push.ts: no public VAPID key is configured (NEXT_PUBLIC_VAPID_PUBLIC_KEY), so this phone was not subscribed and cannot receive phone notifications."
+        "lib/push.ts: the server has no public VAPID key (GET /api/push/vapid-public-key returned none), so this phone was not subscribed and cannot receive phone notifications."
       )
     }
     return null
@@ -356,7 +396,7 @@ async function subscribePush(): Promise<PushSubscriptionJSON | null> {
   // The service worker (public/sw.js, which imports public/sw-push.js)
   // receives the notifications; subscribing waits for it to be running.
   const registration = await withDeadline(navigator.serviceWorker.ready, "Starting the service worker")
-  const key = keyBytes(VAPID_PUBLIC_KEY)
+  const key = keyBytes(vapidKey)
   const existing = await withDeadline(registration.pushManager.getSubscription(), "Reading the subscription")
   if (existing) {
     if (sameKey(existing.options.applicationServerKey, key)) return existing.toJSON()
@@ -439,8 +479,13 @@ function usePushPermission(person: string): PushPermissionState {
  */
 function useNotificationOffer(person: string): () => boolean {
   const phone = useLayout().layout === "phone"
+  // PORT NOTE: the key is fetched at runtime; start the request before the
+  // person has acted, so the answer is known by the time the offer is asked.
+  React.useEffect(() => {
+    if (phone) void ensureVapidKey()
+  }, [phone])
   return React.useCallback(() => {
-    if (!phone || !PUSH_CONFIGURED) return false
+    if (!phone || !pushConfigured()) return false
     const now = measureDevice()
     if (!now.supported || now.permission !== "default") return false
     const choice = parse(readRaw(person))
@@ -450,5 +495,5 @@ function useNotificationOffer(person: string): () => boolean {
   }, [person, phone])
 }
 
-export { usePushPermission, useNotificationOffer, unsubscribePush, VAPID_PUBLIC_KEY }
+export { usePushPermission, useNotificationOffer, unsubscribePush }
 export type { PushPermission, PushPermissionState }

@@ -4,8 +4,9 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { businessDate } from '@/lib/business-date'
+import { notify } from '@/lib/notify'
 import {
-  CHANGED_SINCE_OPENED, StaleStatus, awardOncePerPlan, badVersion, claimStatus, expectedVersion, isPlanId, planNotFound, readPlanVersion,
+  CHANGED_SINCE_OPENED, StaleStatus, awardOncePerPlan, planReviewerIds, badVersion, claimStatus, expectedVersion, isPlanId, planNotFound, readPlanVersion,
 } from '../../_transition'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -97,6 +98,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           `Weekly plan submitted on time for week of ${weekStart}`,
         )
       }
+    }
+
+    // Tell whoever reviews this plan. After the commit, best-effort: a failure
+    // here must not undo or fail the submit (notify() logs and swallows).
+    try {
+      const reviewers = await planReviewerIds(plan.user_id, tid)
+      for (const reviewerId of reviewers) {
+        await notify({
+          row: {
+            tenant_id: tid, recipient_id: reviewerId, actor_id: user.userId,
+            section: 'weekly_plan', context_type: 'weekly_plan', context_id: params.id,
+            redirect_path: '/weekly-plan/approval',
+            message: newStatus === 'Submitted'
+              ? `${user.name} submitted their weekly plan for approval`
+              : `${user.name} resubmitted their weekly plan for approval`,
+          },
+          push: {
+            title: 'Weekly plan',
+            body: newStatus === 'Submitted'
+              ? `${user.name} submitted a weekly plan for approval`
+              : `${user.name} resubmitted a weekly plan for approval`,
+            tag: `weekly-plan-submit-${params.id}`,
+          },
+        })
+      }
+    } catch (err) {
+      console.error(`[weekly-plans] submit notification for plan ${params.id} failed`, err)
     }
 
     return NextResponse.json({ ok: true, status: newStatus })

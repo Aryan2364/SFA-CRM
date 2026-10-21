@@ -63,7 +63,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       context_id: params.id,
       redirect_path: '/weekly-plan',
       message: 'Your reopen request was accepted. You can now edit your weekly plan.',
-    })
+    }, { title: 'Weekly plan', body: 'Your reopen request was accepted' })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

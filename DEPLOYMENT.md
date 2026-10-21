@@ -198,6 +198,30 @@ then `docker compose -f docker-compose.deploy.yml up -d`.
 docker compose -f docker-compose.deploy.yml logs -f sfacrm
 ```
 
+## Phone push notifications and follow-up reminders
+
+1. **SQL (RDS, run by the owner).** Run **item 9** of `docs/local-db-updates.sql`
+   (both parts: the `push_subscriptions` table and its index, then the partial unique
+   index `notifications_reminder_once_uq`). Items 5 to 8 must already be applied
+   (reminders read `due_time` / `next_follow_up_time` from item 8; without them every
+   item is treated as date-only, due 09:00). Idempotent; deletes nothing.
+2. **Env vars** in `.env.production` (server-only, never `NEXT_PUBLIC_`):
+   `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (generate once with
+   `npx web-push generate-vapid-keys`; keep the pair, changing it orphans every phone's
+   subscription), `VAPID_SUBJECT` (optional, default `mailto:admin@rgbindia.com`) and
+   `CRON_SECRET` (a long random string). Without the VAPID pair push is a silent no-op;
+   without `CRON_SECRET` the cron route answers 401.
+3. **Cron** on the host (not in the container), every 5 minutes. The app is published on
+   loopback port 3500 (see Ports). Keep the secret in a root-only file `.env.cron`
+   containing `CRON_SECRET=...` (same value as in `.env.production`):
+
+   ```
+   */5 * * * * . /path/to/sfacrm/.env.cron && curl -fsS -m 30 -X POST -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3500/api/cron/follow-up-reminders >/dev/null
+   ```
+
+   The route returns `{ "sent": n }`, looks back 30 minutes and never sends the same
+   reminder twice.
+
 ## Note on env vars
 
 Next.js inlines any `NEXT_PUBLIC_*` variable into the bundle at **build** time,

@@ -154,7 +154,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       message: comment
         ? `Your manager edited your weekly plan. Comment: ${comment}`
         : 'Your manager edited your weekly plan.',
-    })
+    }, { title: 'Weekly plan', body: 'Your manager edited your weekly plan' })
 
     return NextResponse.json({ ok: true, changes: diff })
   } catch (err) {

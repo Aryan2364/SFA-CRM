@@ -6,6 +6,7 @@ import { MessageSquareIcon, SendIcon } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
 import { Button } from '@/components/ui/button'
 import { fmtDateTime } from '@/lib/format'
+import { requestNotificationOffer } from '@/components/shell/notification-offer-host'
 
 /**
  * ONE NOTES/COMMENTS PANEL, for every context `contextual_remarks` carries.
@@ -177,6 +178,8 @@ export function RemarkThread(props: RemarkThreadProps) {
         toast((e as { error?: string }).error ?? 'Could not post', 'error')
       } else {
         setDraft('')
+        // §41.12 rule 4: a reply will come back - a good moment to offer phone notifications.
+        requestNotificationOffer()
         await load()
       }
     } catch {

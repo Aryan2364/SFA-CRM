@@ -92,3 +92,19 @@ CREATE INDEX IF NOT EXISTS meeting_attendees_contact_idx
 -- 8. Next meeting: optional time alongside the existing date columns
 ALTER TABLE deal_follow_ups ADD COLUMN IF NOT EXISTS due_time time NULL;
 ALTER TABLE companies      ADD COLUMN IF NOT EXISTS next_follow_up_time time NULL;
+
+-- 9. Phone push notifications: one row per browser/phone subscription.
+--    The endpoint is globally unique (a shared phone moves between people: the
+--    subscribe route reassigns the row). notifications needs no change - it has
+--    no CHECK on section / context_type.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint text NOT NULL UNIQUE, p256dh text NOT NULL, auth text NOT NULL,
+  user_agent text NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions (tenant_id, user_id);
+-- Exactly-once follow-up reminders: one notification per (recipient, due moment, item).
+-- Only the reminder rows are covered (their context_type is 'follow_up_due@...' / 'next_meeting_due@...').
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_reminder_once_uq
+  ON notifications (tenant_id, recipient_id, context_type, context_id)
+  WHERE context_type LIKE 'follow_up_due@%' OR context_type LIKE 'next_meeting_due@%';

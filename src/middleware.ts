@@ -32,7 +32,10 @@ import { PUBLIC_AUTH_API_PATHS } from '@/lib/auth-paths'
 // DO NOT try to fix this by inlining the secret via next.config.mjs `env: {}`
 // either — that bakes it into the image layers and makes rotation a rebuild.
 
-const PUBLIC = ['/login', '/reset-password', ...PUBLIC_AUTH_API_PATHS]
+// /offline: the phone's service worker caches it as the no-connection screen. It
+// must be the real page even when the session has lapsed, or the login page is
+// cached in its place. It reads no data.
+const PUBLIC = ['/login', '/reset-password', '/offline', ...PUBLIC_AUTH_API_PATHS]
 
 /**
  * Has this cookie's payload already passed its `exp`?
@@ -152,6 +155,10 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
+  // The cron route authenticates itself (Bearer CRON_SECRET, constant-time) and
+  // never accepts a session, so it needs no cookie here. Exactly this prefix.
+  if (pathname === '/api/cron' || pathname.startsWith('/api/cron/')) return NextResponse.next()
+
   if (pathname === '/api/superadmin/auth/login') return NextResponse.next()
 
   if (pathname.startsWith('/api/superadmin/')) {
@@ -180,5 +187,7 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|site.webmanifest).*)'],
+  // sw.js / sw-push.js: the browser fetches a service worker WITHOUT credentials
+  // semantics we can rely on, and a redirect to /login makes registration fail.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|site.webmanifest|sw.js|sw-push.js).*)'],
 }

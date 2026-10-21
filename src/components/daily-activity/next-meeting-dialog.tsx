@@ -19,6 +19,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { TimePicker, type TimeValue } from '@/components/ui/time-picker'
 import { formatHHMM, toDateStr } from './types'
+import { requestNotificationOffer } from '@/components/shell/notification-offer-host'
 
 type OpenDeal = { id: string; name: string }
 type CurrentNextMeeting = {
@@ -150,6 +151,8 @@ export function NextMeetingDialog({
         return
       }
       toast(data.warning ?? 'Next meeting set', data.warning ? 'warning' : 'success')
+      // §41.12 rule 4: a reminder will come back - offer phone notifications.
+      requestNotificationOffer()
       onSaved?.()
       onClose()
     } finally {

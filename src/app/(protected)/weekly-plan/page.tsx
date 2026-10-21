@@ -38,6 +38,7 @@ import { WeeklyPriorities } from '@/components/weekly-plan/weekly-priorities'
 import type { ItemsDiff } from '@/lib/weekly-plan-diff'
 import { useLayout } from '@/lib/layout'
 import { PhoneWeeklyPlan } from './phone-weekly-plan'
+import { requestNotificationOffer } from '@/components/shell/notification-offer-host'
 
 // ---- helpers ----
 function getMondayOf(date: Date): Date {
@@ -662,7 +663,7 @@ function MyPlanTab({ userId, canCreate, canEditPlan }: { userId: string; canCrea
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expected_version: version }),
       })
-      if (!r.ok) { await refuse(r) } else { toast('Submitted for review!'); loadPlan(true) }
+      if (!r.ok) { await refuse(r) } else { toast('Submitted for review!'); requestNotificationOffer(); loadPlan(true) }
     } catch {
       toast(NETWORK_FAILURE, 'error')
     } finally {

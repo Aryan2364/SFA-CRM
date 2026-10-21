@@ -83,7 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         context_id: params.id,
         redirect_path: `/review/${user.userId}?tab=plans`,
         message: `${user.name} requested to reopen their weekly plan: "${message}"`,
-      })
+      }, { title: 'Weekly plan', body: `${user.name} asked to reopen their weekly plan` })
     }
 
     return NextResponse.json({ ok: true })

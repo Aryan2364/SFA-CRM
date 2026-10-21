@@ -282,14 +282,19 @@ export type ListPageProps<Row> = {
    * It replaces the TABLE BRANCH ONLY. The four other zone-3 states —
    * skeleton, failed, nothing-found and nothing-yet — are read first
    * and are unchanged, which is what gives the board section 13's
-   * states without restating them, and is what makes section 35.9's
-   * "a board where every column is empty is an empty screen" true here
-   * rather than in each screen.
+   * states without restating them. A board skips nothing-yet with
+   * `renderEmpty` (section 35.9).
    *
    * Optional: a screen that passes nothing renders exactly what it
    * always did.
    */
   renderData?: (rows: Row[]) => ReactNode
+  /**
+   * Section 35.9: a board with no records still shows its columns, so
+   * `renderData` is handed the empty list instead of nothing-yet being
+   * read. Nothing-found is still read first.
+   */
+  renderEmpty?: boolean
 
   /**
    * The only thing a screen does about loading. No timer, no catch, no
@@ -375,6 +380,7 @@ export function ListPage<Row>({
   rowKey,
   filters,
   renderData,
+  renderEmpty = false,
   load,
   refreshKey,
   searchPlaceholder,
@@ -619,7 +625,7 @@ export function ListPage<Row>({
             : `Nothing matches these filters. Clearing them brings every ${noun.one} back.`}
       </EmptyState>
     )
-  } else if (total === 0) {
+  } else if (total === 0 && !(renderData && renderEmpty)) {
     zone3 = (
       <EmptyState
         className="h-full"
