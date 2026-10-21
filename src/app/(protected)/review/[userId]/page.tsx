@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, Suspense, type CSSProperties
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
 import { useToast } from '@/contexts/ToastContext'
+import { useLayout } from '@/lib/layout'
 import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import RemarksPanel from '@/components/ui/RemarksPanel'
@@ -1200,6 +1201,17 @@ function ReviewUserInner() {
   const [userName, setUserName] = useState('')
   const [userLevel, setUserLevel] = useState('')
   const initialTab = (searchParams.get('tab') as 'plans' | 'activity' | 'summary' | 'expenses') ?? 'plans'
+  /*
+   * A reopen request notifies the manager with a link to this person's plans
+   * tab. The review screens are not a phone screen, but the plans are: on a
+   * phone that link opens the plan approvals list narrowed to this person.
+   */
+  const { layout } = useLayout()
+  useEffect(() => {
+    if (layout === 'phone' && initialTab === 'plans') {
+      router.replace(`/weekly-plan/approval?view=all&owner=${encodeURIComponent(userId)}`)
+    }
+  }, [layout, initialTab, userId, router])
   const [tab, setTab] = useState<'plans' | 'activity' | 'summary' | 'expenses'>(initialTab)
   const [meLoaded, setMeLoaded] = useState(false)
 

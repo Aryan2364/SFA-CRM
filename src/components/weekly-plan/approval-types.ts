@@ -207,3 +207,10 @@ export const DECISIONS = {
 } as const
 
 export type DecisionKey = keyof typeof DECISIONS
+
+/**
+ * Why the four decisions, the edit and the reopen answers are unavailable to
+ * someone who may not edit weekly plans (`weekly_plan` EDIT, which every one of
+ * those routes checks first). Names the permission, never a role.
+ */
+export const NO_DECIDE_REASON = 'Only someone who can edit weekly plans can decide on one.'

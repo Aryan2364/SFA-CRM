@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { BellIcon, CalendarIcon, ChevronRightIcon, DownloadIcon, LogOutIcon, ReceiptIcon, UserIcon } from 'lucide-react'
+import { BellIcon, CalendarCheckIcon, CalendarIcon, ChevronRightIcon, DownloadIcon, LogOutIcon, ReceiptIcon, UserIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { useLayout } from '@/lib/layout'
@@ -74,6 +74,12 @@ export default function MorePage() {
   }
   if (canViewWeeklyPlan) {
     rows.push({ label: 'Weekly plan', icon: CalendarIcon, onClick: () => router.push('/weekly-plan') })
+  }
+  // Plans waiting on a manager: only someone who reviews anyone has this area
+  // (the queue route answers "you review nobody" for everyone else), so it is
+  // hidden, not shown disabled. The Approvals chip on Today lists the same plans.
+  if (canViewWeeklyPlan && (me?.isAdministrator || me?.hasSubordinates)) {
+    rows.push({ label: 'Plan approvals', icon: CalendarCheckIcon, onClick: () => router.push('/weekly-plan/approval') })
   }
   rows.push({ label: 'Profile', icon: UserIcon, onClick: () => router.push('/profile') })
   rows.push({ label: 'Phone notifications', icon: BellIcon, onClick: () => router.push('/notifications#phone-notifications') })

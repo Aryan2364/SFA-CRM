@@ -11,6 +11,8 @@ import { ListPage, type ListColumn } from '@/components/templates/list-page'
 import { PlanReviewPanel } from '@/components/weekly-plan/plan-review-panel'
 import type { QueueResponse, QueueRow } from '@/components/weekly-plan/approval-types'
 import { fmtDate, fmtDateTime } from '@/lib/format'
+import { useLayout } from '@/lib/layout'
+import { PhoneApprovalQueue } from './phone-approval-queue'
 
 /**
  * §5.2 — Weekly Plan Approval.
@@ -257,9 +259,12 @@ function ApprovalQueue() {
  * Suspense boundary above them the route silently opts out of static rendering.
  */
 export default function ApprovalPage() {
+  // One URL for both layouts (FRONTEND_RULES_PHONE 41.2 rule 4): the phone gets
+  // its list of rows, the desktop the table with the plan panel.
+  const { layout } = useLayout()
   return (
     <Suspense fallback={null}>
-      <ApprovalQueue />
+      {layout === 'phone' ? <PhoneApprovalQueue /> : <ApprovalQueue />}
     </Suspense>
   )
 }

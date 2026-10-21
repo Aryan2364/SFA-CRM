@@ -34,7 +34,7 @@ export function usePartyOptions(enabled: boolean) {
     if (!enabled) return
     let cancelled = false
     Promise.all([
-      fetch('/api/companies').then(r => (r.ok ? r.json() : [])),
+      fetch('/api/companies?fields=picker').then(r => (r.ok ? r.json() : [])),
       fetch('/api/contacts').then(r => (r.ok ? r.json() : [])),
     ])
       .then(([companies, contacts]) => {

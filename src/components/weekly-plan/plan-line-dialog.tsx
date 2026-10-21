@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { useLayout } from '@/lib/layout'
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -112,6 +114,13 @@ export function PlanLineDialog({
    * broken dialog; a disabled one that says why reads as a form.
    */
   const hasParty = Boolean(draft?.partyId)
+  /*
+   * On phone this dialog is a full-screen layer whose footer is the action
+   * bar: two buttons at most, and Cancel is the back arrow (41.6 rule 8, 41.7
+   * rule 3). So Cancel is written as a DialogClose (the layer leaves it out)
+   * and Remove sits at the foot of the form instead of beside Save.
+   */
+  const phone = useLayout().layout === 'phone'
 
   return (
     <Dialog open={open} onOpenChange={next => { if (!next) onClose() }}>
@@ -225,15 +234,19 @@ export function PlanLineDialog({
           ) : null}
         </div>
 
+        {phone && canRemove && mode === 'edit' && (
+          <Button variant="danger" onClick={onRemove} className="mt-4 w-full">
+            Remove line
+          </Button>
+        )}
+
         <DialogFooter>
-          {canRemove && mode === 'edit' && (
+          {!phone && canRemove && mode === 'edit' && (
             <Button variant="danger" onClick={onRemove} className="mr-auto">
               Remove line
             </Button>
           )}
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
+          <DialogClose render={<Button variant="secondary" />}>Cancel</DialogClose>
           <Button onClick={onSave} disabled={!hasParty}>
             {mode === 'add' ? 'Add line' : 'Save line'}
           </Button>
