@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
 import { prisma, serialize, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
+import { invalidateRolePermissions } from '@/lib/permissions'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await requireUser()
@@ -43,6 +44,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       })
       return role
     })
+    // The whole tenant: both the old and the new name are stale now.
+    invalidateRolePermissions(tid)
 
     return NextResponse.json(serialize(data, 'roles'))
   } catch (err) {
@@ -86,6 +89,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       prisma.role_permissions.deleteMany({ where: { tenant_id: tid, profile: existing.name } }),
       prisma.roles.deleteMany({ where: { id: params.id, tenant_id: tid } }),
     ])
+    invalidateRolePermissions(tid, existing.name)
 
     return NextResponse.json({ ok: true })
   } catch (err) {

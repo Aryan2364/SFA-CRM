@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
 import { prisma, serialize, dbErrorMessage, dbErrorResult } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
+import { invalidateRolePermissions } from '@/lib/permissions'
 import { ALL_SECTIONS } from '@/lib/masters-registry'
 
 export const dynamic = 'force-dynamic'
@@ -64,6 +65,8 @@ export async function POST(req: NextRequest) {
       })
       return role
     })
+    // A name that was looked up before it existed may be cached as "no rows".
+    invalidateRolePermissions(tid, name.trim())
 
     return NextResponse.json(serialize(data, 'roles'), { status: 201 })
   } catch (err) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth'
 import { prisma, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
+import { invalidateRolePermissions } from '@/lib/permissions'
 import { ALL_SECTIONS } from '@/lib/masters-registry'
 
 
@@ -53,6 +54,8 @@ export async function PUT(req: NextRequest) {
       create: { tenant_id: tid, profile, section, ...values },
       update: values,
     })
+    // After the write, so a read that started before it cannot re-cache the old row.
+    invalidateRolePermissions(tid, profile)
     return NextResponse.json({ ok: true })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

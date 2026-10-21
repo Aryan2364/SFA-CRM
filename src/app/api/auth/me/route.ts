@@ -3,7 +3,7 @@ import { getCurrentUser, requireUser, type SessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { ALL_PERMISSION_KEYS, MASTER_SECTION_KEYS } from '@/lib/masters-registry'
-import type { DataScope } from '@/lib/permissions'
+import { getRolePermissions, type DataScope } from '@/lib/permissions'
 
 // Every field below is the answer checkPermission() in src/lib/permissions.ts
 // gives for that action, line for line: view `can_view`, create
@@ -113,14 +113,13 @@ export async function GET() {
   // Role-based user — fetch permissions + subordinate count
   const [visCount, permRows] = await Promise.all([
     user.userId ? countSubordinates(user.userId) : Promise.resolve(0),
-    prisma.role_permissions.findMany({
-      where: { tenant_id: tid, profile: user.role },
-      select: { section: true, can_view: true, can_create: true, can_edit: true, can_delete: true, data_scope: true },
-    }),
+    // The same cached rows checkPermission() and getDataScope() read, so this
+    // map and the routes cannot disagree about a role.
+    getRolePermissions(tid, user.role),
   ])
 
   const permissions: Permissions = { ...allFalse }
-  for (const row of permRows) {
+  for (const row of permRows.values()) {
     if (ALL_PERMISSION_KEYS.includes(row.section)) {
       permissions[row.section] = {
         view: row.can_view,
