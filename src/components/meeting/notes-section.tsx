@@ -429,7 +429,7 @@ const TIMEOUT_MS = 15_000
 
 type PastMinute = { id: string; body: string; created_at: string; author: string | null }
 
-type PastMeeting = {
+export type PastMeeting = {
   id: string
   visit_date: string
   start_time: string | null
@@ -443,7 +443,7 @@ type PastMeeting = {
   can_open: boolean
 }
 
-type PastHistory = { total: number; items: PastMeeting[]; next_offset: number | null }
+export type PastHistory = { total: number; items: PastMeeting[]; next_offset: number | null }
 
 /**
  * "Past notes (N)" — replaces the old standalone "Previous meetings" section
@@ -571,7 +571,7 @@ function PastNotesButton({ visitId, canView }: { visitId: string; canView: boole
   )
 }
 
-function PastMeetingRow({ meeting: m }: { meeting: PastMeeting }) {
+export function PastMeetingRow({ meeting: m }: { meeting: PastMeeting }) {
   const nothingWritten = m.minutes.length === 0 && !m.earlier_note
 
   return (

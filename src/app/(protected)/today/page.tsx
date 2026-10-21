@@ -18,20 +18,22 @@ import { Button } from '@/components/ui/button'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { fmtAmount, fmtDate } from '@/lib/format'
 import { loadJson, loadList } from '@/lib/load-list'
+import { LocationCheckSheet, type LocationReading } from '@/components/daily-activity/location-check-sheet'
 import {
+  formatHHMM,
   formatTime,
-  reverseGeocode,
   toDateStr,
   type AttendanceRecord,
   type Expense,
   type FollowUpItem,
   type MissedTodo,
   type NextMeetingItem,
+  type PlannedItem,
   type Visit,
 } from '@/components/daily-activity/types'
 
 /**
- * Activity â phone home (owner decision, Â§41.15), rebuilt on the Opportunities
+ * Activity — phone home (owner decision, §41.15), rebuilt on the Opportunities
  * phone list (`phone-deals-page.tsx`) per the owner's "make it like the
  * opportunity page" feedback: a searchable, filterable list of meetings and
  * expenses for one day at a time, with a floating "+" to log either, rather
@@ -41,16 +43,24 @@ import {
  * card), and the tab badge (approvals waiting + overdue follow-ups).
  */
 
-type ApprovalRow = { id: string; user_id: string; user_name?: string; week_start?: string; status: string }
+/** A row of GET /api/weekly-plans/approval — the plan's owner rides as `owner`. */
+type ApprovalRow = {
+  id: string
+  user_id: string
+  owner: { id: string; name: string } | null
+  week_start_date: string
+  status: string
+  item_count: number
+}
 
 type DayVisit = Visit & { visit_date?: string }
 type DayExpense = Expense
 
-type Chip = 'all' | 'meetings' | 'expenses' | 'followups' | 'upcoming' | 'approvals'
+type Chip = 'all' | 'meetings' | 'expenses' | 'todo' | 'upcoming' | 'approvals'
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
-/** Pure calendar-day arithmetic on a "YYYY-MM-DD" string â no timezone, no
+/** Pure calendar-day arithmetic on a "YYYY-MM-DD" string — no timezone, no
  *  reading the process clock (that is `toDateStr(new Date())`, done once by
  *  the caller for "today"). Mirrors `src/lib/business-date.ts`'s `addDays`. */
 function addDaysStr(dateOnly: string, days: number): string {
@@ -110,7 +120,6 @@ function ActivityPhone() {
   const [attendanceLoading, setAttendanceLoading] = useState(true)
   // A failed load is "unknown", never "not checked in".
   const [attendanceFailed, setAttendanceFailed] = useState(false)
-  const [marking, setMarking] = useState(false)
 
   const perms = me?.permissions
   const canMarkAttendance = !!perms?.meetings?.view
@@ -134,75 +143,46 @@ function ActivityPhone() {
   useEffect(() => { void loadAttendance() }, [loadAttendance])
 
   /*
-   * Asks the phone for its location at the moment of the tap (Â§41.16 rules
-   * 1â3). The browser shows its own "allow location?" question the first
-   * time; when the answer is no, or the phone's location is switched off,
-   * the person is told which of the two it is and how to fix it.
+   * Check in / check out (§41.16 rules 9-11): the location sheet reads the
+   * phone at the tap, shows the address found and how accurate it was, and
+   * only then is anything saved. Attendance needs a place, so a refusal, a
+   * phone with location off or a reading that timed out cannot be confirmed;
+   * only a browser with no location at all (a plain-http test address)
+   * checks in without one.
    */
-  function readLocation(): Promise<
-    { position: { latitude: number; longitude: number } | null } | { problem: string }
-  > {
-    return new Promise(resolve => {
-      // Browsers only give location to https pages. Production is https;
-      // a plain-http test address checks in without a location.
-      if (!window.isSecureContext || !navigator.geolocation) {
-        resolve({ position: null })
-        return
-      }
-      navigator.geolocation.getCurrentPosition(
-        pos => resolve({ position: { latitude: pos.coords.latitude, longitude: pos.coords.longitude } }),
-        err => {
-          if (err.code === err.PERMISSION_DENIED) {
-            resolve({ problem: "Location is blocked for this app. Allow it in your browser's site settings, then tap again." })
-          } else if (err.code === err.POSITION_UNAVAILABLE) {
-            resolve({ problem: "Your phone's location is turned off. Turn on Location, then tap again." })
-          } else {
-            resolve({ problem: 'Could not find your location in time. Move to an open spot and tap again.' })
-          }
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
-      )
-    })
-  }
+  const [checkAction, setCheckAction] = useState<'check-in' | 'check-out'>('check-in')
+  const [checkOpen, setCheckOpen] = useState(false)
 
-  async function markAttendance(action: 'check-in' | 'check-out'): Promise<boolean> {
-    if (marking) return false
-    setMarking(true)
-    const reading = await readLocation()
-    if ('problem' in reading) {
-      toast(reading.problem, 'error')
-      setMarking(false)
-      return false
-    }
-    const pos = reading.position
-    let address: string | null = null
-    let latitude: number | null = null
-    let longitude: number | null = null
-    if (pos) {
-      latitude = pos.latitude
-      longitude = pos.longitude
-      address = await reverseGeocode(pos.latitude, pos.longitude)
-    }
-    let ok = false
+  async function markAttendance(reading: LocationReading | null): Promise<boolean> {
     try {
-      const r = await fetch(`/api/attendance/${action}`, {
+      const r = await fetch(`/api/attendance/${checkAction}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latitude, longitude, address }),
+        body: JSON.stringify({
+          latitude: reading?.latitude ?? null,
+          longitude: reading?.longitude ?? null,
+          address: reading?.address ?? null,
+        }),
       })
       if (!r.ok) {
         toast((await r.json().catch(() => ({}))).error ?? 'Could not record attendance', 'error')
-      } else {
-        toast(address ? `${action === 'check-in' ? 'Checked in' : 'Checked out'} at ${address}` : (action === 'check-in' ? 'Checked in' : 'Checked out'), 'success')
-        await loadAttendance()
-        ok = true
+        return false
       }
+      toast(checkAction === 'check-in' ? 'Checked in' : 'Checked out', 'success')
+      await loadAttendance()
+      return true
     } catch {
       toast('The connection dropped. Check your connection and try again.', 'error')
-    } finally {
-      setMarking(false)
+      return false
     }
-    return ok
+  }
+
+  /** The attendance sheet closes first; the location sheet opens once its
+   *  close has landed, so the two never stack. */
+  function startCheck(action: 'check-in' | 'check-out') {
+    setCheckAction(action)
+    setAttendanceOpen(false)
+    void whenLayersSettled().then(() => setCheckOpen(true))
   }
 
   // ---- Attendance: app-bar icon + sheet ------------------------------------
@@ -211,7 +191,7 @@ function ActivityPhone() {
   const checkedOutAt = attendance?.check_out_time ?? null
   const checkInAddress = attendance?.check_in_address ?? null
 
-  // Built from primitives only, so the node is stable between renders â the
+  // Built from primitives only, so the node is stable between renders — the
   // app bar stores it in context, and a fresh node every render loops.
   const appBarActions = useMemo(() => {
     if (!canMarkAttendance) return undefined
@@ -254,7 +234,6 @@ function ActivityPhone() {
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([])
   const [nextMeetings, setNextMeetings] = useState<NextMeetingItem[]>([])
   const [missed, setMissed] = useState<MissedTodo[]>([])
-
   const load = useCallback(async () => {
     setState('loading')
     const [visitsRes, expensesRes, todosRes] = await Promise.all([
@@ -277,6 +256,43 @@ function ActivityPhone() {
     setMissed(Array.isArray(todos.missed) ? todos.missed : [])
     setState('ready')
   }, [date])
+
+  /*
+   * The day's approved weekly-plan lines, loaded on their own: the route
+   * needs weekly_plan.view, which is only known once /api/auth/me answers.
+   * The rest of the day never waits for that answer — if it is slow or
+   * fails, the meetings and expenses still show — and the lines join the
+   * list when it lands. Without the permission there are none, which is not
+   * a failure; a failed load is, and offers Retry like the rest of the day.
+   */
+  const [planned, setPlanned] = useState<PlannedItem[]>([])
+  const [planFailed, setPlanFailed] = useState(false)
+  const canViewPlan = !!perms?.weekly_plan?.view
+  const loadPlan = useCallback(async () => {
+    if (!canViewPlan) {
+      setPlanned([])
+      setPlanFailed(false)
+      return
+    }
+    const res = await loadJson<{ items?: PlannedItem[] }>(`/api/daily-activity/plan?date=${date}`)
+    if (res.ok) setPlanned(Array.isArray(res.data?.items) ? res.data.items : [])
+    setPlanFailed(!res.ok)
+  }, [date, canViewPlan])
+
+  useEffect(() => { void loadPlan() }, [loadPlan])
+
+  const reloadDay = useCallback(async () => {
+    await Promise.all([load(), loadPlan()])
+  }, [load, loadPlan])
+
+  /* Desktop's `openPlanned`: a plan line stops standing on its own once a
+     meeting carries its id, or once the day already has a meeting with its
+     party (a re-approved plan gives its lines new ids). */
+  const openPlanned = useMemo(() => {
+    const claimedIds = new Set(visits.map(v => v.weekly_plan_item_id).filter(Boolean) as string[])
+    const metPartyIds = new Set(visits.map(v => v.entity_id).filter(Boolean) as string[])
+    return planned.filter(p => !claimedIds.has(p.id) && !(p.party_id && metPartyIds.has(p.party_id)))
+  }, [planned, visits])
 
   useEffect(() => { void load() }, [load])
 
@@ -302,7 +318,7 @@ function ActivityPhone() {
     setUpcomingLoading(false)
   }, [])
 
-  // ---- Approvals (weekly-plan queue) â unchanged from the old Today -------
+  // ---- Approvals (weekly-plan queue) — unchanged from the old Today -------
   const [approvals, setApprovals] = useState<ApprovalRow[]>([])
   const [approvalsLoading, setApprovalsLoading] = useState(true)
   const [approvalsLoadedFor, setApprovalsLoadedFor] = useState<boolean | null>(null)
@@ -374,6 +390,7 @@ function ActivityPhone() {
     | { kind: 'followup'; key: string; data: FollowUpItem }
     | { kind: 'nextMeeting'; key: string; data: NextMeetingItem }
     | { kind: 'missed'; key: string; data: MissedTodo }
+    | { kind: 'plan'; key: string; data: PlannedItem }
     | { kind: 'approval'; key: string; data: ApprovalRow }
 
   const rows: Row[] = useMemo(() => {
@@ -392,16 +409,17 @@ function ActivityPhone() {
     }
     const meetingRows = visits.map(v => ({ kind: 'meeting' as const, key: `m-${v.id}`, data: v }))
     const expenseRows = expenses.map(e => ({ kind: 'expense' as const, key: `e-${e.id}`, data: e }))
-    const followupRows: Row[] = [
+    const todoRows: Row[] = [
       ...missed.map(m => ({ kind: 'missed' as const, key: `miss-${m.kind}-${m.id}`, data: m })),
+      ...openPlanned.map(p => ({ kind: 'plan' as const, key: `pl-${p.id}`, data: p })),
       ...followUps.map(f => ({ kind: 'followup' as const, key: `fu-${f.id}`, data: f })),
       ...nextMeetings.map(n => ({ kind: 'nextMeeting' as const, key: `nm-${n.id}`, data: n })),
     ]
     if (chip === 'meetings') return meetingRows
     if (chip === 'expenses') return expenseRows
-    if (chip === 'followups') return followupRows
-    return [...meetingRows, ...expenseRows, ...followupRows]
-  }, [searching, searchRows, chip, approvals, upcoming, visits, expenses, missed, followUps, nextMeetings])
+    if (chip === 'todo') return todoRows
+    return [...meetingRows, ...expenseRows, ...todoRows]
+  }, [searching, searchRows, chip, approvals, upcoming, visits, expenses, missed, openPlanned, followUps, nextMeetings])
 
   function renderRow(row: Row) {
     switch (row.kind) {
@@ -418,8 +436,8 @@ function ActivityPhone() {
             href={`/daily-activity/meeting/${v.id}`}
             name={v.entity_name}
             status={
-              <Badge variant={v.status === 'Completed' ? 'success' : 'neutral'}>
-                {v.status === 'Completed' ? 'Done' : 'Planned'}
+              <Badge variant={v.status === 'Completed' ? 'success' : v.status === 'Active' ? 'warning' : 'neutral'}>
+                {v.status}
               </Badge>
             }
             facts={facts}
@@ -450,9 +468,13 @@ function ActivityPhone() {
         const f = row.data
         return (
           <PhoneListRow
-            href={f.company_id ? `/parties/companies/${f.company_id}` : `/deals/${f.deal_id}`}
+            href={`/daily-activity/todo/followup/${f.id}?date=${f.due_date}`}
             name={f.company_name ?? f.deal_name}
-            facts={[`Due ${fmtDate(f.due_date)} Â· ${f.deal_name}`]}
+            status={f.due_date === todayStr ? <Badge variant="warning">Due today</Badge> : undefined}
+            facts={[
+              `Follow-up · ${f.deal_name}`,
+              f.due_time ? formatHHMM(f.due_time) : f.due_date === todayStr ? '' : `Due ${fmtDate(f.due_date)}`,
+            ].filter(Boolean)}
           />
         )
       }
@@ -460,9 +482,15 @@ function ActivityPhone() {
         const n = row.data
         return (
           <PhoneListRow
-            href={`/parties/companies/${n.id}`}
+            href={`/daily-activity/todo/next-meeting/${n.id}?date=${n.next_follow_up_date}`}
             name={n.name}
-            facts={[`Due ${fmtDate(n.next_follow_up_date)}`]}
+            status={n.next_follow_up_date === todayStr ? <Badge variant="warning">Due today</Badge> : undefined}
+            facts={[
+              'Next meeting',
+              n.next_follow_up_time
+                ? formatHHMM(n.next_follow_up_time)
+                : n.next_follow_up_date === todayStr ? '' : `Due ${fmtDate(n.next_follow_up_date)}`,
+            ].filter(Boolean)}
           />
         )
       }
@@ -470,16 +498,23 @@ function ActivityPhone() {
         const m = row.data
         return (
           <PhoneListRow
-            href={
-              m.party_id
-                ? `/parties/companies/${m.party_id}`
-                : m.deal_id
-                  ? `/deals/${m.deal_id}`
-                  : `/daily-activity/new?date=${m.original_date}`
-            }
+            href={`/daily-activity/todo/${m.kind}/${m.id}`}
             name={m.party_name}
-            facts={[`Overdue Â· was due ${fmtDate(m.original_date)}`]}
+            status={<Badge variant="danger">Overdue</Badge>}
+            facts={[`Was due ${fmtDate(m.original_date)}`]}
             meta={m.label}
+          />
+        )
+      }
+      case 'plan': {
+        const p = row.data
+        const route = [p.from_place, p.to_place].filter(Boolean).join(' to ')
+        return (
+          <PhoneListRow
+            href={`/daily-activity/todo/plan/${p.id}?date=${p.plan_date}`}
+            name={p.party_name ?? (route || 'Planned visit')}
+            status={p.plan_date === todayStr ? <Badge variant="warning">Due today</Badge> : undefined}
+            facts={['Weekly plan', p.party_name ? route : ''].filter(Boolean)}
           />
         )
       }
@@ -487,10 +522,13 @@ function ActivityPhone() {
         const a = row.data
         return (
           <PhoneListRow
-            href="/weekly-plan/approval"
-            name={a.user_name ?? 'Weekly plan'}
-            facts={[a.status]}
-            meta={a.week_start}
+            href={`/weekly-plan/approval/${a.id}`}
+            name={a.owner?.name ?? 'Weekly plan'}
+            status={<Badge variant="warning">{a.status}</Badge>}
+            facts={[
+              `Week of ${fmtDate(a.week_start_date)}`,
+              `${a.item_count} ${a.item_count === 1 ? 'line' : 'lines'}`,
+            ]}
           />
         )
       }
@@ -498,10 +536,10 @@ function ActivityPhone() {
   }
 
   const counts = {
-    all: visits.length + expenses.length + followUps.length + nextMeetings.length + missed.length,
+    all: visits.length + expenses.length + followUps.length + nextMeetings.length + missed.length + openPlanned.length,
     meetings: visits.length,
     expenses: expenses.length,
-    followups: followUps.length + nextMeetings.length + missed.length,
+    todo: followUps.length + nextMeetings.length + missed.length + openPlanned.length,
     upcoming: (upcoming?.followUps.length ?? 0) + (upcoming?.nextMeetings.length ?? 0),
     approvals: approvals.length,
   }
@@ -533,7 +571,7 @@ function ActivityPhone() {
   const dateInputRef = useRef<HTMLInputElement | null>(null)
   function pickDay(next: string) {
     // Closing the sheet pops its history entry, which would undo a replace
-    // made now â so the date changes only once the sheet has settled, as
+    // made now — so the date changes only once the sheet has settled, as
     // openAfterSheet does for the Add sheet.
     setDayOpen(false)
     void whenLayersSettled().then(() => goToDate(next))
@@ -555,12 +593,14 @@ function ActivityPhone() {
         ? 'failed'
         : chip === 'approvals' && approvalsLoading
           ? 'loading'
-          : state
+          : state === 'ready' && planFailed && (chip === 'all' || chip === 'todo')
+            ? 'failed'
+            : state
   function retryList() {
     if (searching) setSearchNonce(n => n + 1)
     else if (chip === 'upcoming') void loadUpcoming()
     else if (chip === 'approvals') void loadApprovals()
-    else void load()
+    else void reloadDay()
   }
 
   return (
@@ -568,7 +608,7 @@ function ActivityPhone() {
       <PhoneList
         state={listState}
         onRetry={retryList}
-        onRefresh={searching ? undefined : load}
+        onRefresh={searching ? undefined : reloadDay}
         noun={{ one: 'item', many: 'items' }}
         rows={rows}
         total={rows.length}
@@ -597,7 +637,7 @@ function ActivityPhone() {
                 chips: [
                   { value: 'meetings', label: 'Meetings', count: counts.meetings },
                   { value: 'expenses', label: 'Expenses', count: counts.expenses },
-                  { value: 'followups', label: 'Follow-ups', count: counts.followups },
+                  { value: 'todo', label: 'To do', count: counts.todo },
                   { value: 'upcoming', label: 'Upcoming', count: upcoming ? counts.upcoming : 0 },
                   ...(canViewApprovals ? [{ value: 'approvals', label: 'Approvals', count: counts.approvals }] : []),
                 ],
@@ -608,7 +648,7 @@ function ActivityPhone() {
             <p className="text-body font-medium text-text-primary">
               {chip === 'meetings' ? `No meetings ${onDay(date, todayStr)}`
                 : chip === 'expenses' ? `No expenses ${onDay(date, todayStr)}`
-                : chip === 'followups' ? 'Nothing due or overdue'
+                : chip === 'todo' ? 'Nothing due or overdue'
                 : chip === 'upcoming' ? 'Nothing coming up'
                 : chip === 'approvals' ? 'Nothing waiting for your approval'
                 : `Nothing ${onDay(date, todayStr)}`}
@@ -670,7 +710,7 @@ function ActivityPhone() {
         <BottomSheetOption selected={date === addDaysStr(todayStr, 1)} onSelect={() => pickDay(addDaysStr(todayStr, 1))}>
           Tomorrow
         </BottomSheetOption>
-        <BottomSheetOption onSelect={openNativePicker}>Pick a dateâ¦</BottomSheetOption>
+        <BottomSheetOption onSelect={openNativePicker}>Pick a date…</BottomSheetOption>
       </BottomSheet>
 
       {/* Attendance is always about today, whichever day is being browsed. */}
@@ -681,21 +721,13 @@ function ActivityPhone() {
         description={fmtDate(todayStr)}
         footer={
           attendanceFailed ? undefined : !checkedInAt ? (
-            <Button
-              className="w-full"
-              disabled={marking}
-              onClick={async () => { if (await markAttendance('check-in')) setAttendanceOpen(false) }}
-            >
+            <Button className="w-full" onClick={() => startCheck('check-in')}>
               <MapPinIcon />
-              {marking ? 'Checking inâ¦' : 'Check in'}
+              Check in
             </Button>
           ) : !checkedOutAt ? (
-            <Button
-              className="w-full"
-              disabled={marking}
-              onClick={async () => { if (await markAttendance('check-out')) setAttendanceOpen(false) }}
-            >
-              {marking ? 'Checking outâ¦' : 'Check out'}
+            <Button className="w-full" onClick={() => startCheck('check-out')}>
+              Check out
             </Button>
           ) : undefined
         }
@@ -708,7 +740,10 @@ function ActivityPhone() {
             </Button>
           </div>
         ) : !checkedInAt ? (
-          <p className="text-body text-text-secondary">You haven&apos;t checked in today.</p>
+          <div className="flex flex-col gap-1">
+            <p className="text-body text-text-secondary">You haven&apos;t checked in today.</p>
+            <p className="text-body text-text-secondary">To record where you start the day, allow location when you tap Check in.</p>
+          </div>
         ) : !checkedOutAt ? (
           <div className="flex flex-col gap-1">
             <p className="text-body text-text-primary">Checked in at {formatTime(checkedInAt)}</p>
@@ -716,10 +751,20 @@ function ActivityPhone() {
           </div>
         ) : (
           <p className="text-body text-text-primary">
-            Checked in {formatTime(checkedInAt)} Â· Checked out {formatTime(checkedOutAt)}
+            Checked in {formatTime(checkedInAt)} · Checked out {formatTime(checkedOutAt)}
           </p>
         )}
       </BottomSheet>
+
+      <LocationCheckSheet
+        open={checkOpen}
+        onOpenChange={setCheckOpen}
+        title={checkAction === 'check-in' ? 'Check in here?' : 'Check out here?'}
+        confirmLabel={checkAction === 'check-in' ? 'Check in' : 'Check out'}
+        busyLabel={checkAction === 'check-in' ? 'Checking in…' : 'Checking out…'}
+        requireLocation
+        onConfirm={markAttendance}
+      />
     </div>
   )
 }

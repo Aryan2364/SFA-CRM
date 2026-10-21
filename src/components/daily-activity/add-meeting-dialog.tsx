@@ -136,7 +136,7 @@ import { Entity, PlannedItem, Visit } from './types'
  */
 
 /** `TimeValue` (12-hour, as the kit models it) to "HH:MM" on a 24-hour clock. */
-function to24h(v: TimeValue | undefined): string | null {
+export function to24h(v: TimeValue | undefined): string | null {
   if (!v) return null
   let h = v.hour % 12
   if (v.meridiem === 'PM') h += 12
@@ -144,13 +144,13 @@ function to24h(v: TimeValue | undefined): string | null {
 }
 
 /** One company a contact belongs to, as `/api/contacts` shapes it. */
-type ContactCompany = { id: string; name: string; type?: string | null; is_primary?: boolean }
+export type ContactCompany = { id: string; name: string; type?: string | null; is_primary?: boolean }
 
 /**
  * One pickable person. A Contact belongs to MANY Companies (REBUILD-PLAN
  * §3.4), so `companies` is always an array and may be empty.
  */
-type LeadContact = {
+export type LeadContact = {
   id: string
   name: string
   designation?: string | null
@@ -174,8 +174,8 @@ type Mode = 'target' | 'create'
  * damaging thing this form can do (Orders, Deals and every report join
  * through it).
  */
-const COMPANY_PREFIX = 'c:'
-const CONTACT_PREFIX = 'p:'
+export const COMPANY_PREFIX = 'c:'
+export const CONTACT_PREFIX = 'p:'
 
 /**
  * `visit_type` for a meeting with a person who belongs to no company.
@@ -190,7 +190,7 @@ const CONTACT_PREFIX = 'p:'
  * mislabelling the meeting as a Dealer visit — see `reports/dimensions.ts`,
  * where that dimension falls back to the `visit_type` snapshot.
  */
-const STANDALONE_VISIT_TYPE = 'Contact'
+export const STANDALONE_VISIT_TYPE = 'Contact'
 
 /**
  * `visit_type` for a meeting with a company that has no type — an untyped
@@ -201,9 +201,92 @@ const STANDALONE_VISIT_TYPE = 'Contact'
  */
 export const OTHER_VISIT_TYPE = 'Other'
 
+/** `visit_type` for a meeting with a company (or a new lead): its own type,
+ *  or 'Other' when it has none. The one rule, shared with the phone form. */
+export function visitTypeForCompany(type?: string | null): string {
+  return type || OTHER_VISIT_TYPE
+}
+
+/** `visit_type` for a meeting with a PERSON: their company's rule when they
+ *  have one, STANDALONE_VISIT_TYPE ('Contact') when they belong to none. */
+export function visitTypeForPerson(company: ContactCompany | null): string {
+  return company ? visitTypeForCompany(company.type) : STANDALONE_VISIT_TYPE
+}
+
+/** `entity_name` for a meeting with a person: "Person · Company", or just the
+ *  person's name when they have no company. */
+export function personMeetingName(personName: string | undefined, company: ContactCompany | null): string {
+  return company ? `${personName ?? ''} · ${company.name}` : personName ?? ''
+}
+
+/** How a party reads in the "who did you meet" list. */
+export function partyOptionLabel(e: Entity): string {
+  // docs/accounts-contacts-spec.md §1: an Individual account always
+  // reads "Name · Individual" in a picker so it is never mistaken for
+  // a Company. The stage marker (Lead vs Existing) still wins when it
+  // applies — Individuals skip the funnel, so the two never collide.
+  const suffix =
+    e.account_kind === 'Individual'
+      ? 'Individual'
+      : e.stage && e.stage !== 'Existing'
+        ? e.stage
+        : null
+  return suffix ? `${e.name} · ${suffix}` : e.name
+}
+
+/** How a person reads in the "who did you meet" list, so two people with one
+ *  name are distinct. */
+export function personOptionLabel(c: LeadContact): string {
+  const company = c.companies?.[0]?.name
+  const parts = [c.designation, company].filter(Boolean).join(' · ')
+  return parts ? `${c.name} · ${parts}` : c.name
+}
+
+export type PlaceChoice = { state_id: string; district_id: string; taluka_id: string; village_id: string | null }
+
+/** Every district/taluka as a pickable place ("District · Taluka"), keyed
+ *  `t:<taluka id>`, with the ids it resolves to. Shared by the desktop dialog
+ *  and the phone form.
+ *
+ *  Villages are NOT in this list: there can be tens of thousands, and this
+ *  picker has no taluka-first step to filter them by. A quick-added lead takes
+ *  its taluka here; its village is set on the account's Edit form, which
+ *  lists only the chosen taluka's villages (`?talukaId=`). Pass `talukaId` to
+ *  get that taluka's villages as `v:<village id>` options too. */
+export async function loadPlaceOptions(talukaId?: string): Promise<{
+  options: Record<string, string>
+  map: Map<string, PlaceChoice>
+}> {
+  const [districts, talukas, villages] = await Promise.all([
+    fetch('/api/masters/districts').then(r => r.json()),
+    fetch('/api/masters/talukas').then(r => r.json()),
+    talukaId
+      ? fetch(`/api/masters/villages?talukaId=${encodeURIComponent(talukaId)}`).then(r => r.json())
+      : Promise.resolve([]),
+  ])
+  const distMap = new Map(districts.map((d: { id: string }) => [d.id, d]))
+  const taluMap = new Map(talukas.map((t: { id: string }) => [t.id, t]))
+  const opts: Record<string, string> = {}
+  const pm = new Map<string, PlaceChoice>()
+  for (const t of talukas as { id: string; name: string; district_id: string }[]) {
+    const dist = distMap.get(t.district_id) as { id: string; name: string; state_id: string } | undefined
+    if (!dist) continue
+    opts[`t:${t.id}`] = `${dist.name} · ${t.name}`
+    pm.set(`t:${t.id}`, { state_id: dist.state_id, district_id: t.district_id, taluka_id: t.id, village_id: null })
+  }
+  for (const v of villages as { id: string; name: string; taluka_id: string }[]) {
+    const talu = taluMap.get(v.taluka_id) as { id: string; name: string; district_id: string } | undefined
+    const dist = talu ? (distMap.get(talu.district_id) as { id: string; name: string; state_id: string } | undefined) : undefined
+    if (!talu || !dist) continue
+    opts[`v:${v.id}`] = `${dist.name} · ${talu.name} · ${v.name}`
+    pm.set(`v:${v.id}`, { state_id: dist.state_id, district_id: talu.district_id, taluka_id: v.taluka_id, village_id: v.id })
+  }
+  return { options: opts, map: pm }
+}
+
 /** The Lead type select's "Not set" option. A sentinel, because an empty
  *  string cannot be told apart from "no value" by the select. */
-const NO_LEAD_TYPE = '__none'
+export const NO_LEAD_TYPE = '__none'
 
 /**
  * Kit §16.3 — past six options a dropdown needs a search box, which is
@@ -472,31 +555,10 @@ export function AddMeetingDialog({
      when it opens rather than on every meeting. */
   useEffect(() => {
     if (!creating || placeMap.size > 0) return
-    Promise.all([
-      fetch('/api/masters/districts').then(r => r.json()),
-      fetch('/api/masters/talukas').then(r => r.json()),
-      fetch('/api/masters/villages').then(r => r.json()),
-    ])
-      .then(([districts, talukas, villages]) => {
-        const distMap = new Map(districts.map((d: { id: string }) => [d.id, d]))
-        const taluMap = new Map(talukas.map((t: { id: string }) => [t.id, t]))
-        const opts: Record<string, string> = {}
-        const pm = new Map<string, { state_id: string; district_id: string; taluka_id: string; village_id: string | null }>()
-        for (const t of talukas as { id: string; name: string; district_id: string }[]) {
-          const dist = distMap.get(t.district_id) as { id: string; name: string; state_id: string } | undefined
-          if (!dist) continue
-          opts[`t:${t.id}`] = `${dist.name} · ${t.name}`
-          pm.set(`t:${t.id}`, { state_id: dist.state_id, district_id: t.district_id, taluka_id: t.id, village_id: null })
-        }
-        for (const v of villages as { id: string; name: string; taluka_id: string }[]) {
-          const talu = taluMap.get(v.taluka_id) as { id: string; name: string; district_id: string } | undefined
-          const dist = talu ? (distMap.get(talu.district_id) as { id: string; name: string; state_id: string } | undefined) : undefined
-          if (!talu || !dist) continue
-          opts[`v:${v.id}`] = `${dist.name} · ${talu.name} · ${v.name}`
-          pm.set(`v:${v.id}`, { state_id: dist.state_id, district_id: talu.district_id, taluka_id: v.taluka_id, village_id: v.id })
-        }
-        setPlaceOptions(opts)
-        setPlaceMap(pm)
+    loadPlaceOptions()
+      .then(({ options, map }) => {
+        setPlaceOptions(options)
+        setPlaceMap(map)
       })
       .catch(() => toast('Failed to load location data', 'error'))
   }, [creating, placeMap.size])
@@ -508,17 +570,7 @@ export function AddMeetingDialog({
     () =>
       Object.fromEntries(
         entities.map(e => {
-          // docs/accounts-contacts-spec.md §1: an Individual account always
-          // reads "Name · Individual" in a picker so it is never mistaken for
-          // a Company. The stage marker (Lead vs Existing) still wins when it
-          // applies — Individuals skip the funnel, so the two never collide.
-          const suffix =
-            e.account_kind === 'Individual'
-              ? 'Individual'
-              : e.stage && e.stage !== 'Existing'
-                ? e.stage
-                : null
-          return [`${COMPANY_PREFIX}${e.id}`, suffix ? `${e.name} · ${suffix}` : e.name]
+          return [`${COMPANY_PREFIX}${e.id}`, partyOptionLabel(e)]
         })
       ),
     [entities]
@@ -528,9 +580,7 @@ export function AddMeetingDialog({
   const personOptions: Record<string, string> = useMemo(() => {
     const out: Record<string, string> = {}
     for (const c of people) {
-      const company = c.companies?.[0]?.name
-      const parts = [c.designation, company].filter(Boolean).join(' · ')
-      out[`${CONTACT_PREFIX}${c.id}`] = parts ? `${c.name} · ${parts}` : c.name
+      out[`${CONTACT_PREFIX}${c.id}`] = personOptionLabel(c)
     }
     return out
   }, [people])
@@ -799,7 +849,7 @@ export function AddMeetingDialog({
         ...followUpLink,
         ...manual,
         // Blank type: the company is created untyped and the meeting is 'Other'.
-        visit_type: npType || OTHER_VISIT_TYPE,
+        visit_type: visitTypeForCompany(npType),
         new_prospect: {
           name: npName.trim(),
           type: npType || null,
@@ -831,9 +881,9 @@ export function AddMeetingDialog({
         /* With a company, the same rule a company pick uses — the party's own
            type, and 'Other' for a party whose type is blank.
            STANDALONE_VISIT_TYPE is only for a meeting with NO company. */
-        visit_type: company ? company.type || OTHER_VISIT_TYPE : STANDALONE_VISIT_TYPE,
+        visit_type: visitTypeForPerson(company),
         entity_id: company?.id ?? null,
-        entity_name: company ? `${person?.name ?? ''} · ${company.name}` : person?.name ?? '',
+        entity_name: personMeetingName(person?.name, company),
         contact_id: selectedPersonId,
         is_new_entity: false,
       })
@@ -845,7 +895,7 @@ export function AddMeetingDialog({
         ...manual,
         ...attendeesLink,
         // F6: the party's own type, not a type the user was made to pick.
-        visit_type: selected?.type || OTHER_VISIT_TYPE,
+        visit_type: visitTypeForCompany(selected?.type),
         // The COMPANY's id, always — a contact id must never be written here.
         entity_id: selectedCompanyId,
         entity_name: selected?.name ?? '',

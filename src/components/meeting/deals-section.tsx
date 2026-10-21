@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { fmtAmount, fmtDate } from '@/lib/format'
+import { setDealDiscussed } from './deal-actions'
 import type { MeetingDeal, NamedRef } from './types'
 
 /**
@@ -124,20 +125,10 @@ export function DealsSection({
     // Optimistic, then reconciled: a tick that waits for a round trip on a
     // phone in a shop reads as broken.
     onDiscussedChanged(deal.id, next)
-    const r = next
-      ? await fetch('/api/deal-meetings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ visit_id: visitId, deal_id: deal.id }),
-        })
-      : await fetch(
-          `/api/deal-meetings?visit_id=${visitId}&deal_id=${deal.id}`,
-          { method: 'DELETE' }
-        )
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}))
+    const failure = await setDealDiscussed(visitId, deal.id, next)
+    if (failure) {
       onDiscussedChanged(deal.id, !next)
-      toast(err.error ?? 'Could not save that', 'error')
+      toast(failure, 'error')
     }
     setBusy(null)
   }
