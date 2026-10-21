@@ -6,7 +6,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden, getDataScope } from '@/lib/permissions'
 import { intersectScope, scopedUserIds } from '@/lib/scope'
 import { getVisibleUserIds } from '@/lib/visibility'
-import { buildWeeklyReview, mondayOf, type WeeklyReview } from '@/lib/weekly-review'
+import { buildTeamWeeklyFigures, mondayOf, type TeamWeeklyFigures } from '@/lib/weekly-review'
 import { addDays } from '@/lib/business-date'
 import { businessDate } from '@/lib/business-date'
 import { countMissedByUser, countOutcomesByUser, repeatedCouldntMeetFlags, type OutcomeCounts } from '@/lib/missed-todos'
@@ -17,22 +17,23 @@ export const dynamic = 'force-dynamic'
  * Team / Company summary-of-summaries — §6.4, P4-T6.
  *
  * ---------------------------------------------------------------------------
- * WHY THIS REUSES `buildWeeklyReview` PER PERSON RATHER THAN RE-AGGREGATING
+ * WHY THE FIGURES COME FROM `buildTeamWeeklyFigures`, NOT A GROUP BY
  *
  * §6.2's figures are not sums of raw columns. "Met" is a lifetime check against
  * `daily_visits.start_time`; "ticked" pairs a plan row's `plan_date` with a
  * visit to that same party on that same day; "moved forward" compares
- * `deal_stages.sort_order` across a stage log. A second implementation of those
- * rules — a GROUP BY that looked right — would drift from the individual screen
- * the moment either side changed, and a manager comparing the team row against
- * the person's own Weekly Review would see two different numbers with no way to
- * tell which lies. So the team tier is defined as the sum of exactly the
- * per-person reviews it drills into, and there is only one place the rules live.
+ * `deal_stages.sort_order` across a stage log. A GROUP BY that looked right
+ * would drift from the individual screen the moment either side changed, and a
+ * manager comparing the team row against the person's own Weekly Review would
+ * see two different numbers with no way to tell which lies. So the team tier is
+ * defined as the sum of the same per-person figures it drills into.
  *
- * The cost is ~12 queries per person. That is why `MAX_PEOPLE` exists and why
- * the fan-out runs in batches rather than all at once: a company tier over a
- * few hundred users would otherwise open a few thousand concurrent queries
- * against a pool configured for five.
+ * `buildTeamWeeklyFigures` (src/lib/weekly-review.ts, next to
+ * `buildWeeklyReview` and kept in lock-step with it) reads each kind of row
+ * ONCE for the whole population and assembles every person in memory. The
+ * per-person builder cost ~12 queries each, which on a pool of five meant a
+ * company tier queued behind itself; `MAX_PEOPLE` still caps the response
+ * because the page renders one row per person.
  *
  * ---------------------------------------------------------------------------
  * THE TWO TIERS
@@ -63,10 +64,8 @@ export const dynamic = 'force-dynamic'
  * nothing here may introduce a raw Prisma row into the response without it.
  */
 
-/** Above this, the fan-out is refused rather than silently truncated. */
+/** Above this, the view is refused rather than silently truncated. */
 const MAX_PEOPLE = 120
-/** Concurrent per-person reviews. Each is ~12 queries against a pool of 5. */
-const BATCH = 4
 
 export type TeamSummaryMember = {
   userId: string
@@ -129,14 +128,6 @@ export type TeamSummary = {
   members: TeamSummaryMember[]
   byManager: { managerUserId: string | null; managerName: string; people: number; meetings: number; orderValue: number; expenseTotal: number }[]
   notMetParties: { id: string; name: string; owners: string[] }[]
-}
-
-async function mapWithConcurrency<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = []
-  for (let i = 0; i < items.length; i += size) {
-    out.push(...(await Promise.all(items.slice(i, i + size).map(fn))))
-  }
-  return out
 }
 
 export async function GET(req: NextRequest) {
@@ -211,17 +202,19 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const reviews = await mapWithConcurrency(people, BATCH, async p => ({
-      person: p,
-      review: await buildWeeklyReview(tenantId, p.id, monday),
-    }))
+    const personIds = people.map(p => p.id)
 
     // Missed to-dos for the same week and population, gated by the same
     // `meetings` check this whole route already requires — Missed is itself
-    // a "meetings" concept (a to-do that never became one).
-    const missedByUser = await countMissedByUser(tenantId, people.map(p => p.id), monday, addDays(monday, 6))
-    const outcomesByUser = await countOutcomesByUser(tenantId, people.map(p => p.id), monday, addDays(monday, 6))
-    const repeatedFlags = await repeatedCouldntMeetFlags(tenantId, people.map(p => p.id))
+    // a "meetings" concept (a to-do that never became one). The four reads
+    // are independent, so they overlap rather than queue.
+    const [figures, missedByUser, outcomesByUser, repeatedFlags] = await Promise.all([
+      buildTeamWeeklyFigures(tenantId, personIds, monday),
+      countMissedByUser(tenantId, personIds, monday, addDays(monday, 6)),
+      countOutcomesByUser(tenantId, personIds, monday, addDays(monday, 6)),
+      repeatedCouldntMeetFlags(tenantId, personIds),
+    ])
+    const reviews = people.map(p => ({ person: p, review: figures.get(p.id) as TeamWeeklyFigures }))
 
     const members: TeamSummaryMember[] = reviews.map(({ person, review }) => ({
       ...toMember(person, review),
@@ -326,7 +319,7 @@ export async function GET(req: NextRequest) {
 
 function toMember(
   person: { id: string; name: string; manager_user_id: string | null; users: { id: string; name: string } | null },
-  review: WeeklyReview
+  review: TeamWeeklyFigures
 ): Omit<TeamSummaryMember, 'missedCount' | 'outcomeCounts' | 'repeatedCouldntMeet'> {
   return {
     userId: person.id,

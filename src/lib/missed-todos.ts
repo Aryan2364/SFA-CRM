@@ -1,6 +1,6 @@
 import { prisma } from './db'
 import { businessDate, businessDaysAgo, recentBusinessDays } from './business-date'
-import { listCouldntMeet, partiesWithRepeatedCouldntMeet } from './todo-outcomes'
+import { listCouldntMeet, partiesWithRepeatedCouldntMeetForUsers } from './todo-outcomes'
 
 /**
  * The single "Missed" rule, shared by the rep's own Daily Activity screen
@@ -344,9 +344,11 @@ export async function repeatedCouldntMeetFlags(
   const since = new Date(asOf)
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().slice(0, 10)
-  for (const uid of userIds) {
-    const rows = await partiesWithRepeatedCouldntMeet(tenantId, uid, sinceStr)
-    if (rows.length) out.set(uid, rows.map(r => ({ party_id: r.party_id, party_name: r.party_name })))
+  const rows = await partiesWithRepeatedCouldntMeetForUsers(tenantId, userIds, sinceStr)
+  for (const r of rows) {
+    const list = out.get(r.user_id) ?? []
+    list.push({ party_id: r.party_id, party_name: r.party_name })
+    out.set(r.user_id, list)
   }
   return out
 }

@@ -229,3 +229,25 @@ export async function partiesWithRepeatedCouldntMeet(
     throw err
   }
 }
+
+/** `partiesWithRepeatedCouldntMeet` for many users in one query: the same rows,
+ *  each tagged with its user. Empty when the table is unavailable. */
+export async function partiesWithRepeatedCouldntMeetForUsers(
+  tenantId: string, userIds: string[], sinceDate: string
+): Promise<{ user_id: string; party_id: string; party_name: string | null; count: bigint }[]> {
+  if (userIds.length === 0) return []
+  try {
+    return await prisma.$queryRaw<{ user_id: string; party_id: string; party_name: string | null; count: bigint }[]>`
+      SELECT o.user_id, o.party_id, c.name AS party_name, count(*)::bigint AS count
+        FROM todo_outcomes o
+        LEFT JOIN companies c ON c.id = o.party_id AND c.tenant_id = o.tenant_id
+       WHERE o.tenant_id = ${tenantId}::uuid AND o.user_id = ANY(${userIds}::uuid[])
+         AND o.party_id IS NOT NULL AND o.due_date >= ${sinceDate}::date
+       GROUP BY o.user_id, o.party_id, c.name
+      HAVING count(*) >= 3
+    `
+  } catch (err) {
+    if (isUndefinedTable(err)) return []
+    throw err
+  }
+}

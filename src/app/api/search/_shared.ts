@@ -1,11 +1,11 @@
 import { prisma } from '@/lib/db'
 import { SessionUser } from '@/lib/auth'
-import { checkPermission } from '@/lib/permissions'
-import { scopedUserIds, scopeWhere } from '@/lib/scope'
+import { checkPermission, getDataScope, type PermSection } from '@/lib/permissions'
+import { scopeWhere } from '@/lib/scope'
+import { getVisibleUserIds } from '@/lib/visibility'
 import {
-  getAccessibleCompanyIds,
-  getAccessibleDealIds,
   getCompanyMemberships,
+  getDealMemberships,
   widenScope,
   type MemberAccess,
 } from '@/lib/sharing'
@@ -37,14 +37,73 @@ export type SearchOpts = {
   ids?: string[]
   take: number
   skip?: number
-  /** Whether to also run the COUNT query. Recent never needs it. */
+  /** Whether the exact total is wanted. Recent and the dropdown never need it. */
   withTotal?: boolean
+  /**
+   * The caller's per-request lookups (see `createSearchCtx`). The dropdown
+   * runs five searchers for one request and passes one of these to all of
+   * them; a searcher called without one makes its own.
+   */
+  ctx?: SearchCtx
 }
 
 const EMPTY: SearchPage = { rows: [], total: 0 }
 
-async function countIf(withTotal: boolean | undefined, run: () => Promise<number>): Promise<number> {
-  return withTotal ? run() : 0
+/**
+ * What every searcher would otherwise look up for itself, once per request.
+ *
+ * Five searchers each resolved the caller's visible-user closure and their
+ * account / opportunity memberships on their own: about a dozen identical
+ * queries per keystroke against a pool of five. These are lazy and memoised,
+ * so a request that never needs one (a Company-scope caller, or no sharing
+ * tables) still never runs it.
+ */
+export type SearchCtx = {
+  visibleUserIds: () => Promise<string[]>
+  companyMemberships: () => Promise<Map<string, MemberAccess>>
+  dealMemberships: () => Promise<Map<string, MemberAccess>>
+}
+
+function once<T>(run: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined
+  return () => (pending ??= run())
+}
+
+export function createSearchCtx(user: SessionUser, tid: string): SearchCtx {
+  return {
+    // Keyed on the user's own tenant, exactly as `scopedUserIds` calls it.
+    visibleUserIds: once(() => getVisibleUserIds(user.userId as string, user.tenantId)),
+    companyMemberships: once(() => getCompanyMemberships(user, tid)),
+    dealMemberships: once(() => getDealMemberships(user, tid)),
+  }
+}
+
+/**
+ * `scopedUserIds` (src/lib/scope.ts) with the visibility lookup shared across
+ * the request. The rules are the same line for line: `null` is Company scope,
+ * a session with no user row owns nothing, `own` is the caller alone, and
+ * `team` is the caller plus their whole visibility closure.
+ */
+async function scopedIds(user: SessionUser, ctx: SearchCtx, section: PermSection): Promise<string[] | null> {
+  const scope = await getDataScope(user, section)
+  if (scope === 'all') return null
+  if (!user.userId) return []
+  if (scope === 'own') return [user.userId]
+  return [user.userId, ...(await ctx.visibleUserIds())]
+}
+
+/**
+ * The exact total for a page, without the COUNT query when the page itself
+ * proves it: a page that is not full, and is not past the end, is the last
+ * page, so the total is `skip + rows`. Only a full page (or one past the end)
+ * needs the count.
+ */
+async function pageTotal(opts: SearchOpts, rows: number, count: () => Promise<number>): Promise<number> {
+  if (!opts.withTotal) return 0
+  const skip = opts.skip ?? 0
+  if (rows > 0 && rows < opts.take) return skip + rows
+  if (rows === 0 && skip === 0) return 0
+  return count()
 }
 
 export async function searchAccounts(user: SessionUser, tid: string, opts: SearchOpts): Promise<SearchPage> {
@@ -52,8 +111,9 @@ export async function searchAccounts(user: SessionUser, tid: string, opts: Searc
   const q = opts.q?.trim()
   if (!q && !opts.ids?.length) return EMPTY
   const digits = q?.replace(/\D/g, '')
-  const ids = await scopedUserIds(user, 'companies')
-  const memberships: Map<string, MemberAccess> = ids === null ? new Map() : await getCompanyMemberships(user, tid)
+  const ctx = opts.ctx ?? createSearchCtx(user, tid)
+  const ids = await scopedIds(user, ctx, 'companies')
+  const memberships: Map<string, MemberAccess> = ids === null ? new Map() : await ctx.companyMemberships()
   const scope = {
     tenant_id: tid,
     ...widenScope(
@@ -73,16 +133,14 @@ export async function searchAccounts(user: SessionUser, tid: string, opts: Searc
         ],
       }
   const where = { ...scope, ...matcher }
-  const [rows, total] = await Promise.all([
-    prisma.companies.findMany({
-      where,
-      select: { id: true, name: true, mobile_1: true, type: true },
-      orderBy: { name: 'asc' },
-      take: opts.take,
-      skip: opts.skip,
-    }),
-    countIf(opts.withTotal, () => prisma.companies.count({ where })),
-  ])
+  const rows = await prisma.companies.findMany({
+    where,
+    select: { id: true, name: true, mobile_1: true, type: true },
+    orderBy: { name: 'asc' },
+    take: opts.take,
+    skip: opts.skip,
+  })
+  const total = await pageTotal(opts, rows.length, () => prisma.companies.count({ where }))
   return {
     total,
     rows: rows.map(r => ({
@@ -100,8 +158,9 @@ export async function searchContacts(user: SessionUser, tid: string, opts: Searc
   const q = opts.q?.trim()
   if (!q && !opts.ids?.length) return EMPTY
   const digits = q?.replace(/\D/g, '')
-  const ids = await scopedUserIds(user, 'contacts')
-  const memberships: Map<string, MemberAccess> = ids === null ? new Map() : await getCompanyMemberships(user, tid)
+  const ctx = opts.ctx ?? createSearchCtx(user, tid)
+  const ids = await scopedIds(user, ctx, 'contacts')
+  const memberships: Map<string, MemberAccess> = ids === null ? new Map() : await ctx.companyMemberships()
   const sharedCompanies = [...memberships.keys()]
   const scope = {
     tenant_id: tid,
@@ -125,16 +184,14 @@ export async function searchContacts(user: SessionUser, tid: string, opts: Searc
         ],
       }
   const where = { ...scope, ...matcher }
-  const [rows, total] = await Promise.all([
-    prisma.contacts.findMany({
-      where,
-      select: { id: true, name: true, mobile: true },
-      orderBy: { name: 'asc' },
-      take: opts.take,
-      skip: opts.skip,
-    }),
-    countIf(opts.withTotal, () => prisma.contacts.count({ where })),
-  ])
+  const rows = await prisma.contacts.findMany({
+    where,
+    select: { id: true, name: true, mobile: true },
+    orderBy: { name: 'asc' },
+    take: opts.take,
+    skip: opts.skip,
+  })
+  const total = await pageTotal(opts, rows.length, () => prisma.contacts.count({ where }))
   return {
     total,
     rows: rows.map(r => ({
@@ -151,10 +208,12 @@ export async function searchOpportunities(user: SessionUser, tid: string, opts: 
   if (!(await checkPermission(user, 'deals', 'view'))) return EMPTY
   const q = opts.q?.trim()
   if (!q && !opts.ids?.length) return EMPTY
-  const ids = await scopedUserIds(user, 'deals')
+  const ctx = opts.ctx ?? createSearchCtx(user, tid)
+  const ids = await scopedIds(user, ctx, 'deals')
   const widen = ids !== null
+  // Every membership counts, view or work: the default floor of `getAccessibleCompanyIds` / `getAccessibleDealIds`.
   const [accounts, direct] = widen
-    ? await Promise.all([getAccessibleCompanyIds(user, tid), getAccessibleDealIds(user, tid)])
+    ? await Promise.all([ctx.companyMemberships(), ctx.dealMemberships()]).then(([a, d]) => [[...a.keys()], [...d.keys()]])
     : [[], []]
   const scope = {
     tenant_id: tid,
@@ -167,16 +226,14 @@ export async function searchOpportunities(user: SessionUser, tid: string, opts: 
     ? { id: { in: opts.ids } }
     : { name: { contains: q, mode: 'insensitive' as const } }
   const where = { ...scope, ...matcher }
-  const [rows, total] = await Promise.all([
-    prisma.deals.findMany({
-      where,
-      select: { id: true, name: true, companies: { select: { name: true } } },
-      orderBy: { created_at: 'desc' },
-      take: opts.take,
-      skip: opts.skip,
-    }),
-    countIf(opts.withTotal, () => prisma.deals.count({ where })),
-  ])
+  const rows = await prisma.deals.findMany({
+    where,
+    select: { id: true, name: true, companies: { select: { name: true } } },
+    orderBy: { created_at: 'desc' },
+    take: opts.take,
+    skip: opts.skip,
+  })
+  const total = await pageTotal(opts, rows.length, () => prisma.deals.count({ where }))
   return {
     total,
     rows: rows.map(r => ({
@@ -193,8 +250,9 @@ export async function searchOrders(user: SessionUser, tid: string, opts: SearchO
   if (!(await checkPermission(user, 'orders', 'view'))) return EMPTY
   const q = opts.q?.trim()
   if (!q && !opts.ids?.length) return EMPTY
-  const ids = await scopedUserIds(user, 'orders')
-  const shared = ids === null ? [] : await getAccessibleCompanyIds(user, tid)
+  const ctx = opts.ctx ?? createSearchCtx(user, tid)
+  const ids = await scopedIds(user, ctx, 'orders')
+  const shared = ids === null ? [] : [...(await ctx.companyMemberships()).keys()]
   const scope = {
     tenant_id: tid,
     ...widenScope(scopeWhere(ids), [
@@ -210,16 +268,14 @@ export async function searchOrders(user: SessionUser, tid: string, opts: SearchO
     ? { id: { in: opts.ids } }
     : { entity_name: { contains: q, mode: 'insensitive' as const } }
   const where = { ...scope, ...matcher }
-  const [rows, total] = await Promise.all([
-    prisma.orders.findMany({
-      where,
-      select: { id: true, entity_name: true, order_date: true, status: true },
-      orderBy: [{ order_date: 'desc' }, { created_at: 'desc' }],
-      take: opts.take,
-      skip: opts.skip,
-    }),
-    countIf(opts.withTotal, () => prisma.orders.count({ where })),
-  ])
+  const rows = await prisma.orders.findMany({
+    where,
+    select: { id: true, entity_name: true, order_date: true, status: true },
+    orderBy: [{ order_date: 'desc' }, { created_at: 'desc' }],
+    take: opts.take,
+    skip: opts.skip,
+  })
+  const total = await pageTotal(opts, rows.length, () => prisma.orders.count({ where }))
   return {
     total,
     rows: rows.map(r => ({
@@ -236,22 +292,20 @@ export async function searchMeetings(user: SessionUser, tid: string, opts: Searc
   if (!(await checkPermission(user, 'meetings', 'view'))) return EMPTY
   const q = opts.q?.trim()
   if (!q && !opts.ids?.length) return EMPTY
-  const ids = await scopedUserIds(user, 'meetings')
+  const ids = await scopedIds(user, opts.ctx ?? createSearchCtx(user, tid), 'meetings')
   const scope = { tenant_id: tid, ...scopeWhere(ids) }
   const matcher = opts.ids?.length
     ? { id: { in: opts.ids } }
     : { entity_name: { contains: q, mode: 'insensitive' as const } }
   const where = { ...scope, ...matcher }
-  const [rows, total] = await Promise.all([
-    prisma.daily_visits.findMany({
-      where,
-      select: { id: true, entity_name: true, visit_date: true, user_id: true, visit_type: true },
-      orderBy: { visit_date: 'desc' },
-      take: opts.take,
-      skip: opts.skip,
-    }),
-    countIf(opts.withTotal, () => prisma.daily_visits.count({ where })),
-  ])
+  const rows = await prisma.daily_visits.findMany({
+    where,
+    select: { id: true, entity_name: true, visit_date: true, user_id: true, visit_type: true },
+    orderBy: { visit_date: 'desc' },
+    take: opts.take,
+    skip: opts.skip,
+  })
+  const total = await pageTotal(opts, rows.length, () => prisma.daily_visits.count({ where }))
   return {
     total,
     rows: rows.map(r => {

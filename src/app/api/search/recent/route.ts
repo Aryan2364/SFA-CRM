@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
-import { SEARCHERS, type ResultType } from '../_shared'
+import { SEARCHERS, createSearchCtx, type ResultType } from '../_shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,10 +41,12 @@ export async function GET(req: NextRequest) {
   const tid = getTenantId()
   const byType = parseItems(req.nextUrl.searchParams.get('items'))
 
+  const ctx = createSearchCtx(user, tid)
+
   try {
     const pages = await Promise.all(
       (Object.keys(byType) as ResultType[]).map(type =>
-        SEARCHERS[type](user, tid, { ids: byType[type], take: (byType[type] as string[]).length })
+        SEARCHERS[type](user, tid, { ids: byType[type], take: (byType[type] as string[]).length, ctx })
       )
     )
     return NextResponse.json({ results: pages.flatMap(p => p.rows) })

@@ -450,3 +450,254 @@ export async function buildWeeklyReview(
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// The team tier: the same figures for many people, fetched once.
+// ---------------------------------------------------------------------------
+
+/**
+ * The slice of a `WeeklyReview` the Team / Company summary reads, under the
+ * same property names, so the route's arithmetic did not change when it
+ * stopped calling `buildWeeklyReview` per person.
+ */
+export type TeamWeeklyFigures = {
+  weekEnd: string
+  headline: Pick<WeeklyReview['headline'], 'toMeet' | 'met' | 'orderValue'>
+  priorityPoints: Pick<WeeklyReview['priorityPoints'], 'achievedMeetings' | 'ticked' | 'open' | 'unmatched'> & {
+    plannedGoals: { total: number }
+  }
+  dayWise: Pick<
+    WeeklyReview['dayWise'][number],
+    'date' | 'plannedGoal' | 'achievedMeetings' | 'ordersCount' | 'ordersValue' | 'expenseTotal'
+  >[]
+  extraMeetings: { count: number }
+  newParties: { count: number }
+  expenses: { total: number }
+  orders: { draft: { count: number }; placed: { count: number } }
+  funnel: { movedForward: number }
+  notMet: { count: number; list: { id: string; name: string }[] }
+}
+
+function groupByKey<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const row of rows) {
+    const k = key(row)
+    const list = out.get(k)
+    if (list) list.push(row)
+    else out.set(k, [row])
+  }
+  return out
+}
+
+/**
+ * `buildWeeklyReview` for a whole team: every kind of row is read ONCE for all
+ * `userIds` (a `user_id IN (...)` per table, one party resolution, one
+ * ever-visited probe) and each person's figures are assembled in memory.
+ * Roughly a dozen queries however many people, where the per-person builder
+ * cost a dozen EACH.
+ *
+ * ⚠️ This is a second implementation of §6.2's rules, kept in lock-step with
+ * `buildWeeklyReview` above: the same date keys, the same Draft / placed split,
+ * the same "ticked" and "Not Met" matching, the same summation order. A change
+ * to a rule there must be made here too. It leaves out what the team tier never
+ * shows (attendance, order line breakups, the current funnel snapshot, the
+ * per-meeting and per-party lists), which is also where the per-person cost
+ * was: the order-items join alone.
+ *
+ * Money is summed in JS from the rows, never with a SQL SUM: the single-person
+ * review adds doubles in row order, and an aggregate would differ from it in
+ * the last digit.
+ */
+export async function buildTeamWeeklyFigures(
+  tenantId: string,
+  userIds: string[],
+  weekStart: string
+): Promise<Map<string, TeamWeeklyFigures>> {
+  const out = new Map<string, TeamWeeklyFigures>()
+  if (userIds.length === 0) return out
+
+  const monday = mondayOf(weekStart)
+  const sunday = addDays(monday, 6)
+  const weekStartDate = dayStart(monday)
+  const weekEndExclusive = dayStart(addDays(monday, 7))
+  const inWeek = { gte: weekStartDate, lt: weekEndExclusive }
+
+  const [planItems, visits, orders, expenseRows, newPartyCounts, stageLogs, allStages] = await Promise.all([
+    prisma.weekly_plan_items.findMany({
+      where: { tenant_id: tenantId, plan_date: inWeek, weekly_plans: { user_id: { in: userIds } } },
+      select: {
+        id: true, plan_date: true, party_id: true,
+        new_dealers_goal: true, existing_dealers_goal: true, others_goal: true,
+        weekly_plans: { select: { user_id: true } },
+      },
+    }),
+    prisma.daily_visits.findMany({
+      where: { tenant_id: tenantId, user_id: { in: userIds }, visit_date: inWeek },
+      select: { user_id: true, visit_date: true, entity_id: true, weekly_plan_item_id: true },
+    }),
+    prisma.orders.findMany({
+      where: { tenant_id: tenantId, user_id: { in: userIds }, order_date: inWeek },
+      select: { user_id: true, order_date: true, status: true, total_amount: true },
+    }),
+    prisma.expenses.findMany({
+      where: { tenant_id: tenantId, user_id: { in: userIds }, expense_date: inWeek },
+      select: { user_id: true, expense_date: true, amount: true },
+    }),
+    prisma.companies.groupBy({
+      by: ['created_by_user_id'],
+      where: { tenant_id: tenantId, created_by_user_id: { in: userIds }, created_at: inWeek },
+      _count: { _all: true },
+    }),
+    prisma.deal_stage_logs.findMany({
+      where: { tenant_id: tenantId, changed_by_user_id: { in: userIds }, changed_at: inWeek },
+      select: { changed_by_user_id: true, from_stage_id: true, to_stage_id: true },
+    }),
+    prisma.deal_stages.findMany({ where: { tenant_id: tenantId }, select: { id: true, sort_order: true } }),
+  ])
+
+  const stageOrderById = new Map(allStages.map(s => [s.id, s.sort_order]))
+  const days: string[] = []
+  for (let i = 0; i < 7; i++) days.push(addDays(monday, i))
+
+  const plansByUser = groupByKey(planItems, p => p.weekly_plans.user_id)
+  const visitsByUser = groupByKey(visits, v => v.user_id)
+  const ordersByUser = groupByKey(orders, o => o.user_id)
+  const expensesByUser = groupByKey(expenseRows, e => e.user_id)
+  const newPartiesByUser = new Map(newPartyCounts.map(r => [r.created_by_user_id as string, r._count._all]))
+  const logsByUser = groupByKey(stageLogs, l => l.changed_by_user_id as string)
+
+  // ---- party resolution, once for everyone's planned parties ----
+  // A party id is a company or a contact (or neither) whoever planned it, so
+  // one lookup over the union answers every person. See `buildWeeklyReview`
+  // for why a planned contact is matched through its companies.
+  const allPlannedIds = Array.from(
+    new Set(planItems.flatMap(p => (p.party_id ? [p.party_id] : [])))
+  )
+  const [plannedCompanies, plannedContacts, contactLinks] = allPlannedIds.length
+    ? await Promise.all([
+        prisma.companies.findMany({
+          where: { id: { in: allPlannedIds }, tenant_id: tenantId },
+          select: { id: true, name: true },
+        }),
+        prisma.contacts.findMany({
+          where: { id: { in: allPlannedIds }, tenant_id: tenantId },
+          select: { id: true, name: true },
+        }),
+        prisma.company_contacts.findMany({
+          where: { contact_id: { in: allPlannedIds }, tenant_id: tenantId },
+          select: { contact_id: true, company_id: true },
+        }),
+      ])
+    : [[], [], []]
+  const partyName = new Map<string, string>()
+  const companyIds = new Set(plannedCompanies.map(c => c.id))
+  for (const c of plannedCompanies) partyName.set(c.id, c.name)
+  for (const c of plannedContacts) if (!partyName.has(c.id)) partyName.set(c.id, c.name)
+  const companiesOfContact = new Map<string, string[]>()
+  for (const l of contactLinks) {
+    const list = companiesOfContact.get(l.contact_id) ?? []
+    list.push(l.company_id)
+    companiesOfContact.set(l.contact_id, list)
+  }
+  const matchIdsOf = (partyId: string): string[] =>
+    companyIds.has(partyId) ? [partyId] : [partyId, ...(companiesOfContact.get(partyId) ?? [])]
+
+  // "Ever met" is a lifetime check on the party, not on the person, so one
+  // probe over every planned party's match ids serves everyone.
+  const allMatchIds = Array.from(new Set(allPlannedIds.flatMap(matchIdsOf)))
+  const everVisited = allMatchIds.length
+    ? await prisma.daily_visits.findMany({
+        where: { tenant_id: tenantId, entity_id: { in: allMatchIds }, start_time: { not: null } },
+        select: { entity_id: true },
+        distinct: ['entity_id'],
+      })
+    : []
+  const visitedSet = new Set(everVisited.map(v => v.entity_id))
+
+  for (const userId of userIds) {
+    const myPlans = plansByUser.get(userId) ?? []
+    const myVisits = visitsByUser.get(userId) ?? []
+    const myOrders = ordersByUser.get(userId) ?? []
+    const myExpenses = expensesByUser.get(userId) ?? []
+
+    // ---- day-wise ----
+    const planByDay = groupByKey(myPlans, p => dateOnlyString(p.plan_date))
+    const visitByDay = groupByKey(myVisits, v => dateOnlyString(v.visit_date))
+    const orderByDay = groupByKey(myOrders, o => dateOnlyString(o.order_date))
+    const expenseByDay = groupByKey(myExpenses, e => dateOnlyString(e.expense_date))
+    const dayWise = days.map(date => {
+      const items = planByDay.get(date) ?? []
+      const plannedGoal = items.reduce((s, p) => s + (p.new_dealers_goal ?? 0) + (p.existing_dealers_goal ?? 0) + (p.others_goal ?? 0), 0)
+      const dayOrders = orderByDay.get(date) ?? []
+      return {
+        date,
+        plannedGoal,
+        achievedMeetings: (visitByDay.get(date) ?? []).length,
+        ordersCount: dayOrders.length,
+        ordersValue: dayOrders.reduce((s, o) => s + toNumber(o.total_amount), 0),
+        expenseTotal: (expenseByDay.get(date) ?? []).reduce((s, e) => s + toNumber(e.amount), 0),
+      }
+    })
+
+    // ---- planned goals, ticked vs open ----
+    const plannedGoalsTotal = myPlans.reduce(
+      (s, p) => s + (p.new_dealers_goal ?? 0) + (p.existing_dealers_goal ?? 0) + (p.others_goal ?? 0),
+      0
+    )
+    const partyPlanItems = myPlans.filter(p => p.party_id)
+    const unmatched = myPlans.length - partyPlanItems.length
+    const plannedPartyIds = Array.from(new Set(partyPlanItems.map(p => p.party_id as string)))
+
+    let ticked = 0
+    for (const p of partyPlanItems) {
+      const ids = matchIdsOf(p.party_id as string)
+      const hit = (visitByDay.get(dateOnlyString(p.plan_date)) ?? []).some(v => v.entity_id !== null && ids.includes(v.entity_id))
+      if (hit) ticked++
+    }
+
+    // ---- orders ----
+    let draftCount = 0, draftValue = 0, placedCount = 0, placedValue = 0
+    for (const o of myOrders) {
+      const value = toNumber(o.total_amount)
+      if (o.status === 'Draft') { draftCount++; draftValue += value } else { placedCount++; placedValue += value }
+    }
+
+    // ---- funnel movement ----
+    let movedForward = 0
+    for (const log of logsByUser.get(userId) ?? []) {
+      const fromOrder = log.from_stage_id ? stageOrderById.get(log.from_stage_id) ?? -1 : -1
+      const toOrder = log.to_stage_id ? stageOrderById.get(log.to_stage_id) ?? -1 : -1
+      if (toOrder > fromOrder) movedForward++
+    }
+
+    // ---- Not Met ----
+    const notMetList = plannedPartyIds
+      .filter(id => !matchIdsOf(id).some(m => visitedSet.has(m)))
+      .map(id => ({ id, name: partyName.get(id) ?? 'Deleted party' }))
+
+    out.set(userId, {
+      weekEnd: sunday,
+      headline: {
+        toMeet: plannedPartyIds.length,
+        met: plannedPartyIds.length - notMetList.length,
+        orderValue: draftValue + placedValue,
+      },
+      priorityPoints: {
+        plannedGoals: { total: plannedGoalsTotal },
+        achievedMeetings: myVisits.length,
+        ticked,
+        open: partyPlanItems.length - ticked,
+        unmatched,
+      },
+      dayWise,
+      extraMeetings: { count: myVisits.filter(v => !v.weekly_plan_item_id).length },
+      newParties: { count: newPartiesByUser.get(userId) ?? 0 },
+      expenses: { total: myExpenses.reduce((s, e) => s + toNumber(e.amount), 0) },
+      orders: { draft: { count: draftCount }, placed: { count: placedCount } },
+      funnel: { movedForward },
+      notMet: { count: notMetList.length, list: notMetList },
+    })
+  }
+
+  return out
+}

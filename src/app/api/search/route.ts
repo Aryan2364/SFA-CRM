@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
-import { SEARCHERS, type ResultType } from './_shared'
+import { SEARCHERS, createSearchCtx, type ResultType } from './_shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
   if (q.length < MIN_LEN) return NextResponse.json({ results: [], total: 0 })
 
   const typeParam = req.nextUrl.searchParams.get('type')
+  // One set of per-caller lookups (visible users, memberships) for every searcher below.
+  const ctx = createSearchCtx(user, tid)
 
   try {
     if (isResultType(typeParam)) {
@@ -47,13 +49,13 @@ export async function GET(req: NextRequest) {
         Math.max(1, Number(req.nextUrl.searchParams.get('limit')) || DEFAULT_PAGE_SIZE)
       )
       const offset = Math.max(0, Number(req.nextUrl.searchParams.get('offset')) || 0)
-      const page = await SEARCHERS[typeParam](user, tid, { q, take: limit, skip: offset, withTotal: true })
+      const page = await SEARCHERS[typeParam](user, tid, { q, take: limit, skip: offset, withTotal: true, ctx })
       return NextResponse.json({ results: page.rows, total: page.total })
     }
 
     const pages = await Promise.all(
       (Object.keys(SEARCHERS) as ResultType[]).map(type =>
-        SEARCHERS[type](user, tid, { q, take: DROPDOWN_PER_TYPE })
+        SEARCHERS[type](user, tid, { q, take: DROPDOWN_PER_TYPE, ctx })
       )
     )
     return NextResponse.json({ results: pages.flatMap(p => p.rows) })
