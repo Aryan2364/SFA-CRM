@@ -78,10 +78,15 @@ export function PhonePlanReview({ planId }: { planId: string }) {
   // the answer has not arrived: disabled, but no reason is given yet.
   const canDecide: boolean | undefined = me ? Boolean(me.permissions?.weekly_plan?.edit) : undefined
 
+  // A decision lands: back to the list, where the plan is gone from this view.
+  // Not straight away: the decision sheet's close is a step back in history,
+  // and a replace started before that step lands is undone by it, leaving
+  // the decided plan on screen. Leave once the sheet is shut and settled,
+  // as the meeting screen's Delete does.
+  const [leaving, setLeaving] = useState(false)
   const review = usePlanReview({
     planId,
-    // A decision lands: back to the list, where the plan is gone from this view.
-    onClose: () => router.replace('/weekly-plan/approval'),
+    onClose: () => setLeaving(true),
     onChanged: () => {},
   })
   const {
@@ -102,6 +107,17 @@ export function PhonePlanReview({ planId }: { planId: string }) {
   useEffect(() => {
     if (dates.length > 0 && (!editDay || !dates.includes(editDay))) setEditDay(dates[0])
   }, [dates, editDay])
+
+  useEffect(() => {
+    if (!leaving || decision) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void whenLayersSettled().then(() => {
+        if (!cancelled) router.replace('/weekly-plan/approval')
+      })
+    }, 50)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [leaving, decision, router])
 
   /* Unsaved edits to the lines: the kit's leave warning (41.7 rule 3). */
   const changed = useMemo(
