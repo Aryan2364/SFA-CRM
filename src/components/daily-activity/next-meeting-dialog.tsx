@@ -56,9 +56,8 @@ function businessNowHHMM(): string {
 /**
  * "Set next meeting" — one dialog for both places it is opened from:
  *
- *   - `prompt` — right after Stop: "Tomorrow"/"Next week" are shortcuts that
- *     only FILL the date field below; nothing saves until "Save" is pressed.
- *     Skip closes with nothing saved.
+ *   - `prompt` — right after Stop: the date is picked in the field below;
+ *     nothing saves until "Save" is pressed. Skip closes with nothing saved.
  *   - `manage` — the "Set next meeting" button, always available later
  *     (meeting page, Completed card): shows what is currently set, if
  *     anything, with Change (the same form) and Remove.
@@ -176,15 +175,6 @@ export function NextMeetingDialog({
     }
   }
 
-  /** "Tomorrow"/"Next week" only FILL the date — nothing saves here. */
-  function fill(days: number) {
-    const d = new Date()
-    d.setDate(d.getDate() + days)
-    d.setHours(0, 0, 0, 0)
-    setDate(d)
-    setDateError(null)
-  }
-
   const title = mode === 'prompt' ? 'Next meeting?' : 'Set next meeting'
   const description = mode === 'prompt' ? 'When should this account be met again?' : undefined
 
@@ -210,17 +200,6 @@ export function NextMeetingDialog({
 
       {editing && (
         <>
-          {mode === 'prompt' && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" className={phone ? 'flex-1' : undefined} disabled={saving} onClick={() => fill(1)}>
-                Tomorrow
-              </Button>
-              <Button variant="secondary" className={phone ? 'flex-1' : undefined} disabled={saving} onClick={() => fill(7)}>
-                Next week
-              </Button>
-            </div>
-          )}
-
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="next-meeting-date" required>Date</Label>
             {date && (
