@@ -116,9 +116,9 @@ function LoginForm() {
     <div className="flex min-h-dvh flex-col">
       <SignInPage
         product={{ name: APP_NAME, mark: <Boxes /> }}
-        headline="Your field team, in one place"
-        highlight="in one place"
-        supportingLine="Plan visits, log orders and expenses, and keep every account up to date."
+        headline="From first meeting to closed order."
+        highlight="closed order"
+        supportingLine="Plan the week, manage contacts and accounts, move opportunities through the funnel, and keep the whole team on track."
         methods={['phone']}
         onSubmitMobile={signIn}
         onForgotPassword={forgotPassword}
