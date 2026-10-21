@@ -22,7 +22,7 @@ import { OptionSelect } from '@/components/orders/option-select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
-import { PhoneList, PhoneListRow } from '@/components/ui/phone-list'
+import { PhoneList, PhoneListRow, PHONE_LIST_PAGE } from '@/components/ui/phone-list'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLayout } from '@/lib/layout'
@@ -573,16 +573,34 @@ function PhoneOrdersList() {
     return () => { live = false }
   }, [accountId])
 
+  const [total, setTotal] = useState(0)
+  /* Status chip counts, counted in the database over the search and account
+     narrowing but NOT the status chip itself, so every chip keeps its number. */
+  const [counts, setCounts] = useState<{ total: number; Draft: number; Placed: number }>({ total: 0, Draft: 0, Placed: 0 })
+
+  const pageUrl = (page: number) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(PHONE_LIST_PAGE) })
+    if (search) params.set('q', search)
+    if (accountId) params.set('entityId', accountId)
+    if (status) params.set('status', status)
+    return `/api/orders?${params.toString()}`
+  }
+
   async function load() {
     setState('loading')
     try {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams({ countBy: 'status' })
       if (search) params.set('q', search)
       if (accountId) params.set('entityId', accountId)
-      const r = await fetch(`/api/orders?${params.toString()}`)
+      const [r, c] = await Promise.all([fetch(pageUrl(1)), fetch(`/api/orders?${params.toString()}`)])
       if (!r.ok) throw new Error(String(r.status))
       const body = await r.json()
-      setRows(Array.isArray(body) ? body : [])
+      setRows(Array.isArray(body?.rows) ? body.rows : [])
+      setTotal(Number(body?.total) || 0)
+      if (c.ok) {
+        const cb = await c.json()
+        setCounts({ total: cb.total ?? 0, Draft: cb.counts?.Draft ?? 0, Placed: cb.counts?.Placed ?? 0 })
+      }
       setState('ready')
     } catch {
       setState('failed')
@@ -590,22 +608,35 @@ function PhoneOrdersList() {
     }
   }
 
+  async function loadMore() {
+    const nextPage = Math.floor(rows.length / PHONE_LIST_PAGE) + 1
+    try {
+      const r = await fetch(pageUrl(nextPage))
+      if (!r.ok) return
+      const body = await r.json()
+      const more: OrderRow[] = Array.isArray(body?.rows) ? body.rows : []
+      setRows(prev => {
+        const seen = new Set(prev.map(x => x.id))
+        return [...prev, ...more.filter(x => !seen.has(x.id))]
+      })
+    } catch {
+      /* the list stays as it is; scrolling again retries */
+    }
+  }
+
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, accountId])
-
-  const draftCount = rows.filter(o => o.status === 'Draft').length
-  const placedCount = rows.filter(o => o.status === 'Placed').length
-  const filtered = status ? rows.filter(o => o.status === status) : rows
+  }, [search, accountId, status])
 
   return (
     <PhoneList<OrderRow>
       state={state}
       onRetry={load}
       onRefresh={load}
-      rows={filtered}
-      total={filtered.length}
+      rows={rows}
+      total={total}
+      onLoadMore={loadMore}
       rowKey={o => o.id}
       noun={{ one: 'order', many: 'orders' }}
       search={{ value: search, onChange: setSearch }}
@@ -633,10 +664,10 @@ function PhoneOrdersList() {
         value: status,
         onChange: setStatus,
         allLabel: 'All',
-        allCount: rows.length,
+        allCount: counts.total,
         chips: [
-          { value: 'Draft', label: 'Draft', count: draftCount },
-          { value: 'Placed', label: 'Placed', count: placedCount },
+          { value: 'Draft', label: 'Draft', count: counts.Draft },
+          { value: 'Placed', label: 'Placed', count: counts.Placed },
         ],
       }}
       empty={
@@ -699,19 +730,26 @@ function OrdersPageInner() {
      the same scoped `/api/orders?status=Draft`, for the same reason the
      Parties list keeps its alert counts off a fetch of their own rather
      than off whatever the table currently has on screen. */
+  /* The count is the route's `total` over every Draft order; the reasons are
+     read off the first 200 of them (a page, not the whole table). */
   const [draftOrders, setDraftOrders] = useState<OrderRow[] | null>(null)
+  const [draftTotal, setDraftTotal] = useState(0)
   const [onlyDraft, setOnlyDraft] = useState(false)
 
   useEffect(() => {
     let live = true
-    fetch('/api/orders?status=Draft')
-      .then(r => (r.ok ? r.json() : []))
-      .then(d => { if (live) setDraftOrders(Array.isArray(d) ? d : []) })
-      .catch(() => { if (live) setDraftOrders([]) })
+    fetch('/api/orders?status=Draft&page=1&limit=200')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (!live) return
+        setDraftOrders(Array.isArray(d?.rows) ? d.rows : [])
+        setDraftTotal(Number(d?.total) || 0)
+      })
+      .catch(() => { if (live) { setDraftOrders([]); setDraftTotal(0) } })
     return () => { live = false }
   }, [refreshKey])
 
-  const draftCount = draftOrders?.length ?? 0
+  const draftCount = draftTotal
 
   /* Real permissions, never a role name. Each gate is the action its route
      checks: `POST /api/orders` without a visit (the only kind this screen
@@ -771,8 +809,8 @@ function OrdersPageInner() {
    * own timer, so a rejection IS the failed state and a hang becomes
    * one (section 14 rule 4).
    */
-  const load: ListPageProps<OrderRow>['load'] = async ({ search, filters, signal }) => {
-    const params = new URLSearchParams()
+  const load: ListPageProps<OrderRow>['load'] = async ({ search, filters, signal, page, pageSize }) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(pageSize) })
     if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
     if (filters.dateTo) params.set('dateTo', filters.dateTo)
     if (search) params.set('q', search)
@@ -792,7 +830,7 @@ function OrdersPageInner() {
     const r = await fetch(`/api/orders${query ? `?${query}` : ''}`, { signal })
     if (!r.ok) throw new Error(String(r.status))
     const body = await r.json()
-    return Array.isArray(body) ? (body as OrderRow[]) : []
+    return { rows: Array.isArray(body?.rows) ? (body.rows as OrderRow[]) : [], total: Number(body?.total) || 0 }
   }
 
   const filters: ListFilter[] = [
@@ -907,6 +945,7 @@ function OrdersPageInner() {
         rowKey={order => order.id}
         filters={filters}
         load={load}
+        serverPaging
         refreshKey={refreshKey}
         searchHint={SEARCH_HINT}
         emptyYet={{

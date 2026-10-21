@@ -39,7 +39,7 @@ import { Label } from '@/components/ui/label'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Textarea } from '@/components/ui/textarea'
 
-import type { DistrictRef, NamedRef, TalukaRef, VillageRef } from './party-masters'
+import { useLocationLists, type DistrictRef, type NamedRef } from './party-masters'
 
 /** One card. `key` is local only — it never reaches the wire. */
 export type AddressDraft = {
@@ -107,12 +107,14 @@ export function AddressEditor({
   masters: {
     states: NamedRef[]
     districts: DistrictRef[]
-    talukas: TalukaRef[]
-    villages: VillageRef[]
   }
   /** Keyed `${address.key}.${field}` by the parent's validation. */
   errors: Record<string, string>
 }) {
+  // Talukas for each card's district and villages for its taluka, fetched on
+  // demand (the lists are far too big to load whole).
+  const locations = useLocationLists(addresses)
+
   function patch(key: string, changes: Partial<AddressDraft>) {
     onChange(addresses.map(a => (a.key === key ? { ...a, ...changes } : a)))
   }
@@ -262,9 +264,7 @@ export function AddressEditor({
                   id={`${a.key}-taluka`}
                   className="mt-1.5"
                   options={Object.fromEntries(
-                    masters.talukas
-                      .filter(t => !a.district_id || t.district_id === a.district_id)
-                      .map(t => [t.id, t.name])
+                    locations.talukasOf(a.district_id).map(t => [t.id, t.name])
                   )}
                   value={a.taluka_id}
                   onValueChange={v => setTaluka(a.key, v)}
@@ -279,9 +279,7 @@ export function AddressEditor({
                   id={`${a.key}-village`}
                   className="mt-1.5"
                   options={Object.fromEntries(
-                    masters.villages
-                      .filter(v => !a.taluka_id || v.taluka_id === a.taluka_id)
-                      .map(v => [v.id, v.name])
+                    locations.villagesOf(a.taluka_id).map(v => [v.id, v.name])
                   )}
                   value={a.village_id}
                   onValueChange={v => patch(a.key, { village_id: v })}

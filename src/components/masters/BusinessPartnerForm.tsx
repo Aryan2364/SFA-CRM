@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, ReactNode } from 'react'
+import { useState, useEffect, useMemo, useRef, ReactNode } from 'react'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useToast } from '@/contexts/ToastContext'
 import { checkLandline } from '@/lib/validation'
@@ -45,15 +45,36 @@ export function useBPForm() {
   const [talukas,   setTalukas]   = useState<TalukaItem[]>([])
   const [villages,  setVillages]  = useState<VillageItem[]>([])
 
-  useEffect(() => {
-    fetch('/api/masters/districts').then(r => r.json()).then(d => setDistricts(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load location data. Please refresh.', 'error'))
-    fetch('/api/masters/talukas').then(r => r.json()).then(d => setTalukas(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load location data. Please refresh.', 'error'))
-    fetch('/api/masters/villages').then(r => r.json()).then(d => setVillages(Array.isArray(d) ? d : [])).catch(() => toast('Failed to load location data. Please refresh.', 'error'))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  /*
+   * Locations load when they are needed, not when the screen mounts: this hook
+   * lives on the Accounts page for as long as it is open, but the form is only
+   * used by the Edit dialog, whose `reset()` calls `loadLocations()`. Districts
+   * and talukas are the small lists. Villages run to tens of thousands, so they
+   * are fetched only for the taluka the form is on (`?talukaId=`), never all.
+   */
+  const locationsRequested = useRef(false)
+  function loadLocations() {
+    if (locationsRequested.current) return
+    locationsRequested.current = true
+    const failed = () => { locationsRequested.current = false; toast('Failed to load location data. Please refresh.', 'error') }
+    fetch('/api/masters/districts').then(r => r.json()).then(d => setDistricts(Array.isArray(d) ? d : [])).catch(failed)
+    fetch('/api/masters/talukas').then(r => r.json()).then(d => setTalukas(Array.isArray(d) ? d : [])).catch(failed)
+  }
 
+  useEffect(() => {
+    if (!form.taluka_id) { setVillages([]); return }
+    let live = true
+    fetch(`/api/masters/villages?talukaId=${encodeURIComponent(form.taluka_id)}`)
+      .then(r => r.json())
+      .then(d => { if (live) setVillages(Array.isArray(d) ? d : []) })
+      .catch(() => { if (live) toast('Failed to load villages. Please refresh.', 'error') })
+    return () => { live = false }
+  }, [form.taluka_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Place is the taluka (with its district); the village is its own field
+     below it, listing only the chosen taluka's villages. */
   const { placeOptions, placeMap } = useMemo(() => {
     const distMap = new Map(districts.map(d => [d.id, d]))
-    const taluMap = new Map(talukas.map(t => [t.id, t]))
     const pm = new Map<string, PlaceResolved>()
     const opts: Opt[] = []
     for (const t of talukas) {
@@ -63,25 +84,23 @@ export function useBPForm() {
       opts.push({ value: val, label: `District: ${dist.name}, Taluka: ${t.name}` })
       pm.set(val, { state_id: dist.state_id, district_id: t.district_id, taluka_id: t.id, village_id: null })
     }
-    for (const v of villages) {
-      const talu = taluMap.get(v.taluka_id)
-      const dist = talu ? distMap.get(talu.district_id) : undefined
-      if (!talu || !dist) continue
-      const val = `v:${v.id}`
-      opts.push({ value: val, label: `District: ${dist.name}, Taluka: ${talu.name}, Village: ${v.name}` })
-      pm.set(val, { state_id: dist.state_id, district_id: talu.district_id, taluka_id: v.taluka_id, village_id: v.id })
-    }
     return { placeOptions: opts, placeMap: pm }
-  }, [districts, talukas, villages])
+  }, [districts, talukas])
+
+  const villageOptions: Opt[] = useMemo(
+    () => villages.map(v => ({ value: v.id, label: v.name })),
+    [villages]
+  )
 
   function reset(row?: Record<string, unknown>) {
+    loadLocations()
     setMobile1Error(''); setMobile2Error(''); setGstError(''); setLandlineError('')
     if (!row) {
       setForm(EMPTY_BP_FORM)
       setShowMobile2(false)
       return
     }
-    const place = row.village_id ? `v:${row.village_id}` : row.taluka_id ? `t:${row.taluka_id}` : ''
+    const place = row.taluka_id ? `t:${row.taluka_id}` : ''
     setForm({
       name:                 String(row.name ?? ''),
       contact_person_name:  String(row.contact_person_name ?? ''),
@@ -109,8 +128,13 @@ export function useBPForm() {
 
   function handlePlaceChange(val: string) {
     const r = placeMap.get(val)
-    if (r) setForm(f => ({ ...f, place: val, state_id: r.state_id, district_id: r.district_id, taluka_id: r.taluka_id, village_id: r.village_id ?? '' }))
+    // A new taluka invalidates the village chosen under the old one.
+    if (r) setForm(f => ({ ...f, place: val, state_id: r.state_id, district_id: r.district_id, taluka_id: r.taluka_id, village_id: r.taluka_id === f.taluka_id ? f.village_id : '' }))
     else    setForm(f => ({ ...f, place: '', state_id: '', district_id: '', taluka_id: '', village_id: '' }))
+  }
+
+  function handleVillageChange(id: string) {
+    setForm(f => ({ ...f, village_id: id }))
   }
 
   /** Returns false and sets field errors if invalid */
@@ -156,7 +180,7 @@ export function useBPForm() {
     mobile2Error, setMobile2Error,
     gstError, setGstError,
     landlineError, setLandlineError,
-    placeOptions, handlePlaceChange,
+    placeOptions, handlePlaceChange, villageOptions, handleVillageChange,
     reset, validate, buildBody,
     F, setF,
   }
@@ -185,7 +209,7 @@ export function BusinessPartnerFormFields({
     mobile2Error, setMobile2Error,
     gstError, setGstError,
     landlineError, setLandlineError,
-    placeOptions, handlePlaceChange, F,
+    placeOptions, handlePlaceChange, villageOptions, handleVillageChange, F,
   } = hook
 
   const [stages, setStages]  = useState<LeadStage[]>([])
@@ -222,7 +246,18 @@ export function BusinessPartnerFormFields({
           value={form.place}
           onValueChange={handlePlaceChange}
           options={Object.fromEntries(placeOptions.map(o => [o.value, o.label]))}
-          placeholder="Search by district, taluka or village…"
+          placeholder="Search by district or taluka…"
+        />
+      </div>
+
+      <div>
+        <p className="block text-sm font-medium text-text-secondary mb-1">Village</p>
+        <SearchableSelect
+          value={form.village_id}
+          onValueChange={handleVillageChange}
+          options={Object.fromEntries(villageOptions.map(o => [o.value, o.label]))}
+          placeholder={form.taluka_id ? 'Select village…' : 'Select a place first'}
+          disabled={!form.taluka_id}
         />
       </div>
 

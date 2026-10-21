@@ -187,6 +187,24 @@ export async function readAccountKinds(
   }
 }
 
+/**
+ * Ids of this tenant's Individual accounts. `account_kind` is a raw column (not
+ * in the Prisma model), so a list that filters or paginates on kind needs the
+ * Individual ids to hand to the `where`. Empty while the column is unset.
+ */
+export async function listIndividualIds(tenantId: string, db: RawDb = prisma): Promise<string[]> {
+  try {
+    const rows = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id::text AS id FROM companies
+       WHERE tenant_id = ${tenantId}::uuid AND account_kind = 'Individual'
+    `)
+    return rows.map(r => r.id)
+  } catch (err) {
+    if (isColumnMissing(err, ['account_kind'])) return []
+    throw err
+  }
+}
+
 export async function readAccountKind(tenantId: string, id: string, db: RawDb = prisma): Promise<AccountKind> {
   return (await readAccountKinds(tenantId, [id], db)).get(id) ?? 'Company'
 }

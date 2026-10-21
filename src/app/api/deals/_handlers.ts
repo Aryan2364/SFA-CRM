@@ -3,11 +3,11 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { trimmed } from '@/lib/validation'
 import { DEAL_LIST_INCLUDE, checkProbability, shapeDeal } from './_shape'
 import { foreignDealRef } from './_access'
 import { getCompanyAccessLevel, getCompanyMemberships, getDealMemberships, meets, richer, widenScope, type MemberAccess } from '@/lib/sharing'
+import { visibleDealScope } from '@/lib/deal-visibility'
 import { contactLinkedToCompany } from './_access'
 
 /**
@@ -64,42 +64,46 @@ export async function GET(req: NextRequest) {
   const companyId = sp.get('companyId') ?? ''
   const closeMonth = closeMonthRange(sp.get('closeMonth'))
   const tid = getTenantId()
+  // Opt-in paging: `?page=` returns `{ rows, total, page, limit, summary }`
+  // instead of the bare array. `?noFollowUp=1` narrows the ROWS to deals with
+  // no open follow-up (the data-health alert) but never the summary.
+  const paged = sp.has('page')
+  const page = Math.max(1, Math.floor(Number(sp.get('page'))) || 1)
+  const limit = Math.min(200, Math.max(1, Math.floor(Number(sp.get('limit'))) || 25))
+  const onlyNoFollowUp = sp.get('noFollowUp') === '1'
 
   // §6.6 Self / Team / Company. A Deal scopes on `owner_user_id`, like a Party
-  // and unlike an activity row, so the column is passed to scopeWhere()
-  // explicitly. `?ownerId=` INTERSECTS the allowed set — it narrows, it never
-  // widens (see intersectScope's comment; that is gap G3).
+  // and unlike an activity row. `?ownerId=` INTERSECTS the allowed set - it
+  // narrows, it never widens (see intersectScope's comment; that is gap G3).
+  // Sharing widens the LIST only (src/lib/deal-visibility.ts).
+  //
+  // ⚠️ Pipeline reports, dashboards, reminders and the Missed / outcome counts
+  // stay owner-based and do not read sharing.
   const requestedOwner = sp.get('ownerId')
-  const ids = intersectScope(await scopedUserIds(user, 'deals'), requestedOwner)
 
   try {
-    // Sharing (src/lib/sharing.ts), OR-ed into the scope and never in place of
-    // it: every deal on an account shared with the caller, plus every deal
-    // shared with them directly. Not under Company scope (already everything)
-    // and not when `?ownerId=` narrows to one owner. Nothing shared → the query
-    // is unchanged.
-    //
-    // ⚠️ This is the LIST. Pipeline reports, dashboards, reminders and the
-    // Missed / outcome counts stay owner-based and do not read sharing.
-    const widen = ids !== null && !requestedOwner
-    const [accounts, direct] = widen
-      ? await Promise.all([getCompanyMemberships(user, tid), getDealMemberships(user, tid)])
-      : [new Map<string, MemberAccess>(), new Map<string, MemberAccess>()]
-    const rows = await prisma.deals.findMany({
-      where: {
-        tenant_id: tid,
-        ...widenScope(scopeWhere(ids, 'owner_user_id'), [
-          ...(accounts.size ? [{ company_id: { in: [...accounts.keys()] } }] : []),
-          ...(direct.size ? [{ id: { in: [...direct.keys()] } }] : []),
-        ]),
-        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
-        ...(stageId ? { deal_stage_id: stageId } : {}),
-        ...(companyId ? { company_id: companyId } : {}),
-        ...(closeMonth ? { expected_close_date: closeMonth } : {}),
-      },
-      include: DEAL_LIST_INCLUDE,
-      orderBy: [{ created_at: 'desc' }],
-    })
+    const { ids, accounts, direct, where: scope } = await visibleDealScope(user, tid, requestedOwner)
+    const where = {
+      ...scope,
+      ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+      ...(stageId ? { deal_stage_id: stageId } : {}),
+      ...(companyId ? { company_id: companyId } : {}),
+      ...(closeMonth ? { expected_close_date: closeMonth } : {}),
+    }
+    const noOpenFollowUp = { deal_follow_ups: { none: { status: { not: 'done' } } } }
+    const rowsWhere = onlyNoFollowUp ? { AND: [where, noOpenFollowUp] } : where
+    const orderBy = [{ created_at: 'desc' as const }, { id: 'asc' as const }]
+
+    const [rows, total, summary] = await Promise.all([
+      prisma.deals.findMany({
+        where: rowsWhere,
+        include: DEAL_LIST_INCLUDE,
+        orderBy,
+        ...(paged ? { skip: (page - 1) * limit, take: limit } : {}),
+      }),
+      paged ? prisma.deals.count({ where: rowsWhere }) : Promise.resolve(0),
+      paged ? dealSummary(where) : Promise.resolve(null),
+    ])
 
     // serialize() BEFORE shapeDeal(): `expected_value` is Decimal(12,2) and
     // JSON.stringify turns a Decimal into a STRING, which silently corrupts
@@ -123,10 +127,32 @@ export async function GET(req: NextRequest) {
         return { ...row, shared_access: shared }
       })
 
-    return NextResponse.json(data)
+    return NextResponse.json(paged ? { rows: data, total, page, limit, summary } : data)
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }
+}
+
+/**
+ * The pipeline strip's figures over EVERY deal the filters match, computed in
+ * the database so a paged list can still show them: how many, their estimated
+ * value, the probability-weighted value and how many have no open follow-up.
+ * `where` already carries `tenant_id` and the caller's scope.
+ */
+async function dealSummary(where: Record<string, unknown>) {
+  const [byProbability, count, noFollowUp] = await Promise.all([
+    prisma.deals.groupBy({ by: ['probability'], where, _sum: { expected_value: true } }),
+    prisma.deals.count({ where }),
+    prisma.deals.count({ where: { AND: [where, { deal_follow_ups: { none: { status: { not: 'done' } } } }] } }),
+  ])
+  let value = 0
+  let weighted = 0
+  for (const g of byProbability) {
+    const amount = Number(g._sum.expected_value ?? 0) || 0
+    value += amount
+    weighted += (amount * (Number(g.probability) || 0)) / 100
+  }
+  return { count, value, weighted, noFollowUp }
 }
 
 /**

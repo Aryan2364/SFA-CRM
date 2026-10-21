@@ -247,7 +247,21 @@ export async function GET(req: NextRequest) {
   // src/lib/scope.ts), so any rep could read any colleague's orders by id. A
   // requested user outside the caller's scope now yields no rows.
   const ids = intersectScope(allowedIds, userId)
-  if (ids && ids.length === 0) return NextResponse.json([])
+  // Opt-in modes (all over the SAME scoped `where` below): `?page=` pages the
+  // list as `{ rows, total, page, limit }`; `?count=1` answers `{ count }`;
+  // `?countBy=status` answers `{ total, counts: { [status]: n } }` over every
+  // filter EXCEPT `status`. With none of them this is the unbounded array.
+  const sp = req.nextUrl.searchParams
+  const paged = sp.has('page')
+  const page = Math.max(1, Math.floor(Number(sp.get('page'))) || 1)
+  const limit = Math.min(200, Math.max(1, Math.floor(Number(sp.get('limit'))) || 25))
+  const countOnly = sp.get('count') === '1'
+  const countByStatus = sp.get('countBy') === 'status'
+  if (ids && ids.length === 0) {
+    if (countByStatus) return NextResponse.json({ total: 0, counts: {} })
+    if (countOnly) return NextResponse.json({ count: 0 })
+    return NextResponse.json(paged ? { rows: [], total: 0, page, limit } : [])
+  }
 
   try {
     // Sharing (src/lib/sharing.ts): the orders of accounts shared with the
@@ -257,11 +271,9 @@ export async function GET(req: NextRequest) {
     // sharing reaches no orders. Nothing shared → the query is unchanged.
     // ⚠️ The list only: order reports and dashboards stay owner-based.
     const shared = ids === null || userId ? [] : await getAccessibleCompanyIds(user, tid)
-    const rows = await prisma.orders.findMany({
-      where: {
+    const baseWhere = {
         tenant_id: tid,
         ...widenScope(scopeWhere(ids), sharedOrderWhere(tid, shared)),
-        ...(status ? { status } : {}),
         ...(discounted === 'yes' ? { has_discount: true } : {}),
         ...(discounted === 'no' ? { has_discount: false } : {}),
         // order_date is @db.Date, so the bounds have to be Date objects.
@@ -282,17 +294,34 @@ export async function GET(req: NextRequest) {
               ],
             }
           : {}),
-      },
-      include: {
-        // `order_items(count)` -> the _count aggregate.
-        _count: { select: { order_items: true } },
-        // `users!orders_user_id_fkey(name)` -> the relation field is already
-        // called `users`, which is the key the client reads.
-        users: { select: { name: true } },
-      },
-      // Two .order() calls become an ORDERED array.
-      orderBy: [{ order_date: 'desc' }, { created_at: 'desc' }],
-    })
+    }
+    const where = { ...baseWhere, ...(status ? { status } : {}) }
+
+    if (countByStatus) {
+      const groups = await prisma.orders.groupBy({ by: ['status'], where: baseWhere, _count: { _all: true } })
+      const counts: Record<string, number> = {}
+      let total = 0
+      for (const g of groups) { counts[g.status] = g._count._all; total += g._count._all }
+      return NextResponse.json({ total, counts })
+    }
+    if (countOnly) return NextResponse.json({ count: await prisma.orders.count({ where }) })
+
+    const [rows, total] = await Promise.all([
+      prisma.orders.findMany({
+        where,
+        include: {
+          // `order_items(count)` -> the _count aggregate.
+          _count: { select: { order_items: true } },
+          // `users!orders_user_id_fkey(name)` -> the relation field is already
+          // called `users`, which is the key the client reads.
+          users: { select: { name: true } },
+        },
+        // Two .order() calls become an ORDERED array; `id` makes pages stable.
+        orderBy: [{ order_date: 'desc' }, { created_at: 'desc' }, { id: 'asc' }],
+        ...(paged ? { skip: (page - 1) * limit, take: limit } : {}),
+      }),
+      paged ? prisma.orders.count({ where }) : Promise.resolve(0),
+    ])
 
     // PostgREST returned a nested count as `order_items: [{ count: N }]`.
     // Prisma reports it as `_count.order_items`, so reshape it back — the wire
@@ -309,7 +338,7 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json(data)
+    return NextResponse.json(paged ? { rows: data, total, page, limit } : data)
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

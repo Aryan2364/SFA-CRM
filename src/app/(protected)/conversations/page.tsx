@@ -340,28 +340,26 @@ function ConversationsInner() {
     search,
     filters,
     signal,
+    page,
+    pageSize,
   }) => {
-    const p = new URLSearchParams()
+    // Paged, filtered and searched in the database: the route answers one page
+    // and the true total, for the same four fields the box always searched.
+    const p = new URLSearchParams({ page: String(page), limit: String(pageSize) })
+    if (search) p.set('q', search)
     if (filters.section) p.set('section', filters.section)
     if (filters.user) p.set('userId', filters.user)
     if (filters.read) p.set('status', filters.read)
-    const query = p.toString()
-    const r = await fetch(`/api/conversations${query ? `?${query}` : ''}`, {
-      signal,
-    })
+    const r = await fetch(`/api/conversations?${p.toString()}`, { signal })
     if (!r.ok) throw new Error(String(r.status))
     const body = await r.json()
-    const all: Conversation[] = Array.isArray(body) ? body : []
-    setRows(all)
-    if (!search) return all
-    const needle = search.toLowerCase()
-    return all.filter(
-      conv =>
-        sectionLabel(conv).toLowerCase().includes(needle) ||
-        (conv.context_user_name ?? '').toLowerCase().includes(needle) ||
-        conv.last_author.toLowerCase().includes(needle) ||
-        conv.last_body.toLowerCase().includes(needle)
-    )
+    const pageRows: Conversation[] = Array.isArray(body?.rows) ? body.rows : []
+    // Kept (merged across pages) so the open thread can be titled from its row.
+    setRows(prev => {
+      const seen = new Set(pageRows.map(c => `${c.context_type}::${c.context_id}`))
+      return [...pageRows, ...prev.filter(c => !seen.has(`${c.context_type}::${c.context_id}`))].slice(0, 500)
+    })
+    return { rows: pageRows, total: Number(body?.total) || 0 }
   }
 
   const filters: ListFilter[] = [
@@ -408,6 +406,7 @@ function ConversationsInner() {
         rowKey={conv => `${conv.context_type}::${conv.context_id}`}
         filters={filters}
         load={load}
+        serverPaging
         refreshKey={refreshKey}
         searchHint={SEARCH_HINT}
         /* F30 — with the fixture thread deleted this is what the screen shows,

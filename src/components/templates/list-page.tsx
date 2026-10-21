@@ -147,10 +147,12 @@ import { Truncate } from '@/components/ui/truncate'
  * KNOWN BOUNDARY
  *
  * Pagination is client-side over the array `load` returns, which is
- * what every list route in this product currently answers with. A
- * screen that needs server-side paging wants `load` to return
- * `{ rows, total }`; that shape is deliberately not guessed at before
- * one does.
+ * what most list routes in this product answer with. A screen whose
+ * route pages in the database sets `serverPaging`: `load` is then
+ * handed `page` and `pageSize` and returns `{ rows, total }` - one
+ * page of rows and the true count under the current search and
+ * filters. Page changes refetch (the old page stays up until the new
+ * one lands); a search or filter change returns to page 1 first.
  */
 
 /** Section 11.1: the default page size is 25 records. */
@@ -308,7 +310,16 @@ export type ListPageProps<Row> = {
     search: string
     filters: ListFilterValues
     signal: AbortSignal
-  }) => Promise<Row[]>
+    /** 1-based; only meaningful with `serverPaging`. */
+    page: number
+    pageSize: number
+  }) => Promise<Row[] | { rows: Row[]; total: number }>
+  /**
+   * The route pages in the database: `load` returns `{ rows, total }` for
+   * the requested `page`, and this file stops slicing. Not for `renderData`
+   * (the board is handed every row).
+   */
+  serverPaging?: boolean
   /** Change this to force a refetch — after a create, say. */
   refreshKey?: unknown
 
@@ -382,6 +393,7 @@ export function ListPage<Row>({
   renderData,
   renderEmpty = false,
   load,
+  serverPaging = false,
   refreshKey,
   searchPlaceholder,
   searchHint,
@@ -395,6 +407,8 @@ export function ListPage<Row>({
   const [panelOpen, setPanelOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [rows, setRows] = useState<Row[] | null>(null)
+  const [serverTotal, setServerTotal] = useState(0)
+  const lastNarrow = useRef('')
   const [failed, setFailed] = useState(false)
   const [retryNonce, setRetryNonce] = useState(0)
 
@@ -438,6 +452,13 @@ export function ListPage<Row>({
   }, [searchInput])
 
   useEffect(() => {
+    // A narrowing change on a later page waits for the reset-to-page-1
+    // effect below, which re-runs this one - one request, not two.
+    const narrowKey = `${search}|${activeKey}`
+    const narrowed = lastNarrow.current !== narrowKey
+    lastNarrow.current = narrowKey
+    if (serverPaging && narrowed && page !== 1) return
+
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const abort = new AbortController()
@@ -459,12 +480,17 @@ export function ListPage<Row>({
     })
 
     Promise.race([
-      loadRef.current({ search, filters: active, signal: abort.signal }),
+      loadRef.current({ search, filters: active, signal: abort.signal, page, pageSize }),
       deadline,
     ])
       .then(result => {
         if (cancelled) return
-        setRows(result)
+        if (Array.isArray(result)) {
+          setRows(result)
+        } else {
+          setRows(result.rows)
+          setServerTotal(result.total)
+        }
         setFailed(false)
       })
       .catch(() => {
@@ -481,7 +507,7 @@ export function ListPage<Row>({
     }
     // `active` is covered by activeKey; `load` deliberately is not a dep.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, activeKey, refreshKey, retryNonce])
+  }, [search, activeKey, refreshKey, retryNonce, serverPaging ? page : 0])
 
   // A narrowing change re-pages from the top: page 4 of the old result
   // set means nothing in the new one.
@@ -499,11 +525,20 @@ export function ListPage<Row>({
     setSearch('')
   }
 
-  const total = rows?.length ?? 0
+  const total = serverPaging ? (rows ? serverTotal : 0) : (rows?.length ?? 0)
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const current = Math.min(page, pageCount)
   const firstOnPage = (current - 1) * pageSize
-  const pageRows = rows ? rows.slice(firstOnPage, firstOnPage + pageSize) : []
+  // In server mode `rows` is already one page; the slice only guards the
+  // moment after a view switch, when it still holds the previous full set.
+  const pageRows = rows ? (serverPaging ? rows.slice(0, pageSize) : rows.slice(firstOnPage, firstOnPage + pageSize)) : []
+
+  // The last page emptied (a delete, say): step back to the new last page.
+  useEffect(() => {
+    if (serverPaging && rows && rows.length === 0 && serverTotal > 0 && page > pageCount) {
+      setPage(pageCount)
+    }
+  }, [serverPaging, rows, serverTotal, page, pageCount])
 
   /*
    * Zone 1's meta line. Section 11.1 puts the record count under the

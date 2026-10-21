@@ -64,8 +64,7 @@ export async function GET(req: NextRequest) {
     .map(([companyId]) => companyId)
 
   try {
-    const rows = await prisma.contacts.findMany({
-      where: {
+    const where = {
         tenant_id: tid,
         ...widenScope(
           scopeWhere(ids, 'owner_user_id'),
@@ -96,7 +95,20 @@ export async function GET(req: NextRequest) {
         ...(companyId
           ? { company_contacts: { some: { company_id: companyId, tenant_id: tid } } }
           : {}),
-      },
+    }
+
+    // `?count=unlinked` - only how many of these contacts are linked to no
+    // account (the Parties "Contacts Without Company" alert), counted in the
+    // database over the same scoped, tenant-filtered `where`.
+    if (req.nextUrl.searchParams.get('count') === 'unlinked') {
+      const count = await prisma.contacts.count({
+        where: { AND: [where, { company_contacts: { none: { tenant_id: tid } } }] },
+      })
+      return NextResponse.json({ count })
+    }
+
+    const rows = await prisma.contacts.findMany({
+      where,
       include: CONTACT_INCLUDE,
       orderBy: { name: 'asc' },
     })

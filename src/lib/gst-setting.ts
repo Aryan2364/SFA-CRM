@@ -62,8 +62,19 @@ function isColumnMissing(err: unknown): boolean {
  * outage still surfaces rather than quietly switching GST enforcement on or off.
  */
 export async function getGstRequiredForOrders(tenantId: string): Promise<boolean> {
-  return (await readGstRequiredForOrders(tenantId)).value
+  // Short per-process cache: the Parties list, its alerts and every order
+  // check read this on each request, and it changes only when an admin flips
+  // the switch (setGstRequiredForOrders evicts it). 30s bounds the staleness
+  // on any other server process.
+  const hit = gstCache.get(tenantId)
+  if (hit && hit.until > Date.now()) return hit.value
+  const { value } = await readGstRequiredForOrders(tenantId)
+  gstCache.set(tenantId, { value, until: Date.now() + GST_CACHE_MS })
+  return value
 }
+
+const GST_CACHE_MS = 30_000
+const gstCache = new Map<string, { value: boolean; until: number }>()
 
 /**
  * The same read, also saying whether the column exists — for the Settings
@@ -106,6 +117,7 @@ export async function setGstRequiredForOrders(
              updated_at = now(),
              updated_by_user_id = EXCLUDED.updated_by_user_id
     `
+    gstCache.delete(tenantId)
     return 'ok'
   } catch (err) {
     if (isColumnMissing(err)) return 'unavailable'

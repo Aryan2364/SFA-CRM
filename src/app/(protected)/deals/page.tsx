@@ -775,7 +775,7 @@ function DealsScreen() {
         setStagesLoaded(true)
       })
       .catch(() => live && setStages([]))
-    read('/api/companies')
+    read('/api/companies?fields=picker')
       .then(rows => live && setCompanies(rows))
       .catch(() => live && setCompanies([]))
     read('/api/orders/team')
@@ -799,8 +799,16 @@ function DealsScreen() {
    * showing the last good figures above a table that could not be loaded is a
    * number with nothing under it.
    */
-  const load: ListPageProps<DealRow>['load'] = async ({ search, filters, signal }) => {
+  const load: ListPageProps<DealRow>['load'] = async ({ search, filters, signal, page, pageSize }) => {
+    // The list pages in the database; the board shows every card in its
+    // stage column, so it asks for the whole set (no `page`).
+    const listView = view === 'list'
     const params = new URLSearchParams()
+    if (listView) {
+      params.set('page', String(page))
+      params.set('limit', String(pageSize))
+      if (onlyNoFollowUp) params.set('noFollowUp', '1')
+    }
     if (search) params.set('q', search)
     if (filters.owner) params.set('ownerId', filters.owner)
     if (filters.stage) params.set('stageId', filters.stage)
@@ -817,6 +825,14 @@ function DealsScreen() {
       throw new Error(String(r.status))
     }
     const body = await r.json()
+    if (listView) {
+      // One page of rows; the strip and the alert are counted over EVERY
+      // matching deal by the route (`summary`), before the follow-up
+      // narrowing, so the banner's count stays true once it is applied.
+      const sum = body?.summary
+      setTotals(sum ? { count: sum.count, value: sum.value, weighted: sum.weighted, noFollowUp: sum.noFollowUp } : null)
+      return { rows: Array.isArray(body?.rows) ? (body.rows as DealRow[]) : [], total: Number(body?.total) || 0 }
+    }
     const loaded: DealRow[] = Array.isArray(body) ? body : []
     setTotals(totalsOf(loaded))
     // P5-T7: the alert banner's one-click narrowing, applied AFTER the
@@ -1016,6 +1032,7 @@ function DealsScreen() {
         rowKey={deal => deal.id}
         filters={filters}
         load={load}
+        serverPaging={view === 'list'}
         /*
          * The template owns the fetch, so a move that lands has to come back
          * through it or the board keeps rendering pre-move data: the column
@@ -1023,7 +1040,7 @@ function DealsScreen() {
          * the days-in-stage the server has just reset. Measured — without this
          * the log row was written and the board did not notice.
          */
-        refreshKey={refreshKey}
+        refreshKey={`${refreshKey}:${view}`}
         /*
          * §35.1: the board IS zone 3 — same header, same toolbar, same
          * filters, same pagination bar. The template hands over the rows it

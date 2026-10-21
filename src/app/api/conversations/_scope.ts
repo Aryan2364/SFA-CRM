@@ -179,16 +179,19 @@ export async function visibleGroupKeys(
     PermSection,
     { canView: boolean; allowed: string[] | null }
   >()
+  const wanted = new Set<PermSection>()
   for (const g of groups) {
     const section = CONTEXT_SECTION[g.context_type as ContextType]
-    if (!section || sections.has(section)) continue
-    sections.set(section, {
-      canView: await checkPermission(user, section, 'view'),
-      allowed: null,
-    })
-    const entry = sections.get(section)!
-    if (entry.canView) entry.allowed = await scopedUserIds(user, section)
+    if (section) wanted.add(section)
   }
+  // The (at most five) sections are independent, so they resolve together.
+  await Promise.all([...wanted].map(async section => {
+    const canView = await checkPermission(user, section, 'view')
+    sections.set(section, {
+      canView,
+      allowed: canView ? await scopedUserIds(user, section) : null,
+    })
+  }))
 
   for (const g of groups) {
     const type = g.context_type as ContextType

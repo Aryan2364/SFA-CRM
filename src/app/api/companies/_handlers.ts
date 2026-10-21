@@ -6,13 +6,13 @@ import { checkPermission, forbidden } from '@/lib/permissions'
 import { recomputeCompanyCompleteness, withMobileCompleteness } from '@/lib/completeness'
 import { getGstRequiredForOrders } from '@/lib/gst-setting'
 import { withGstPolicy } from '@/lib/gst-policy'
-import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
-import { attachLandlines, LANDLINE_NOT_SAVED, writeLandline } from '@/lib/party-landline'
+import { LANDLINE_NOT_SAVED, readLandlines, writeLandline } from '@/lib/party-landline'
 import { COMPANY_INCLUDE, shapeCompany } from './_shape'
 import { foreignCompanyRef, ownerOutsideScope } from './_access'
-import { getCompanyMemberships, widenScope, type MemberAccess } from '@/lib/sharing'
+import { visibleDealScope } from '@/lib/deal-visibility'
+import { buildCompanyWhere } from './_where'
 import {
-  addLink, attachAccountKinds, findSelfAccountForContact, getSelfRole,
+  addLink, findSelfAccountForContact, getSelfRole, readAccountKinds,
   isAccountKind, typeAppliesToKind, writeAccountKind, type AccountKind,
 } from '@/lib/account-kind'
 import {
@@ -37,51 +37,91 @@ import {
  * did — so it lists every party in the tenant.
  */
 
+/** Page size for the opt-in paged list: `?page=` turns paging on, `?limit=` sizes it. */
+const DEFAULT_PAGE_LIMIT = 25
+const MAX_PAGE_LIMIT = 200
+
+/**
+ * GET — the Companies list.
+ *
+ * Unpaged (no `?page=`): every account in scope as a bare array, exactly as
+ * before — the pickers and dialogs that read it are unchanged.
+ *
+ * Paged (`?page=1&limit=25`): `{ rows, total, page, limit }`, the page chosen,
+ * and the total counted, in the database. The filters the Accounts screen used
+ * to apply in the browser are server-side here: `status=active|inactive`,
+ * `completeness=complete|incomplete`, `noDeal=1` (needs the deals permission),
+ * on top of `q`, `type`, `kind` and `userId`.
+ *
+ * `fields=picker` (either mode) answers `{ id, name, type, stage, is_active }`
+ * only — one query, none of the joins or extras — for dropdowns.
+ */
 export async function GET(req: NextRequest) {
   const user = await requireUser()
   if (!await checkPermission(user, 'companies', 'view')) return forbidden()
-  const q = req.nextUrl.searchParams.get('q') ?? ''
-  const type = req.nextUrl.searchParams.get('type') ?? ''
-  const kindFilter = req.nextUrl.searchParams.get('kind') ?? ''
+  const sp = req.nextUrl.searchParams
   const tid = getTenantId()
-  // §6.6 Self/Team/Company. This list was tenant-wide for anyone with view
-  // rights. ⚠️ A Party scopes on `owner_user_id`, not `user_id`, so the column
-  // is passed explicitly — and an unowned company (owner_user_id NULL) is
-  // therefore invisible below Company scope, which is the filter working: no
-  // one owns it, so it is nobody's row.
-  const requestedOwner = req.nextUrl.searchParams.get('userId')
-  const ids = intersectScope(await scopedUserIds(user, 'companies'), requestedOwner)
+  const paged = sp.has('page')
+  const page = Math.max(1, Math.floor(Number(sp.get('page'))) || 1)
+  const limit = Math.min(MAX_PAGE_LIMIT, Math.max(1, Math.floor(Number(sp.get('limit'))) || DEFAULT_PAGE_LIMIT))
+  const picker = sp.get('fields') === 'picker'
+  // §6.6 Self/Team/Company. ⚠️ A Party scopes on `owner_user_id`, not `user_id`
+  // (see buildCompanyWhere) — and an unowned company (owner_user_id NULL) is
+  // therefore invisible below Company scope, which is the filter working.
+  const requestedOwner = sp.get('userId')
 
   try {
-    // Sharing (src/lib/sharing.ts): accounts shared with the caller are OR-ed
-    // into the scope — never in place of it. Not under Company scope (already
-    // everything) and not when `?userId=` narrows to one owner (a filter by
-    // owner means that owner's rows). Nothing shared → the query is unchanged.
-    const memberships = ids === null || requestedOwner
-      ? new Map<string, MemberAccess>()
-      : await getCompanyMemberships(user, tid)
-    const rows = await prisma.companies.findMany({
-      where: {
-        tenant_id: tid,
-        ...widenScope(scopeWhere(ids, 'owner_user_id'), memberships.size ? [{ id: { in: [...memberships.keys()] } }] : []),
-        ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
-        ...(type ? { type } : {}),
-      },
-      include: COMPANY_INCLUDE,
-      orderBy: { name: 'asc' },
+    // "No opportunity" asks about deals, so it needs the deals permission; a
+    // caller without it cannot know, which is a refusal, never a zero.
+    let noDealWhere: Record<string, unknown> | null = null
+    if (sp.get('noDeal') === '1') {
+      if (!await checkPermission(user, 'deals', 'view')) return forbidden()
+      noDealWhere = (await visibleDealScope(user, tid, null)).where
+    }
+
+    const { where, ids, memberships, gstRequired } = await buildCompanyWhere(user, tid, {
+      q: sp.get('q') ?? '',
+      type: sp.get('type') ?? '',
+      kind: sp.get('kind') ?? '',
+      status: sp.get('status') ?? '',
+      completeness: sp.get('completeness') ?? '',
+      noDealWhere,
+      requestedOwner,
     })
+    const orderBy = [{ name: 'asc' as const }, { id: 'asc' as const }]
+    const paging: { skip?: number; take?: number } = paged ? { skip: (page - 1) * limit, take: limit } : {}
+
+    if (picker) {
+      const [rows, total] = await Promise.all([
+        prisma.companies.findMany({
+          where, orderBy, ...paging,
+          select: { id: true, name: true, type: true, stage: true, is_active: true },
+        }),
+        paged ? prisma.companies.count({ where }) : Promise.resolve(0),
+      ])
+      return NextResponse.json(paged ? { rows, total, page, limit } : rows)
+    }
+
+    const [rows, total] = await Promise.all([
+      prisma.companies.findMany({ where, include: COMPANY_INCLUDE, orderBy, ...paging }),
+      paged ? prisma.companies.count({ where }) : Promise.resolve(0),
+    ])
+
+    // The three guarded raw reads below touch only the rows in hand and are
+    // independent of each other, so they run together (the page: ≤ `limit` ids).
+    const rowIds = rows.map(r => r.id)
+    const [kinds, landlines] = await Promise.all([
+      readAccountKinds(tid, rowIds),
+      readLandlines(tid, 'companies', rowIds),
+    ])
 
     // DATE next_follow_up_date (PLAN.md 5.1).
     // Completeness as this tenant counts it: with GST not required, a company
     // missing only its GST number reads as complete (src/lib/gst-policy.ts).
     // The Parties list's badge, filter and data-health alerts all read these.
-    const gstRequired = await getGstRequiredForOrders(tid)
-    const withKinds = await attachAccountKinds(
-      (serialize(rows, 'companies') as Record<string, unknown>[]).map(shapeCompany) as (Record<string, unknown> & { id: string })[],
-      tid
-    )
-    const data = withKinds
-      .filter(row => !kindFilter || row.account_kind === kindFilter)
+    const data = (serialize(rows, 'companies') as Record<string, unknown>[])
+      .map(shapeCompany)
+      .map(row => ({ ...row, account_kind: kinds.get(row.id as string) ?? 'Company' }) as Record<string, unknown> & { id: string; account_kind: AccountKind })
       // Individuals never carry a GST requirement (spec §1): the firm's
       // switch, when on, still only governs Companies.
       .map(row => withMobileCompleteness(withGstPolicy(
@@ -97,11 +137,11 @@ export async function GET(req: NextRequest) {
         const shared = viaScope ? null : memberships.get(String((row as { id: unknown }).id)) ?? null
         return { ...row, shared_access: shared } as Record<string, unknown>
       })
+      // The edit dialog prefills from this list, so it carries the landline too
+      // — `null` until the column exists (src/lib/party-landline.ts).
+      .map(row => ({ ...row, landline: landlines?.get(row.id as string) ?? null }))
 
-    // The edit dialog prefills from this list, so it carries the landline too
-    // — one guarded query for every row, `null` until the column exists
-    // (src/lib/party-landline.ts).
-    return NextResponse.json(await attachLandlines(data as (Record<string, unknown> & { id: string })[], tid, 'companies'))
+    return NextResponse.json(paged ? { rows: data, total, page, limit } : data)
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
   }

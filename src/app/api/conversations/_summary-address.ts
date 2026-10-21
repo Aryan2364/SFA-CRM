@@ -79,7 +79,7 @@ function addDays(day: string, delta: number): string {
   return new Date(ms).toISOString().slice(0, 10)
 }
 
-export async function resolveSummaryAddresses(
+async function resolveUncached(
   tenantId: string,
   groups: SummaryGroup[]
 ): Promise<Map<string, SummaryAddress>> {
@@ -134,6 +134,46 @@ export async function resolveSummaryAddresses(
   }
 
   return resolved
+}
+
+/**
+ * The hash search above is CPU-bound and its answer for a given derived id
+ * never changes (the id IS a hash of owner + period), so each answer, positive
+ * or "not found", is remembered per tenant for a few minutes. The first visit
+ * to Conversations pays the search; the next ones, and every page of a paged
+ * list, do not. A renamed user shows the old name until the entry lapses.
+ */
+const CACHE_MS = 5 * 60_000
+const addressCache = new Map<string, { until: number; address: SummaryAddress | null }>()
+
+export async function resolveSummaryAddresses(
+  tenantId: string,
+  groups: SummaryGroup[]
+): Promise<Map<string, SummaryAddress>> {
+  const now = Date.now()
+  const out = new Map<string, SummaryAddress>()
+  const todo: SummaryGroup[] = []
+  for (const g of groups) {
+    if (!isSummaryContext(g.context_type)) continue
+    const key = groupKey(g.context_type, g.context_id)
+    const hit = addressCache.get(`${tenantId}|${key}`)
+    if (hit && hit.until > now) {
+      if (hit.address) out.set(key, hit.address)
+    } else {
+      todo.push(g)
+    }
+  }
+  if (todo.length > 0) {
+    const found = await resolveUncached(tenantId, todo)
+    for (const g of todo) {
+      const key = groupKey(g.context_type, g.context_id)
+      const address = found.get(key) ?? null
+      addressCache.set(`${tenantId}|${key}`, { until: now + CACHE_MS, address })
+      if (address) out.set(key, address)
+    }
+    if (addressCache.size > 20_000) addressCache.clear()
+  }
+  return out
 }
 
 export { groupKey }

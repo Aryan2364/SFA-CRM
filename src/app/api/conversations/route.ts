@@ -6,6 +6,7 @@ import { isSummaryContext } from '../remarks/_context'
 import { contextLabel } from './_labels'
 import { resolveSummaryAddresses, groupKey } from './_summary-address'
 import { resolveOwners, visibleGroupKeys } from './_scope'
+import { pagedConversations } from './_paged'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,23 @@ export async function GET(req: NextRequest) {
   const status = params.get('status') ?? 'all'
 
   const tenantId = getTenantId()
+
+  // Opt-in paging: `?page=` answers `{ rows, total, page, limit }` (and takes
+  // `?q=`), computed in SQL - see `_paged.ts`. Without it, the whole array.
+  if (params.has('page')) {
+    try {
+      return NextResponse.json(await pagedConversations(user, tenantId, {
+        section,
+        authorId: filterUserId,
+        status,
+        q: params.get('q') ?? '',
+        page: Math.max(1, Math.floor(Number(params.get('page'))) || 1),
+        limit: Math.min(200, Math.max(1, Math.floor(Number(params.get('limit'))) || 25)),
+      }))
+    } catch (err) {
+      return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })
+    }
+  }
 
   try {
   // `author:users!author_user_id(id, name)` is an ALIASED embed. Fetch through

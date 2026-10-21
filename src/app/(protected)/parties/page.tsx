@@ -47,7 +47,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useLayout } from '@/lib/layout'
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
-import { PhoneList, PhoneListRow } from '@/components/ui/phone-list'
+import { PhoneList, PhoneListRow, PHONE_LIST_PAGE } from '@/components/ui/phone-list'
 import {
   EllipsisVerticalIcon,
   PencilIcon,
@@ -145,6 +145,15 @@ type CompanyRow = {
      (src/lib/sharing.ts): 'work' or 'view'. Null on every other row, and
      always null until the sharing tables exist. Absent from an older response. */
   shared_access?: 'work' | 'view' | null
+}
+
+/** What `GET /api/companies/alerts` answers: counts, not rows. */
+type CompanyAlerts = {
+  incomplete: number
+  /** `null` = the caller lacks the deals permission, so it is not knowable. */
+  noDeal: number | null
+  /** The fields incomplete accounts are short of, commonest first. */
+  missing: { field: string; count: number }[]
 }
 
 /* The per-row record rules of sharing (section 26.5): a 'view' share is read
@@ -519,53 +528,34 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
   const [refreshKey, setRefreshKey] = useState(0)
 
   /*
-   * P5-T7 §7.7 — the two Parties-list alerts. Both counts come from a
-   * SEPARATE, unfiltered fetch of this same scoped endpoint, not from
-   * whatever `load()` currently has on screen: a banner that only reflected
-   * the active search/filter would go quiet the moment somebody typed into
-   * the search box, which is the opposite of "stays true until resolved"
-   * (section 7.1). `/api/companies` already applies `getDataScope` via
-   * `scopedUserIds`/`scopeWhere`, so an executive's count never covers a
-   * company they cannot open.
+   * P5-T7 §7.7 — the two Parties-list alerts. Both counts come from
+   * `GET /api/companies/alerts`, which counts in the database over the whole
+   * scoped set, NOT from whatever `load()` has on screen: a banner that only
+   * reflected the active search/filter would go quiet the moment somebody
+   * typed into the search box, which is the opposite of "stays true until
+   * resolved" (section 7.1). The route applies the same `getDataScope` the list
+   * does, so an executive's count never covers a company they cannot open.
    *
-   * "Parties Without Any Deal" additionally needs `/api/deals` — a user
-   * without the `deals` permission gets a 403 there, which is read as "not
-   * knowable", not zero: the alert simply does not render rather than
-   * claiming every party has a deal.
+   * "Parties Without Any Deal" additionally needs the `deals` permission - the
+   * route answers `noDeal: null` for a user without it, which is read as "not
+   * knowable", not zero: the alert simply shows no count rather than claiming
+   * every party has a deal.
    */
-  const [allCompanies, setAllCompanies] = useState<CompanyRow[] | null>(null)
-  const [dealCompanyIds, setDealCompanyIds] = useState<Set<string> | null>(null)
+  const [alerts, setAlerts] = useState<CompanyAlerts | null>(null)
   const [onlyIncomplete, setOnlyIncomplete] = useState(false)
   const [onlyNoDeal, setOnlyNoDeal] = useState(false)
 
   useEffect(() => {
     let live = true
-    fetch('/api/companies')
-      .then(r => (r.ok ? r.json() : []))
-      .then(d => { if (live) setAllCompanies(Array.isArray(d) ? d : []) })
-      .catch(() => { if (live) setAllCompanies([]) })
-    fetch('/api/deals')
+    fetch('/api/companies/alerts')
       .then(r => (r.ok ? r.json() : null))
-      .then(d => {
-        if (!live) return
-        if (!Array.isArray(d)) { setDealCompanyIds(null); return }
-        setDealCompanyIds(
-          new Set(
-            d
-              .map((deal: { company?: { id: string } | null }) => deal.company?.id)
-              .filter((id): id is string => Boolean(id))
-          )
-        )
-      })
-      .catch(() => { if (live) setDealCompanyIds(null) })
+      .then(d => { if (live) setAlerts(d && typeof d.incomplete === 'number' ? d : null) })
+      .catch(() => { if (live) setAlerts(null) })
     return () => { live = false }
   }, [refreshKey])
 
-  const incompleteCount = allCompanies?.filter(c => !c.is_complete).length ?? 0
-  const noDealCount =
-    allCompanies && dealCompanyIds
-      ? allCompanies.filter(c => !dealCompanyIds.has(c.id)).length
-      : 0
+  const incompleteCount = alerts?.incomplete ?? 0
+  const noDealCount = alerts?.noDeal ?? 0
 
   useEffect(() => {
     fetch('/api/masters/lead-types')
@@ -653,41 +643,33 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
 
   /*
    * Deliberately NOT memoised: the template holds `load` in a ref and never
-   * makes it an effect dependency. No deadline and no catch here either — the
+   * makes it an effect dependency. No deadline and no catch here either - the
    * template races this against its own timer, and a rejection IS the failed
    * state (section 14 rules 3 and 4). Catching here and returning `[]` would
    * render a 500 as "no companies found", which is a lie.
    *
-   * `/api/companies` takes `q` and `type` and nothing else, so the two
-   * remaining filters narrow the answer here rather than in SQL. The template
-   * counts, pages and empty-states off what this returns, so all four behave
-   * identically whichever side of the wire they run.
+   * The route pages in the database (`serverPaging` below): this asks for ONE
+   * page and every filter - search, type, kind, status, completeness and the
+   * two alert narrowings - is a query parameter, so the count the template
+   * shows is the route's true total, not the length of what was downloaded.
    */
-  const load: ListPageProps<CompanyRow>['load'] = async ({ search, filters, signal }) => {
-    const params = new URLSearchParams()
+  const load: ListPageProps<CompanyRow>['load'] = async ({ search, filters, signal, page, pageSize }) => {
+    // The alert banner's own one-click narrowing is a second, independent
+    // narrowing on top of the declared filters. Two that contradict match
+    // nothing, as they did when both were applied to the rows in the browser.
+    if (onlyIncomplete && filters.completeness === 'complete') return { rows: [], total: 0 }
+    const params = new URLSearchParams({ page: String(page), limit: String(pageSize) })
     if (search) params.set('q', search)
     if (filters.type) params.set('type', filters.type)
     if (filters.kind) params.set('kind', filters.kind)
-    const query = params.toString()
-    const r = await fetch(`/api/companies${query ? `?${query}` : ''}`, { signal })
+    if (filters.status) params.set('status', filters.status)
+    const completeness = onlyIncomplete ? 'incomplete' : filters.completeness
+    if (completeness) params.set('completeness', completeness)
+    if (onlyNoDeal) params.set('noDeal', '1')
+    const r = await fetch(`/api/companies?${params.toString()}`, { signal })
     if (!r.ok) throw new Error(String(r.status))
     const body = await r.json()
-    const rows: CompanyRow[] = Array.isArray(body) ? body : []
-    return rows.filter(row => {
-      if (filters.status === 'active' && !row.is_active) return false
-      if (filters.status === 'inactive' && row.is_active) return false
-      if (filters.completeness === 'complete' && !row.is_complete) return false
-      if (filters.completeness === 'incomplete' && row.is_complete) return false
-      // P5-T7: the alert banner's own one-click narrowing. `list-page.tsx`
-      // has no prop to set its declared filters from outside, so this is a
-      // second, independent narrowing this screen applies on top of them —
-      // `refreshKey` is what makes the template call this function again
-      // when a banner is clicked, since nothing it recognises as a
-      // dependency (search/filters) actually changed.
-      if (onlyIncomplete && row.is_complete) return false
-      if (onlyNoDeal && dealCompanyIds?.has(row.id)) return false
-      return true
-    })
+    return { rows: Array.isArray(body?.rows) ? (body.rows as CompanyRow[]) : [], total: Number(body?.total) || 0 }
   }
 
   const filters: ListFilter[] = [
@@ -738,20 +720,9 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
    * the popover reports the real fields this tenant is actually short of,
    * commonest first, instead of the generic sentence the banner carried.
    */
-  const missingFieldSummary = (() => {
-    const tally = new Map<string, number>()
-    for (const c of allCompanies ?? []) {
-      if (c.is_complete || !c.completeness_missing) continue
-      for (const raw of c.completeness_missing.split(',')) {
-        const field = raw.trim()
-        if (field) tally.set(field, (tally.get(field) ?? 0) + 1)
-      }
-    }
-    return [...tally.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([field, n]) => `${field} (${n})`)
-      .join(', ')
-  })()
+  const missingFieldSummary = (alerts?.missing ?? [])
+    .map(m => `${m.field} (${m.count})`)
+    .join(', ')
 
   const healthAlerts: DataHealthAlertItem[] = [
     {
@@ -882,6 +853,7 @@ function CompaniesTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNo
         rowKey={row => row.id}
         filters={filters}
         load={load}
+        serverPaging
         refreshKey={refreshKey}
         searchPlaceholder="Search accounts"
         searchHint={COMPANY_SEARCH_HINT}
@@ -1300,33 +1272,35 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
   const [companyOptions, setCompanyOptions] = useState<NamedRef[]>([])
   const partyMasters = usePartyMasters()
 
+  /* The account picker inside the Add-contact dialog: loaded when the dialog
+     first opens (not for every visit to this tab), and as the picker's own
+     two-column projection (`fields=picker`) rather than the full account list. */
+  const pickerLoaded = useRef(false)
   useEffect(() => {
-    let live = true
-    fetch('/api/companies')
+    if (!createOpen || pickerLoaded.current) return
+    pickerLoaded.current = true
+    fetch('/api/companies?fields=picker')
       .then(r => (r.ok ? r.json() : []))
       .then((d: { id: string; name: string }[]) => {
-        if (live) setCompanyOptions(Array.isArray(d) ? d.map(c => ({ id: c.id, name: c.name })) : [])
+        setCompanyOptions(Array.isArray(d) ? d.map(c => ({ id: c.id, name: c.name })) : [])
       })
-      .catch(() => { if (live) setCompanyOptions([]) })
-    return () => { live = false }
-  }, [])
+      .catch(() => { pickerLoaded.current = false; setCompanyOptions([]) })
+  }, [createOpen])
 
-  /* P5-T7 §7.7 — "Contacts Without Company", counted off a separate
-     unfiltered fetch of this same scoped endpoint, for the same reason the
-     Companies tab does — see its `allCompanies` note. */
-  const [allContacts, setAllContacts] = useState<ContactRow[] | null>(null)
+  /* P5-T7 §7.7 - "Contacts Without Company", a COUNT from the same scoped
+     endpoint (`?count=unlinked`), not a download of every contact; unfiltered
+     by the search box, for the reason the Companies tab's alerts are. */
+  const [unlinkedCount, setUnlinkedCount] = useState(0)
   const [onlyUnlinked, setOnlyUnlinked] = useState(false)
 
   useEffect(() => {
     let live = true
-    fetch('/api/contacts?active=all')
-      .then(r => (r.ok ? r.json() : []))
-      .then(d => { if (live) setAllContacts(Array.isArray(d) ? d : []) })
-      .catch(() => { if (live) setAllContacts([]) })
+    fetch('/api/contacts?active=all&count=unlinked')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (live) setUnlinkedCount(typeof d?.count === 'number' ? d.count : 0) })
+      .catch(() => { if (live) setUnlinkedCount(0) })
     return () => { live = false }
   }, [refreshKey])
-
-  const unlinkedCount = allContacts?.filter(c => c.companies.length === 0).length ?? 0
 
   useEffect(() => {
     fetch('/api/masters/contact-types')
@@ -1550,11 +1524,10 @@ function ContactsTab({ me, sectionTabs }: { me: Me | null; sectionTabs: ReactNod
 // ══════════════════════════════════════════════════════════════
 
 /**
- * Phone's Accounts tab root. Reuses the same `GET /api/companies` the
- * desktop Companies tab calls — no new route. Company/Individual chips with
- * counts come from one unfiltered fetch, same approach as `allCompanies`
- * above (cheap at this tenant's scale; re-fetched on every search/filter
- * change would not be, which is why search/kind still narrow server-side).
+ * Phone's Accounts tab root. Reuses the same `GET /api/companies` the desktop
+ * Companies tab calls, paged 25 at a time as the list scrolls. The
+ * Company/Individual chip counts come from `GET /api/companies/alerts?kinds=1`,
+ * a count, not a download of every account.
  */
 function PhoneAccountsList({ me }: { me: Me | null }) {
   usePhoneAppBar({ title: 'Accounts' })
@@ -1565,6 +1538,7 @@ function PhoneAccountsList({ me }: { me: Me | null }) {
   const [search, setSearch] = useState('')
   const [kind, setKind] = useState<string | null>(null)
   const [rows, setRows] = useState<CompanyRow[]>([])
+  const [total, setTotal] = useState(0)
   const [state, setState] = useState<'loading' | 'failed' | 'ready'>('loading')
   const [counts, setCounts] = useState<{ company: number; individual: number; total: number }>({
     company: 0,
@@ -1572,20 +1546,43 @@ function PhoneAccountsList({ me }: { me: Me | null }) {
     total: 0,
   })
 
+  const pageUrl = (page: number) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(PHONE_LIST_PAGE) })
+    if (search) params.set('q', search)
+    if (kind) params.set('kind', kind)
+    return `/api/companies?${params.toString()}`
+  }
+
+  /* First page of the current search/kind. 25 rows at a time (section 41.5):
+     the next page is fetched as the list is scrolled (`loadMore`). */
   const load = useRef(async () => {})
   load.current = async () => {
     setState('loading')
     try {
-      const params = new URLSearchParams()
-      if (search) params.set('q', search)
-      if (kind) params.set('kind', kind)
-      const r = await fetch(`/api/companies?${params.toString()}`, { cache: 'no-store' })
+      const r = await fetch(pageUrl(1), { cache: 'no-store' })
       if (!r.ok) throw new Error(String(r.status))
       const body = await r.json()
-      setRows(Array.isArray(body) ? body : [])
+      setRows(Array.isArray(body?.rows) ? body.rows : [])
+      setTotal(Number(body?.total) || 0)
       setState('ready')
     } catch {
       setState('failed')
+    }
+  }
+
+  const loadMore = async () => {
+    const nextPage = Math.floor(rows.length / PHONE_LIST_PAGE) + 1
+    try {
+      const r = await fetch(pageUrl(nextPage), { cache: 'no-store' })
+      if (!r.ok) return
+      const body = await r.json()
+      const more: CompanyRow[] = Array.isArray(body?.rows) ? body.rows : []
+      setRows(prev => {
+        const seen = new Set(prev.map(x => x.id))
+        return [...prev, ...more.filter(x => !seen.has(x.id))]
+      })
+    } catch {
+      /* the list stays as it is; scrolling again retries */
     }
   }
 
@@ -1593,21 +1590,13 @@ function PhoneAccountsList({ me }: { me: Me | null }) {
     void load.current()
   }, [search, kind])
 
-  // Counts for the filter chips — one unfiltered fetch, independent of the
+  // Counts for the filter chips - counted in the database, independent of the
   // search/kind-filtered list above.
   useEffect(() => {
     let live = true
-    fetch('/api/companies', { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : []))
-      .then((d: unknown) => {
-        if (!live || !Array.isArray(d)) return
-        const all = d as CompanyRow[]
-        setCounts({
-          total: all.length,
-          company: all.filter(c => (c.account_kind ?? 'Company') === 'Company').length,
-          individual: all.filter(c => c.account_kind === 'Individual').length,
-        })
-      })
+    fetch('/api/companies/alerts?kinds=1', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (live && d?.kinds) setCounts(d.kinds) })
       .catch(() => {})
     return () => { live = false }
   }, [])
@@ -1633,7 +1622,8 @@ function PhoneAccountsList({ me }: { me: Me | null }) {
       onRefresh={() => load.current()}
       noun={{ one: 'account', many: 'accounts' }}
       rows={rows}
-      total={rows.length}
+      total={total}
+      onLoadMore={loadMore}
       rowKey={r => r.id}
       renderRow={renderRow}
       search={{ value: search, onChange: setSearch }}

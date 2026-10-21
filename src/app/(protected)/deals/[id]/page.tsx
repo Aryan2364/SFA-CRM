@@ -476,7 +476,7 @@ function DesktopDealDetailPage() {
       const body = await r.json()
       return Array.isArray(body) ? (body as DialogRow[]) : []
     }
-    read('/api/companies').then(setCompanies).catch(() => setCompanies([]))
+    read('/api/companies?fields=picker').then(setCompanies).catch(() => setCompanies([]))
     read('/api/orders/team').then(setTeam).catch(() => setTeam([]))
   }, [editOpen, companies.length])
 

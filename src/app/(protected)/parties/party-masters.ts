@@ -15,7 +15,7 @@
  * form's dropdowns are built from.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
@@ -26,9 +26,10 @@ export type NamedRef = { id: string; name: string }
 export type UserRef = NamedRef & { contact: string | null; status: string | null }
 
 /**
- * The location masters are one fetch each and then filtered client-side by
- * parent, exactly as `useBPForm` does — the endpoints take no parent filter, so
- * a per-parent fetch would be the same payload plus a round trip.
+ * States and districts are small and load once. Talukas and villages are NOT
+ * loaded here: villages run to tens of thousands of rows, so `useLocationLists`
+ * below fetches talukas for the chosen district and villages for the chosen
+ * taluka, on demand, through the masters' own `?districtId=` / `?talukaId=`.
  */
 export type DistrictRef = NamedRef & { state_id: string | null }
 export type TalukaRef = NamedRef & { district_id: string | null }
@@ -40,8 +41,6 @@ export type PartyMasters = {
   contactTypes: NamedRef[]
   states: NamedRef[]
   districts: DistrictRef[]
-  talukas: TalukaRef[]
-  villages: VillageRef[]
   users: UserRef[]
   /** The signed-in user's `users.id`, for defaulting Owner. Null until loaded. */
   currentUserId: string | null
@@ -54,8 +53,6 @@ const EMPTY: PartyMasters = {
   contactTypes: [],
   states: [],
   districts: [],
-  talukas: [],
-  villages: [],
   users: [],
   currentUserId: null,
   loading: true,
@@ -86,7 +83,7 @@ export function usePartyMasters(): PartyMasters {
       try {
         const [
           companyTypes, industries, contactTypes,
-          states, districts, talukas, villages, users, me,
+          states, districts, users, me,
         ] = await Promise.all([
           // `lead-types` is the Company Type master — P1-T18 renames the route
           // to `company-types`; until it does, this is where the values are.
@@ -97,15 +94,13 @@ export function usePartyMasters(): PartyMasters {
           getList<NamedRef>('/api/masters/contact-types?active=true'),
           getList<NamedRef>('/api/masters/states'),
           getList<DistrictRef>('/api/masters/districts'),
-          getList<TalukaRef>('/api/masters/talukas'),
-          getList<VillageRef>('/api/masters/villages'),
           getList<UserRef>('/api/masters/users'),
           fetch('/api/auth/me').then(r => (r.ok ? r.json() : null)),
         ])
         if (!live) return
         setState({
           companyTypes, industries, contactTypes,
-          states, districts, talukas, villages,
+          states, districts,
           // Only an Active employee can be handed a new record to own. An
           // Inactive one still appears on records they already own — this is
           // the pick list, not a filter on history.
@@ -163,5 +158,47 @@ export function useOwnerChoice(section: 'companies' | 'contacts'): OwnerChoice {
     state: 'self',
     userId: me.userId,
     message: `You can only assign ${noun} to yourself.`,
+  }
+}
+
+/**
+ * Talukas of a district and villages of a taluka, fetched when something on
+ * screen first needs them and remembered for the life of the component.
+ * `wanted` is the districts and talukas currently chosen (one pair per address
+ * card); the lookups return `[]` until the list has arrived.
+ */
+export function useLocationLists(wanted: { district_id: string; taluka_id: string }[]) {
+  const [talukas, setTalukas] = useState<Record<string, TalukaRef[]>>({})
+  const [villages, setVillages] = useState<Record<string, VillageRef[]>>({})
+  const asked = useRef(new Set<string>())
+
+  const districtKey = wanted.map(w => w.district_id).filter(Boolean).join(',')
+  const talukaKey = wanted.map(w => w.taluka_id).filter(Boolean).join(',')
+
+  useEffect(() => {
+    for (const id of new Set(districtKey ? districtKey.split(',') : [])) {
+      const k = `d:${id}`
+      if (asked.current.has(k)) continue
+      asked.current.add(k)
+      getList<TalukaRef>(`/api/masters/talukas?districtId=${encodeURIComponent(id)}`)
+        .then(rows => setTalukas(m => ({ ...m, [id]: rows })))
+        .catch(() => { asked.current.delete(k) })
+    }
+  }, [districtKey])
+
+  useEffect(() => {
+    for (const id of new Set(talukaKey ? talukaKey.split(',') : [])) {
+      const k = `t:${id}`
+      if (asked.current.has(k)) continue
+      asked.current.add(k)
+      getList<VillageRef>(`/api/masters/villages?talukaId=${encodeURIComponent(id)}`)
+        .then(rows => setVillages(m => ({ ...m, [id]: rows })))
+        .catch(() => { asked.current.delete(k) })
+    }
+  }, [talukaKey])
+
+  return {
+    talukasOf: (districtId: string): TalukaRef[] => talukas[districtId] ?? [],
+    villagesOf: (talukaId: string): VillageRef[] => villages[talukaId] ?? [],
   }
 }
