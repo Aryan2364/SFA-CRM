@@ -308,11 +308,18 @@ function PhoneListOnPhone<Row>({
 const ADD_BUTTON =
   'flex size-14 items-center justify-center rounded-full shadow-lg'
 
+/*
+ * Sits 16px above whatever the shell reserves at the bottom: the tab bar on
+ * a tab root, only the safe area on a screen pushed from More (Expenses,
+ * Contacts), where there is no tab bar. Using --h-tab-bar unconditionally
+ * floated the button 56px too high on those screens. Same two values the
+ * ActionBar reads (phone-shell.tsx).
+ */
 function AddButton({ add }: { add: NonNullable<PhoneListProps<unknown>['add']> }) {
   return (
     <div
       className={cn(
-        'fixed bottom-[calc(var(--h-tab-bar)+var(--safe-bottom)+16px)] right-[calc(var(--safe-right)+16px)]',
+        'fixed bottom-[calc(var(--tab-bar-offset,0px)+var(--action-bar-safe,0px)+16px)] right-[calc(var(--safe-right)+16px)]',
         'z-(--z-shell)'
       )}
     >
