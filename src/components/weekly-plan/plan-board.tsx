@@ -93,24 +93,8 @@ export function PlanBoard({
         // The true total. Every line for the day is in `lines`, so the count
         // and the cards cannot disagree.
         total: lines.filter(l => l.date === day).length,
-        /*
-         * F9's plus, on the heading of the day it adds to. Hidden rather
-         * than disabled when the plan is locked: a control that can never
-         * do anything in this state is not information, it is clutter, and
-         * the banner above already says why the plan cannot be edited.
-         */
-        action: canEdit ? (
-          <Button
-            variant="in-field"
-            size="icon-sm"
-            onClick={() => onAddToDay(day)}
-            aria-label={`Add a line on ${dayLabel(day)}`}
-          >
-            <PlusIcon />
-          </Button>
-        ) : undefined,
       })),
-    [days, lines, dayLabel, canEdit, onAddToDay],
+    [days, lines, dayLabel],
   )
 
   const cards: BoardCard[] = useMemo(
@@ -146,14 +130,28 @@ export function PlanBoard({
   )
 
   return (
-    <Board
-      columns={columns}
-      cards={cards}
-      onMove={(cardId, toColumnId) => onMoveLine(cardId, toColumnId)}
-      onOpenCard={onOpenLine}
-      emptyColumnLabel="Nothing planned"
-      moveErrorMessage="That line could not be moved and has gone back to the day it came from."
-    />
+    <>
+      {/* The kit Board has no per-column action (its sync dropped it), so the add
+          control sits above the board. The line dialog has a Day field, so one
+          button reaches every day. Hidden, not disabled, when the plan is locked:
+          the banner above already says why. */}
+      {canEdit && (
+        <div className="flex shrink-0 justify-end pb-2">
+          <Button variant="secondary" size="sm" onClick={() => onAddToDay(days[0])}>
+            <PlusIcon />
+            Add a line
+          </Button>
+        </div>
+      )}
+      <Board
+        columns={columns}
+        cards={cards}
+        onMove={(cardId, toColumnId) => onMoveLine(cardId, toColumnId)}
+        onOpenCard={onOpenLine}
+        emptyColumnLabel="Nothing planned"
+        moveErrorMessage="That line could not be moved and has gone back to the day it came from."
+      />
+    </>
   )
 }
 
