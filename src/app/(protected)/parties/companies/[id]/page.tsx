@@ -106,6 +106,7 @@ import {
   USER_STATUS,
 } from '@/components/status-badge'
 import { SharedWithCard } from '@/components/sharing/shared-with-card'
+import { PhoneSharedWith } from '@/components/sharing/phone-shared-with'
 import { PersonModeChoice } from '@/components/parties/person-mode-choice'
 import { useToast } from '@/contexts/ToastContext'
 import { useMe, type Me } from '@/hooks/useMe'
@@ -623,6 +624,13 @@ function PhoneAccountDetail({
           onClick={() => setMeetingsSheetOpen(true)}
           plain
         />
+        {company.sharing_available ? (
+          <PhoneSharedWith
+            endpoint={`/api/companies/${id}/members`}
+            canShare={company.can_share === true}
+            noun="account"
+          />
+        ) : null}
       </div>
 
       {meetingsFailed ? (
@@ -1436,9 +1444,8 @@ function PeopleCard({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-3">
+      <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
-          <UsersIcon className="size-icon text-text-secondary" aria-hidden="true" />
           People
           {links.length > 0 && <Badge>{links.length}</Badge>}
         </CardTitle>
@@ -1604,7 +1611,6 @@ function ContactsCard({ contacts }: { contacts: CompanyContact[] }) {
     <Card>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
-          <UsersIcon className="size-icon text-text-secondary" aria-hidden="true" />
           Contacts
           {contacts.length > 0 && <Badge>{contacts.length}</Badge>}
         </CardTitle>
@@ -1685,7 +1691,6 @@ function AddressesCard({ addresses }: { addresses: CompanyAddress[] }) {
     <Card>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
-          <MapPinIcon className="size-icon text-text-secondary" aria-hidden="true" />
           Addresses
           {addresses.length > 0 && <Badge>{addresses.length}</Badge>}
         </CardTitle>

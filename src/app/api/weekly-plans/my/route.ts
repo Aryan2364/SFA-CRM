@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { loadGoals, migrateWeekGoal } from '../_goals'
 import { readPlanVersion } from '../_transition'
+import { attachPlanItemContacts } from '@/lib/plan-item-contact'
 
 export async function GET(req: NextRequest) {
   const user = await requireUser()
@@ -47,8 +48,10 @@ export async function GET(req: NextRequest) {
     const data = await prisma.weekly_plans.findUnique({ where: key, include: { weekly_plan_items: true } })
     if (!data) return NextResponse.json(null)
 
+    const mine = serialize(data, 'weekly_plans') as Record<string, unknown> & { weekly_plan_items: { id: string }[] }
     return NextResponse.json({
-      ...(serialize(data, 'weekly_plans') as Record<string, unknown>),
+      ...mine,
+      weekly_plan_items: await attachPlanItemContacts(tid, mine.weekly_plan_items),
       // `weekly_goals` has no Prisma relation to `weekly_plans`, so it cannot
       // ride along in the `include` — it is a separate tenant-scoped read.
       weekly_goals: await loadGoals(data.id, tid),

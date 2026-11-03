@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Trash2Icon, UserPlusIcon, UsersIcon } from 'lucide-react'
+import { Trash2Icon, UserPlusIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -182,7 +182,6 @@ export function SharedWithCard({
     <Card>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
-          <UsersIcon className="size-icon text-text-secondary" aria-hidden="true" />
           Shared with
           {members && members.length > 0 && <Badge>{members.length}</Badge>}
         </CardTitle>

@@ -35,6 +35,9 @@ export type PlanItem = {
   plan_date: string
   party_id: string | null
   party_type: string | null
+  /** The person on an account line (absent on servers without the column). */
+  contact_id?: string | null
+  contact_name?: string | null
   party_label: string | null
   new_dealers_goal: number | null
   existing_dealers_goal: number | null

@@ -39,6 +39,8 @@
  * focus' would destroy a real note — worse than the bug being fixed.
  */
 
+import { randomUUID } from 'node:crypto'
+
 /** A `notes` value that is nothing but a number is an orphaned "Others" count. */
 const BARE_NUMBER = /^\s*\d+(\.\d+)?\s*$/
 
@@ -103,6 +105,8 @@ function decimalOrNull(value: unknown): number | null {
 }
 
 export type WeeklyPlanItemWrite = {
+  /** Assigned here so `contact_id` (not a Prisma column) can be stamped by id after createMany. */
+  id: string
   tenant_id: string
   weekly_plan_id: string
   plan_date: Date
@@ -137,6 +141,7 @@ export function toItemRow(
   const partyType = textOrNull(raw.party_type)
   const partyId = uuidOrNull(raw.party_id)
   return {
+    id: randomUUID(),
     tenant_id: tenantId,
     weekly_plan_id: planId,
     plan_date: new Date(raw.plan_date as string),
@@ -161,16 +166,44 @@ export function toItemRow(
   }
 }
 
+/**
+ * The contact on a line. Only an ACCOUNT line carries one: a contact-only line
+ * is `party_type 'contact'` with the person in `party_id` and no `contact_id`.
+ */
+function contactOf(raw: Record<string, unknown>, row: WeeklyPlanItemWrite): string | null {
+  return row.party_type === 'company' && row.party_id ? uuidOrNull(raw.contact_id) : null
+}
+
+/**
+ * Map a whole `items` payload, also returning each row's contact for
+ * `writePlanItemContacts` (the column is not in the Prisma model).
+ * A non-array body yields no rows, never a throw.
+ */
+export function toItemRowsWithContacts(
+  items: unknown,
+  tenantId: string,
+  planId: string,
+): { rows: WeeklyPlanItemWrite[]; contacts: { id: string; contactId: string | null }[] } {
+  if (!Array.isArray(items)) return { rows: [], contacts: [] }
+  const rows: WeeklyPlanItemWrite[] = []
+  const contacts: { id: string; contactId: string | null }[] = []
+  for (const i of items) {
+    if (!i || typeof i !== 'object') continue
+    const raw = i as Record<string, unknown>
+    // A row with no date belongs to no day and would land on the epoch.
+    if (typeof raw.plan_date !== 'string' || Number.isNaN(new Date(raw.plan_date).getTime())) continue
+    const row = toItemRow(raw, tenantId, planId)
+    rows.push(row)
+    contacts.push({ id: row.id, contactId: contactOf(raw, row) })
+  }
+  return { rows, contacts }
+}
+
 /** Map a whole `items` payload. A non-array body yields no rows, never a throw. */
 export function toItemRows(
   items: unknown,
   tenantId: string,
   planId: string,
 ): WeeklyPlanItemWrite[] {
-  if (!Array.isArray(items)) return []
-  return items
-    .filter((i): i is Record<string, unknown> => Boolean(i) && typeof i === 'object')
-    // A row with no date belongs to no day and would land on the epoch.
-    .filter(i => typeof i.plan_date === 'string' && !Number.isNaN(new Date(i.plan_date).getTime()))
-    .map(i => toItemRow(i, tenantId, planId))
+  return toItemRowsWithContacts(items, tenantId, planId).rows
 }

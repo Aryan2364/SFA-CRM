@@ -352,6 +352,202 @@ async function main() {
   ok('/summary cell for a real week is populated, not blank', cell && cell.status === 'Draft', cell)
   ok('/summary planned_days counts DISTINCT dates, not Date objects', cell?.planned_days === 2, cell)
 
+  // ===== account + contact on a line (weekly_plan_items.contact_id) =========
+  section('Plan line: account AND contact stored separately')
+  const colRows = await prisma.$queryRaw`SELECT 1 FROM information_schema.columns WHERE table_name = 'weekly_plan_items' AND column_name = 'contact_id'`
+  if (colRows.length === 0) {
+    console.log('  SKIP  weekly_plan_items.contact_id not present (apply docs/local-db-updates.sql item 11)')
+  } else {
+    const acct = await prisma.companies.create({ data: { tenant_id: SEED.tenantA, type: 'Dealer', stage: 'Existing', name: 'PlanContact Acct' } })
+    const acct2 = await prisma.companies.create({ data: { tenant_id: SEED.tenantA, type: 'Dealer', stage: 'Existing', name: 'PlanContact Other Acct' } })
+    const person = await prisma.contacts.create({ data: { tenant_id: SEED.tenantA, name: 'Ramesh Planner', mobile: '9111111111' } })
+    const loner = await prisma.contacts.create({ data: { tenant_id: SEED.tenantA, name: 'Solo Contact', mobile: '9222222222' } })
+    await prisma.company_contacts.create({ data: { tenant_id: SEED.tenantA, company_id: acct.id, contact_id: person.id } })
+    const foreignContact = await prisma.contacts.create({ data: { tenant_id: SEED.tenantB, name: 'TENANT B CONTACT', mobile: '9333333333' } })
+    const foreignAcct = await prisma.companies.create({ data: { tenant_id: SEED.tenantB, type: 'Dealer', stage: 'Existing', name: 'TENANT B ACCT' } })
+    const createdPlanIds = []
+    try {
+      const wk = ['2026-05-04', '2026-05-10']
+      await prisma.weekly_plans.deleteMany({ where: { tenant_id: SEED.tenantA, user_id: SEED.subA, week_start_date: new Date(wk[0]) } })
+      const create = items => call('/api/weekly-plans', SUB, 'POST', { week_start_date: wk[0], week_end_date: wk[1], items })
+      const stored = id => prisma.$queryRaw`SELECT party_id::text, party_type, contact_id::text FROM weekly_plan_items WHERE weekly_plan_id = ${id}::uuid ORDER BY plan_date`
+
+      // contact not linked to the account -> 400, nothing created
+      const bad = await create([{ plan_date: wk[0], party_id: acct2.id, party_type: 'company', contact_id: person.id }])
+      ok('contact not linked to the account -> 400', bad.status === 400, bad.status)
+      ok('...with a plain message', /not linked/.test((await bad.json()).error ?? ''))
+      ok('...and no plan was created', (await prisma.weekly_plans.count({ where: { tenant_id: SEED.tenantA, user_id: SEED.subA, week_start_date: new Date(wk[0]) } })) === 0)
+
+      // foreign-tenant contact / account -> rejected
+      const fc = await create([{ plan_date: wk[0], party_id: acct.id, party_type: 'company', contact_id: foreignContact.id }])
+      ok('foreign-tenant contact_id -> 400', fc.status === 400, fc.status)
+      const fa = await create([{ plan_date: wk[0], party_id: foreignAcct.id, party_type: 'company' }])
+      ok('foreign-tenant party_id -> 400', fa.status === 400, fa.status)
+      const bu = await create([{ plan_date: wk[0], party_id: acct.id, party_type: 'company', contact_id: 'not-a-uuid' }])
+      ok('malformed contact_id -> 400', bu.status === 400, bu.status)
+
+      // good: account+contact, a contact-only line, an account-only line
+      const good = await create([
+        { plan_date: wk[0], party_id: acct.id, party_type: 'company', contact_id: person.id },
+        { plan_date: wk[0], party_id: loner.id, party_type: 'contact' },
+        { plan_date: wk[1], party_id: acct.id, party_type: 'company' },
+      ])
+      const gp = await good.json()
+      ok('account + contact + contact-only lines save (201)', good.status === 201, { s: good.status, gp })
+      const rows = await stored(gp.id)
+      ok('account line keeps party_id = account, contact_id = contact',
+        rows.some(r => r.party_id === acct.id && r.party_type === 'company' && r.contact_id === person.id), rows)
+      ok('contact-only line stays party_type contact, contact_id null',
+        rows.some(r => r.party_id === loner.id && r.party_type === 'contact' && r.contact_id === null), rows)
+      ok('account-only line has contact_id null',
+        rows.filter(r => r.party_id === acct.id && r.party_type === 'company' && r.contact_id === null).length === 1, rows)
+
+      // reads carry contact_id / contact_name
+      const mine = await (await call(`/api/weekly-plans/my?weekStart=${wk[0]}`, SUB, 'GET')).json()
+      const withC = (mine.weekly_plan_items ?? []).find(i => i.contact_id === person.id)
+      ok('GET /my returns contact_id and contact_name', withC?.contact_name === 'Ramesh Planner', mine.weekly_plan_items)
+      const one = await (await call(`/api/weekly-plans/${gp.id}`, MGR, 'GET')).json()
+      ok('GET /[id] returns contact_name', (one.weekly_plan_items ?? []).some(i => i.contact_name === 'Ramesh Planner'), one.weekly_plan_items)
+
+      // PUT round-trips it, and a bad contact is refused without touching the lines
+      const putBad = await call(`/api/weekly-plans/${gp.id}`, SUB, 'PUT', {
+        expected_version: mine.version,
+        items: [{ plan_date: wk[0], party_id: acct2.id, party_type: 'company', contact_id: person.id }] })
+      ok('PUT with an unlinked contact -> 400', putBad.status === 400, putBad.status)
+      ok('...lines untouched', (await stored(gp.id)).length === 3)
+      const putGood = await call(`/api/weekly-plans/${gp.id}`, SUB, 'PUT', {
+        expected_version: mine.version,
+        items: [{ plan_date: wk[0], party_id: acct.id, party_type: 'company', contact_id: person.id }] })
+      ok('PUT keeps contact_id', putGood.status === 200 && (await stored(gp.id))[0]?.contact_id === person.id, putGood.status)
+
+      // ---- manager diff: a changed person is a change ----------------------
+      const person2 = await prisma.contacts.create({ data: { tenant_id: SEED.tenantA, name: 'Priya Planner', mobile: '9444444444' } })
+      await prisma.company_contacts.create({ data: { tenant_id: SEED.tenantA, company_id: acct.id, contact_id: person2.id } })
+      const dw = ['2026-06-01', '2026-06-07']
+      const dRes = await call('/api/weekly-plans', SUB, 'POST', { week_start_date: dw[0], week_end_date: dw[1],
+        items: [{ plan_date: dw[0], party_id: acct.id, party_type: 'company', contact_id: person.id }] })
+      const dPlan = await dRes.json()
+      await prisma.weekly_plans.update({ where: { id: dPlan.id }, data: { status: 'Submitted' } })
+      const em = await call(`/api/weekly-plans/${dPlan.id}/edit-by-manager`, MGR, 'POST', {
+        items: [{ plan_date: dw[0], party_id: acct.id, party_type: 'company', contact_id: person2.id }] })
+      const emBody = await em.json()
+      const ch = emBody.changes?.changed?.[0]
+      ok('manager edit changing only the person is recorded as a change',
+        em.status === 200 && ch?.fields?.includes('contact_label') && ch.before.contact_label === 'Ramesh Planner' && ch.after.contact_label === 'Priya Planner', emBody)
+      ok('...and the person is stored', (await stored(dPlan.id))[0]?.contact_id === person2.id)
+      const em2 = await call(`/api/weekly-plans/${dPlan.id}/edit-by-manager`, MGR, 'POST', {
+        items: [{ plan_date: dw[0], party_id: acct.id, party_type: 'company', contact_id: person2.id }] })
+      const em2Body = await em2.json()
+      ok('re-saving the same person is not a change', (em2Body.changes?.changed ?? []).length === 0, em2Body)
+      createdPlanIds.push(dPlan.id)
+
+      // ---- stale references on a stored line must not block a re-save --------
+      const sw = ['2026-07-06', '2026-07-12']
+      const gone = await prisma.companies.create({ data: { tenant_id: SEED.tenantA, type: 'Dealer', stage: 'Existing', name: 'Soon Deleted Acct' } })
+      const goneP = await prisma.contacts.create({ data: { tenant_id: SEED.tenantA, name: 'Soon Unlinked', mobile: '9555555555' } })
+      await prisma.company_contacts.create({ data: { tenant_id: SEED.tenantA, company_id: gone.id, contact_id: goneP.id } })
+      await prisma.company_contacts.create({ data: { tenant_id: SEED.tenantA, company_id: acct.id, contact_id: goneP.id } })
+      const mkPlan = async (items, w = sw) => {
+        await prisma.weekly_plans.deleteMany({ where: { tenant_id: SEED.tenantA, user_id: SEED.subA, week_start_date: new Date(w[0]) } })
+        const r = await call('/api/weekly-plans', SUB, 'POST', { week_start_date: w[0], week_end_date: w[1], items })
+        const b = await r.json()
+        if (b.id) createdPlanIds.push(b.id)
+        return b
+      }
+      // (a) the account is deleted afterwards
+      const sp = await mkPlan([
+        { plan_date: sw[0], party_id: gone.id, party_type: 'company', contact_id: goneP.id },
+        { plan_date: sw[1], party_id: acct.id, party_type: 'company' },
+      ])
+      await prisma.company_contacts.deleteMany({ where: { company_id: gone.id } })
+      await prisma.companies.delete({ where: { id: gone.id } })
+      const keep = [
+        { plan_date: sw[0], party_id: gone.id, party_type: 'company', contact_id: goneP.id },
+        { plan_date: sw[1], party_id: acct.id, party_type: 'company' },
+      ]
+      const stalePut = await call(`/api/weekly-plans/${sp.id}`, SUB, 'PUT', { expected_version: sp.version, items: keep })
+      const stalePutBody = await stalePut.json().catch(() => ({}))
+      ok('PUT of a plan whose stored account was deleted -> 200', stalePut.status === 200, stalePutBody)
+      const afterStale = await stored(sp.id)
+      ok('...the line is kept with the stale account nulled', afterStale.length === 2 && afterStale.some(r => r.party_id === null && r.contact_id === null), afterStale)
+      const staleSubmit = await call(`/api/weekly-plans/${sp.id}/submit`, SUB)
+      ok('Submit of that plan succeeds', staleSubmit.status === 200, await staleSubmit.text())
+      // (b) the contact is unlinked afterwards, plan stays Draft
+      const sw2 = ['2026-07-13', '2026-07-19']
+      const sp2 = await mkPlan([{ plan_date: sw2[0], party_id: acct.id, party_type: 'company', contact_id: goneP.id }], sw2)
+      await prisma.company_contacts.deleteMany({ where: { company_id: acct.id, contact_id: goneP.id } })
+      const unlPut = await call(`/api/weekly-plans/${sp2.id}`, SUB, 'PUT', { expected_version: sp2.version,
+        items: [{ plan_date: sw2[0], party_id: acct.id, party_type: ' company ', contact_id: goneP.id }] })
+      ok('PUT with a contact unlinked since -> 200', unlPut.status === 200, unlPut.status)
+      const afterUnl = await stored(sp2.id)
+      ok('...contact dropped, account line kept', afterUnl.length === 1 && afterUnl[0].party_id === acct.id && afterUnl[0].contact_id === null, afterUnl)
+      // (c) a NEWLY added bad contact is refused, naming the day and the account
+      const newBad = await call(`/api/weekly-plans/${sp2.id}`, SUB, 'PUT', { expected_version: sp2.version,
+        items: [{ plan_date: sw2[0], party_id: acct.id, party_type: 'company', contact_id: goneP.id }] })
+      const newBadBody = await newBad.json().catch(() => ({}))
+      ok('a newly added unlinked contact -> 400 naming day and account',
+        newBad.status === 400 && /^Mon 13: that person is not linked to PlanContact Acct/.test(newBadBody.error ?? ''), newBadBody)
+      const newForeign = await call(`/api/weekly-plans/${sp2.id}`, SUB, 'PUT', { expected_version: sp2.version,
+        items: [{ plan_date: sw2[0], party_id: acct.id, party_type: 'company', contact_id: foreignContact.id }] })
+      ok('a newly added foreign contact -> 400', newForeign.status === 400, await newForeign.text())
+      await prisma.contacts.deleteMany({ where: { id: goneP.id } })
+
+      // ---- Missed list + Couldn't meet for plan lines with a person -----------
+      const ist = new Date(Date.now() + 5.5 * 3600e3)
+      const back = new Date(ist); back.setUTCDate(back.getUTCDate() - 1)
+      while ([0, 6].includes(back.getUTCDay())) back.setUTCDate(back.getUTCDate() - 1)
+      const day = back.toISOString().slice(0, 10)
+      const mon = new Date(back); mon.setUTCDate(mon.getUTCDate() - ((mon.getUTCDay() + 6) % 7))
+      const sun = new Date(mon); sun.setUTCDate(sun.getUTCDate() + 6)
+      const mStart = mon.toISOString().slice(0, 10), mEnd = sun.toISOString().slice(0, 10)
+      await prisma.weekly_plans.deleteMany({ where: { tenant_id: SEED.tenantA, user_id: SEED.subA, week_start_date: new Date(mStart) } })
+      const mRes = await call('/api/weekly-plans', SUB, 'POST', { week_start_date: mStart, week_end_date: mEnd, items: [
+        { plan_date: day, party_id: acct.id, party_type: 'company', contact_id: person.id },
+        { plan_date: day, party_id: loner.id, party_type: 'contact' },
+      ] })
+      const mPlan = await mRes.json()
+      createdPlanIds.push(mPlan.id)
+      await prisma.weekly_plans.update({ where: { id: mPlan.id }, data: { status: 'Approved' } })
+      const missedOf = async () => (await (await call(`/api/daily-activity/todos?date=${ist.toISOString().slice(0, 10)}`, SUB, 'GET')).json()).missed ?? []
+      let missed = await missedOf()
+      const mAcct = missed.find(m => m.party_name === 'Ramesh Planner · PlanContact Acct')
+      const mSolo = missed.find(m => m.party_name === 'Solo Contact')
+      ok('Missed: account+contact line reads "Person · Company" with the account as party', mAcct?.party_id === acct.id && mAcct?.contact_id === person.id, missed)
+      ok('Missed: contact-only line is named, party_id null, contact_id set', mSolo?.party_id === null && mSolo?.contact_id === loner.id, missed)
+
+      const rs = await (await call('/api/masters/todo-unmet-reasons', MGR, 'GET')).json()
+      const reason = (Array.isArray(rs) ? rs : rs.rows ?? [])[0]
+      const cm = await call('/api/daily-activity/couldnt-meet', SUB, 'POST', {
+        todo_kind: 'plan', todo_ref: mSolo?.id, party_id: null, due_date: day, reason_id: reason?.id })
+      ok("Couldn't meet works for a contact-only plan line", cm.status === 200, { s: cm.status, b: await cm.text(), reason })
+      missed = await missedOf()
+      const outcome = await prisma.$queryRaw`SELECT party_id::text, outcome FROM todo_outcomes WHERE tenant_id = ${SEED.tenantA}::uuid AND todo_ref = ${mSolo?.id}`
+      ok("...and the outcome is recorded against the line (no account)", outcome.length === 1 && outcome[0].party_id === null && outcome[0].outcome === 'couldnt_meet', outcome)
+
+      // meeting visits naming the person on a contact-only line resolve it
+      // (covered by the activity suite where daily_visits.contact_id exists)
+
+      // the plan -> meeting handoff data
+      await prisma.weekly_plans.update({ where: { id: gp.id }, data: { status: 'Approved' } })
+      const planned = await (await call(`/api/daily-activity/plan?date=${wk[0]}`, SUB, 'GET')).json()
+      const pi = (planned.items ?? [])[0]
+      ok('/daily-activity/plan: entity is the account, contact separate, name "Person · Company"',
+        pi?.account_id === acct.id && pi?.contact_id === person.id && pi?.entity_name === 'Ramesh Planner · PlanContact Acct', pi)
+    } finally {
+      const mine5 = await prisma.weekly_plans.findMany({ where: { tenant_id: SEED.tenantA, user_id: SEED.subA, week_start_date: new Date('2026-05-04') }, select: { id: true } })
+      for (const id of [...mine5.map(p => p.id), ...createdPlanIds]) {
+        await prisma.$executeRaw`DELETE FROM todo_outcomes WHERE todo_ref IN (SELECT id::text FROM weekly_plan_items WHERE weekly_plan_id = ${id}::uuid)`.catch(() => {})
+        await prisma.weekly_plan_audit_logs.deleteMany({ where: { weekly_plan_id: id } })
+        await prisma.$executeRaw`DELETE FROM weekly_goals WHERE weekly_plan_id = ${id}::uuid`
+        await prisma.weekly_plan_items.deleteMany({ where: { weekly_plan_id: id } })
+        await prisma.weekly_plans.delete({ where: { id } })
+      }
+      await prisma.company_contacts.deleteMany({ where: { company_id: acct.id } })
+      await prisma.contacts.deleteMany({ where: { OR: [{ id: { in: [person.id, loner.id, foreignContact.id] } }, { name: 'Priya Planner', tenant_id: SEED.tenantA }] } })
+      await prisma.companies.deleteMany({ where: { id: { in: [acct.id, acct2.id, foreignAcct.id] } } })
+    }
+  }
+
   // ===== tenant isolation ==================================================
   section('tenant B untouched')
   ok('tenant B has no weekly plans', (await prisma.weekly_plans.count({ where: { tenant_id: SEED.tenantB } })) === 0)

@@ -599,6 +599,9 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
               Location
             </button>
           )}
+          {!hasLocation && v.status !== 'Pending' && (
+            <span className="text-xs text-text-muted">No location</span>
+          )}
           {/* Minutes of the meeting: the one record of what was discussed,
               the same thread the rep's card and the meeting page show. Any
               older `daily_visits.notes` text rides along read-only — it used
@@ -620,6 +623,12 @@ function ReviewVisitCard({ v, onOpenRemarks }: {
                 <p className="text-[10px] font-normal text-primary uppercase mb-0.5">Start Location</p>
                 <p className="text-xs text-text-secondary">{v.address ?? `${v.latitude}, ${v.longitude}`}</p>
               </div>
+              {v.end_latitude == null && v.status === 'Completed' && (
+                <div className="bg-primary-subtle rounded-lg px-3 py-2">
+                  <p className="text-[10px] font-normal text-primary uppercase mb-0.5">End Location</p>
+                  <p className="text-xs text-text-secondary">No location</p>
+                </div>
+              )}
               {v.end_latitude != null && (
                 <div className={`rounded-lg px-3 py-2 ${endMismatch ? 'bg-danger-bg border border-danger-border' : 'bg-primary-subtle'}`}>
                   <div className="flex items-center gap-1.5">

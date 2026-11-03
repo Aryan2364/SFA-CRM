@@ -42,6 +42,7 @@ function formatValue(field: DiffField, line: DiffLine): string {
     return text.trim() === '' ? '—' : text
   }
   if (field === 'party_label') return (value as string | null) ?? 'No party'
+  if (field === 'contact_label') return (value as string | null) ?? 'no one'
   return String(value ?? 0)
 }
 

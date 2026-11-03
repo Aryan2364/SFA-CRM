@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeftIcon, ChevronRightIcon, HistoryIcon, MessageSquareIcon } from 'lucide-react'
+import { ChevronLeftIcon, ChevronRightIcon, HistoryIcon, MessageSquareIcon, PlusIcon } from 'lucide-react'
 
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
 import { StatusBadge, WEEKLY_PLAN_STATUS } from '@/components/status-badge'
@@ -10,28 +10,27 @@ import { ActionBar } from '@/components/ui/action-bar'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
-import { StaticPickerSheetField, type PickerOption } from '@/components/ui/picker-sheet'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePhoneFormGuard } from '@/components/ui/phone-form'
+import { useToast } from '@/contexts/ToastContext'
 import { useMeStatus } from '@/hooks/useMe'
 import { ManagerChanges, changeCountLabel } from '@/components/weekly-plan/manager-changes'
 import { PlanDayList } from '@/components/weekly-plan/plan-board'
 import { PartylessSaveDialog, RequestReopenDialog } from '@/components/weekly-plan/plan-dialogs'
 import { PlanHistoryLayer } from '@/components/weekly-plan/plan-history'
-import { PlanLineDialog, DayPicker } from '@/components/weekly-plan/plan-line-dialog'
+import { DayPicker } from '@/components/weekly-plan/plan-line-dialog'
 import {
   PLAN_EDIT_REASON,
   dayDataToPlanItems,
   formatCountdown,
-  formatDayLong,
   formatWeekRange,
   goalsFromPlan,
   planItemsToDayData,
-  type PlanPartyOption,
 } from '@/components/weekly-plan/plan-model'
 import { usePlanEditor } from '@/components/weekly-plan/use-plan-editor'
 import { WeeklyPriorities } from '@/components/weekly-plan/weekly-priorities'
+import { AddLineSheet, LineBrief, shortDay } from './phone-plan-sheets'
 
 /**
  * Phone Weekly plan, for the rep who plans the coming week on the road.
@@ -111,14 +110,14 @@ function PhonePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; canEd
   const {
     plan, loading, loadError, saving, logs, logsOpen, setLogsOpen, remarksOpen, setRemarksOpen,
     monday, weekDays, navigateWeek, loadPlan, loadLogs,
-    parties, undoSecondsLeft, reopenModal, setReopenModal, reopenMessage, setReopenMessage,
-    reopening, goals, editing, setEditing, prioritiesOpen, setPrioritiesOpen,
+    partyById, undoSecondsLeft, reopenModal, setReopenModal, reopenMessage, setReopenMessage,
+    reopening, goals, prioritiesOpen, setPrioritiesOpen,
     confirmDrop, setConfirmDrop, setSelectedDay, todayStr, mobileDay,
     returnedAsSuggestion, latestManagerEdit, partylessCount,
     handleSaveDraft, saveDraft, handleSubmit, handleUndo, handleRequestReopen,
     statusEditable, canWrite, canEdit, canSubmit, isSubmittedAwaitingReview, canRequestReopen,
-    lines, countsByDay, dayOptions, openAdd, openEdit, changeLineDay, selectPartyInDialog,
-    updateExpectedInDialog, saveLine, removeLine, dialogParty,
+    lines, countsByDay, dayOptions, addLine, removeLineById, setLineExpected, moveLine,
+    setLinePartyAndContact,
     updateGoalText, toggleGoal, addGoal, removeGoal, dayData,
   } = usePlanEditor({ canCreate, canEditPlan })
 
@@ -143,18 +142,26 @@ function PhonePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; canEd
   const changed = !loading && !loadError && statusEditable && baseline !== current
   const { warning } = usePhoneFormGuard(changed)
 
-  const partyOptions: PickerOption[] = useMemo(
-    () => parties.map((p: PlanPartyOption) => ({
-      id: p.id,
-      label: p.name,
-      sublabel: [p.type === 'company' ? 'Account' : 'Contact', p.subtitle].filter(Boolean).join(' · '),
-    })),
-    [parties],
-  )
-  const partyValue: PickerOption | null = editing?.entry.partyId
-    ? partyOptions.find(o => o.id === editing.entry.partyId)
-      ?? { id: editing.entry.partyId, label: 'Party not in your list' }
-    : null
+  const { toast } = useToast()
+  const [addOpen, setAddOpen] = useState(false)
+  const [briefId, setBriefId] = useState<string | null>(null)
+  const dayShort = shortDay(mobileDay)
+
+  /* The line whose brief is open, found by id so it follows a change of day. */
+  const briefLine = useMemo(() => {
+    if (!briefId) return null
+    for (const [date, entries] of Object.entries(dayData)) {
+      const entry = entries.find(e => e.id === briefId)
+      if (entry) return { date, entry }
+    }
+    return null
+  }, [briefId, dayData])
+
+  function removeFromDay(lineId: string) {
+    const line = lines.find(l => l.id === lineId)
+    if (!line || !removeLineById(lineId)) return
+    toast(`Removed ${line.title} from ${shortDay(line.date)} \u2014 remember to save the plan`)
+  }
 
   const todayInWeek = weekDays.includes(todayStr) ? todayStr : null
 
@@ -247,8 +254,10 @@ function PhonePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; canEd
             day={mobileDay}
             lines={lines}
             canEdit={canEdit}
-            onOpenLine={openEdit}
-            onAdd={() => openAdd(mobileDay)}
+            onOpenLine={setBriefId}
+            onRemoveLine={removeFromDay}
+            dayLabel={dayShort}
+            permissionReason={statusEditable && !canWrite ? PLAN_EDIT_REASON : undefined}
           />
 
           <WeeklyPriorities
@@ -326,34 +335,54 @@ function PhonePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; canEd
         </ActionBar>
       )}
 
-      {/* Add / edit one line: a full-screen form on a phone. */}
-      <PlanLineDialog
-        open={editing !== null}
-        mode={editing?.mode ?? 'add'}
-        dateLabel={editing ? formatDayLong(editing.date) : ''}
-        date={editing?.date ?? weekDays[0]}
+      {/*
+        The screen's one add action: a round + above the action bar (41.6 rule 7).
+        Two reasons it may not work, handled differently (section 26 vs 38.3):
+        - A LOCKED plan (Submitted, Approved, On Hold): the status banner above the
+          list already explains it and the whole area is read-only, so the + is not
+          drawn (41.6 rule 7: "where the person may add").
+        - A missing PERMISSION: nothing on screen says so, so the + stays, disabled,
+          and a tap on it gives the reason (26 rule 2, 41.8 rule 17).
+        The per-line remove button follows the same split in PlanDayList.
+      */}
+      {(canEdit || (!canWrite && statusEditable)) && !loading && !loadError && (
+        <div className="fixed right-[calc(var(--safe-right)+16px)] bottom-[calc(var(--tab-bar-offset,0px)+var(--action-bar-safe,var(--safe-bottom))+var(--h-action-bar)+16px)] z-(--z-shell)">
+          <PermissionTooltip allowed={canWrite} reason={plan ? PLAN_EDIT_REASON : 'Only someone who can create weekly plans can do this.'}>
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              disabled={!canEdit}
+              aria-label={`Add a visit on ${dayShort}`}
+              className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg disabled:opacity-50"
+            >
+              <PlusIcon aria-hidden />
+            </button>
+          </PermissionTooltip>
+        </div>
+      )}
+
+      <AddLineSheet
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        dayShort={dayShort}
+        onAdd={(value, name, contactName) => {
+          if (!addLine(mobileDay, { ...value, contactName })) return false
+          toast(`Added ${name} to ${dayShort} \u2014 remember to save the plan`)
+          return true
+        }}
+      />
+
+      <LineBrief
+        line={briefLine}
+        canEdit={canEdit}
         dayOptions={dayOptions}
-        onDateChange={changeLineDay}
-        draft={editing?.entry ?? null}
-        companyType={dialogParty?.companyType ?? null}
-        canRemove={canEdit}
-        partyField={
-          <StaticPickerSheetField
-            value={partyValue}
-            options={partyOptions}
-            label="Account or contact"
-            placeholder="Choose an account or contact"
-            disabled={!canEdit}
-            onChange={option => {
-              const found = parties.find(p => p.id === option.id)
-              if (found) selectPartyInDialog(found)
-            }}
-          />
-        }
-        onExpectedValueChange={updateExpectedInDialog}
-        onSave={saveLine}
-        onRemove={removeLine}
-        onClose={() => setEditing(null)}
+        onClose={() => setBriefId(null)}
+        onPerson={(id, accountId, contactId, contactName) => setLinePartyAndContact(id, { accountId, contactId, contactName })}
+        onExpected={setLineExpected}
+        onMoveDay={async (id, toDay) => {
+          try { await moveLine(id, toDay) } catch { /* the editor has toasted the reason */ }
+        }}
+        partyName={id => partyById.get(id)?.name ?? ''}
       />
 
       <PartylessSaveDialog

@@ -118,3 +118,12 @@ ALTER TABLE todo_outcomes ADD COLUMN IF NOT EXISTS accuracy_m real NULL;
 ALTER TABLE attendance
   ADD COLUMN IF NOT EXISTS check_in_accuracy_m real NULL,
   ADD COLUMN IF NOT EXISTS check_out_accuracy_m real NULL;
+
+-- 11. Weekly plan lines store the Account AND the Contact separately.
+--     party_id / party_type keep meaning the ACCOUNT (party_type 'company'); a
+--     contact-only line stays party_type 'contact' with contact_id null.
+--     Nullable and additive; the app plans without it until this is run.
+ALTER TABLE weekly_plan_items
+  ADD COLUMN IF NOT EXISTS contact_id uuid NULL REFERENCES contacts(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS weekly_plan_items_contact_idx
+  ON weekly_plan_items (tenant_id, contact_id) WHERE contact_id IS NOT NULL;

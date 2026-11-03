@@ -502,6 +502,8 @@ export function PhoneMeetingDetailPage({ visitId }: { visitId: string }) {
             </div>
           ) : null}
         </div>
+      ) : visit.status !== 'Pending' && visit.accuracy_m == null ? (
+        <p className="text-body text-text-secondary">No location was recorded for this meeting.</p>
       ) : mine && visit.status === 'Pending' ? (
         <p className="text-body text-text-secondary">
           To record where this meeting happens, allow location when you tap Start meeting.

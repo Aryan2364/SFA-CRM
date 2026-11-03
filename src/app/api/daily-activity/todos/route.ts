@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
     // same-day sources above.
     const missedRaw = await listMissedTodosForRep(tid, user.userId, businessDate())
     const missed = missedRaw.map(m => ({
-      kind: m.kind, id: m.id, deal_id: m.deal_id, party_id: m.party_id, party_name: m.party_name,
+      kind: m.kind, id: m.id, deal_id: m.deal_id, party_id: m.party_id, contact_id: m.contact_id ?? null, party_name: m.party_name,
       visit_type: m.visit_type, original_date: m.original_date, label: m.label,
     }))
 

@@ -77,10 +77,13 @@ export function PlanLineDialog({
   dayOptions,
   onDateChange,
   draft,
-  companyType,
+  canEdit,
+  lockedReason,
   canRemove,
-  /** Rendered by the caller so the party list stays in one place. */
-  partyField,
+  /** Rendered by the caller: the shared account + person fields, with its picker. */
+  partyFields,
+  /** True when the account/person pair can be saved (`picker.complete`). */
+  partyComplete,
   onExpectedValueChange,
   onSave,
   onRemove,
@@ -99,21 +102,24 @@ export function PlanLineDialog({
   dayOptions: [string, string][]
   onDateChange: (date: string) => void
   draft: PlanLineDraft | null
-  /** From the Company master. Read-only wherever it is shown (§5.1). */
-  companyType: string | null
+  /** Status AND permission. When false nothing here can be saved. */
+  canEdit: boolean
+  /** Why it cannot be edited, shown in the dialog when `canEdit` is false. */
+  lockedReason?: string
   canRemove: boolean
-  partyField: React.ReactNode
+  partyFields: React.ReactNode
+  partyComplete: boolean
   onExpectedValueChange: (raw: string) => void
   onSave: () => void
   onRemove: () => void
   onClose: () => void
 }) {
   /*
-   * Save is blocked rather than hidden while no party is chosen, and the
-   * reason is stated under the field. A hidden primary action reads as a
-   * broken dialog; a disabled one that says why reads as a form.
+   * Save is blocked rather than hidden while the account/person pair is
+   * incomplete (the fields say why) or the plan is locked (the note says why).
+   * A hidden primary action reads as a broken dialog; a disabled one that says
+   * why reads as a form.
    */
-  const hasParty = Boolean(draft?.partyId)
   /*
    * On phone this dialog is a full-screen layer whose footer is the action
    * bar: two buttons at most, and Cancel is the back arrow (41.6 rule 8, 41.7
@@ -136,12 +142,18 @@ export function PlanLineDialog({
           */}
           <DialogDescription>
             {dateLabel
-              ? 'Pick the day, the party, and what you expect from the visit.'
+              ? 'Pick the day, the account and person, and what you expect from the visit.'
               : ''}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          {!canEdit && lockedReason ? (
+            <p className="rounded-lg border border-border-light bg-surface-sunken px-3 py-2 text-label text-text-secondary">
+              {lockedReason}
+            </p>
+          ) : null}
+
           <div className="flex flex-col gap-1.5">
             <Label>Day</Label>
             {/*
@@ -154,6 +166,7 @@ export function PlanLineDialog({
               // Base UI hands back `string | null`; there is no clear control
               // on this field, so null only arrives if one is ever added.
               onValueChange={v => { if (v) onDateChange(v) }}
+              disabled={!canEdit}
             >
               <SelectTrigger className="w-full">
                 {/*
@@ -175,31 +188,8 @@ export function PlanLineDialog({
             </Select>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="plan-line-party">Party</Label>
-            {partyField}
-            {!hasParty && (
-              <p className="text-meta text-text-muted">
-                Choose the account or contact this visit is for.
-              </p>
-            )}
-          </div>
-
-          {/*
-            §5.1: the Company Type comes from the master and is shown locked.
-            Text, never a disabled input — a disabled input still reads as a
-            field somebody could switch on.
-          */}
-          <div className="flex flex-col gap-1.5">
-            <Label>Type</Label>
-            <div className="rounded-lg border border-border-light bg-surface-sunken px-3 py-2 text-body">
-              {hasParty ? (
-                <span className="text-text-secondary">{companyType || '—'}</span>
-              ) : (
-                <span className="text-text-muted">Select a party first</span>
-              )}
-            </div>
-          </div>
+          {/* Account and person: two fields, shared with meetings. */}
+          {partyFields}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="plan-line-value">Expected order value</Label>
@@ -209,6 +199,7 @@ export function PlanLineDialog({
               inputMode="decimal"
               value={draft?.expectedOrderValue ?? ''}
               onChange={e => onExpectedValueChange(e.target.value)}
+              readOnly={!canEdit}
               placeholder="Optional"
               // 16px below sm or iOS zooms the page on focus.
               className="w-full rounded-lg border border-border-light px-3 py-2 text-[16px] text-text-primary placeholder:text-text-muted focus:ring-2 focus:ring-primary-ring focus:outline-none sm:text-sm"
@@ -247,7 +238,7 @@ export function PlanLineDialog({
             </Button>
           )}
           <DialogClose render={<Button variant="secondary" />}>Cancel</DialogClose>
-          <Button onClick={onSave} disabled={!hasParty}>
+          <Button onClick={onSave} disabled={!canEdit || !partyComplete}>
             {mode === 'add' ? 'Add line' : 'Save line'}
           </Button>
         </DialogFooter>
@@ -293,7 +284,9 @@ export function DayPicker({
   return (
     <div
       ref={setNode}
-      className="flex gap-2 overflow-x-auto pb-1"
+      // pb-3 keeps the 10px scrollbar clear of the pills; on touch the bar is
+      // hidden outright (it is only an overlay indicator there).
+      className="flex gap-2 overflow-x-auto pb-3 [@media(hover:none)]:pb-1 [@media(hover:none)]:[scrollbar-width:none] [@media(hover:none)]:[&::-webkit-scrollbar]:hidden"
       role="tablist"
       aria-label="Day of the week"
     >

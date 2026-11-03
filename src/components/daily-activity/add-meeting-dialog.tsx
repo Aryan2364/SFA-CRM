@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeftIcon, Building2Icon, HistoryIcon, PlusIcon, StarIcon, UserIcon, UserPlusIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, HistoryIcon, PlusIcon, StarIcon, UserPlusIcon, XIcon } from 'lucide-react'
 
 import { useToast } from '@/contexts/ToastContext'
 import { useMe } from '@/hooks/useMe'
@@ -32,6 +32,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { TimePicker, type TimeValue } from '@/components/ui/time-picker'
 import { Entity, PlannedItem, Visit } from './types'
+import {
+  AccountContactFields,
+  useAccountContactPicker,
+  type AccountContactValue,
+  type PickerAccount,
+} from '@/components/parties/account-contact-fields'
 
 /**
  * ONE meeting form (F5), for a meeting happening now and for one that
@@ -90,28 +96,14 @@ import { Entity, PlannedItem, Visit } from './types'
  * THIS form. That is a local relabel, not the repo-wide Lead/Party
  * decision, which is still Aryan's to make.
  *
- * WHO THE MEETING WAS WITH — ONE QUESTION, ONE DROPDOWN
+ * WHO THE MEETING WAS WITH - TWO FIELDS
  *
- * A meeting is with a person as often as with a company, so the form has
- * to be able to name either. It used to do that with THREE modes: pick a
- * Lead and then optionally one of its contacts, or leave the Lead path
- * entirely through a ghost link into a separate person-first panel.
- *
- * That was wrong, and the reason is worth keeping: the user does not
- * think "am I in lead mode or contact mode", they think "I met Ramesh".
- * A mode switch makes them answer a question about the software before
- * they can answer the question about their day, and the person-first
- * panel in particular was reachable only by reading a link at the bottom
- * of the form — so the commonest way to log a meeting with someone who
- * belongs to no company was the hardest one to find.
- *
- * There is now ONE field. It lists leads/companies and contacts together,
- * in two headed groups with an icon each, so a person is never mistaken
- * for a company — at rest on the trigger as well as in the open menu
- * (`SearchableSelect`'s grouped variant, kit §16.3 and §4 rule 4). One
- * pick sets the target. The only remaining mode is `create`, which is a
- * different verb — it makes a master record — not a different way of
- * answering the same question.
+ * Account and Contact are separate fields (`AccountContactFields`, shared
+ * with the phone form): the account (who buys) and the optional contact (the
+ * person met). The pair narrows itself - an account lists only its people, a
+ * contact with one account fills it in, an Individual account locks the
+ * contact to its Self person. The only other mode is `create`, a different
+ * verb - it makes a master record.
  *
  * ⚠️ WHAT GETS STORED — UNCHANGED BY THE ABOVE.
  *
@@ -288,38 +280,6 @@ export async function loadPlaceOptions(talukaId?: string): Promise<{
  *  string cannot be told apart from "no value" by the select. */
 export const NO_LEAD_TYPE = '__none'
 
-/**
- * Kit §16.3 — past six options a dropdown needs a search box, which is
- * what `SearchableSelect` is; at or below six it is still a `Select`.
- *
- * The "who did you meet" picker is always the searchable one: it holds every
- * party AND every contact, which is far past six in any real tenant. This
- * constant governs only the follow-up "Which company?", whose list is one
- * person's companies and is usually two.
- */
-const SEARCHABLE_ABOVE = 6
-
-/** Kit §14.4 — the browser's `fetch` has no timeout of its own, so a
- *  stalled request would never settle and the error branch below could
- *  never run. Every request gets a deadline at the point it is made. */
-const CONTACTS_TIMEOUT_MS = 15_000
-
-/**
- * Kit §13 and §14.3 — "nothing yet", "something failed" and "still
- * loading" are three states, not one boolean. Collapsing a failed read
- * into an empty list tells the user this Lead has no contacts, which is
- * a different and false statement.
- *
- * `forbidden` is the fourth: §26 says an area the user has no access to
- * is HIDDEN, not shown broken, so a 403 from `/api/contacts` removes the
- * question rather than reporting it as a fault.
- */
-type ContactsLoad =
-  | { state: 'loading' }
-  | { state: 'ready'; contacts: LeadContact[] }
-  | { state: 'error' }
-  | { state: 'forbidden' }
-
 export type MeetingDraft = Partial<Visit> & {
   /** `daily_visits.contact_id` — the person met, when one was named. */
   contact_id?: string | null
@@ -393,30 +353,22 @@ export function AddMeetingDialog({
   const creating = mode === 'create'
   const [saving, setSaving] = useState(false)
 
-  const [entities, setEntities] = useState<Entity[]>([])
-  const [entLoading, setEntLoading] = useState(false)
-
   /**
-   * The one answer to "who did you meet": `c:<company id>` or
-   * `p:<contact id>`, or empty.
+   * The answer to "who did you meet": an account and, optionally, a contact -
+   * two fields (`AccountContactFields`), not one combined picker. `''` = none.
    */
-  const [target, setTarget] = useState('')
-  /** Which of the person's companies, asked only when there is a real choice. */
-  const [personCompanyId, setPersonCompanyId] = useState('')
-
-  /* Every active contact. Loaded with the parties rather than per party:
-     the picker holds both kinds at once, so there is no earlier answer to
-     narrow the list by. */
-  const [peopleLoad, setPeopleLoad] = useState<ContactsLoad>({ state: 'ready', contacts: [] })
-  /** Bumped by Retry, which is the §13 "something failed" action. */
-  const [peopleReload, setPeopleReload] = useState(0)
-  /* Memoised, not a bare ternary: a fresh `[]` on every render would make
-     the option memos below recompute every time, which is the one thing a
-     memo exists not to do. */
-  const people = useMemo(
-    () => (peopleLoad.state === 'ready' ? peopleLoad.contacts : []),
-    [peopleLoad]
-  )
+  const [pair, setPair] = useState<AccountContactValue>({ accountId: '', contactId: '' })
+  /** Individual accounts made in this dialog, which the accounts feed has not seen yet. */
+  const [madeAccounts, setMadeAccounts] = useState<PickerAccount[]>([])
+  const picker = useAccountContactPicker({
+    value: pair,
+    onChange: setPair,
+    accountsUrl: '/api/business-partners?status=all&mine=1',
+    contactsUrl: '/api/contacts?mine=1',
+    allowContactOnly: true,
+    extraAccounts: madeAccounts,
+    enabled: open,
+  })
 
   const [leadTypes, setLeadTypes] = useState<{ id: string; name: string }[]>([])
   /* A new tenant starts with no lead types. The field is optional, so that
@@ -457,14 +409,13 @@ export function AddMeetingDialog({
   const [newMobile, setNewMobile] = useState('')
   const [newRoleId, setNewRoleId] = useState('')
   const [makingIndividual, setMakingIndividual] = useState(false)
-  const [individualMadeFor, setIndividualMadeFor] = useState<string | null>(null)
-
+  
   useEffect(() => {
     if (!open) return
     setIsPast(false)
     setMode('target')
-    setTarget('')
-    setPersonCompanyId('')
+    setPair({ accountId: '', contactId: '' })
+    setMadeAccounts([])
     setNpName('')
     setNpMobile('')
     setNpPlace('')
@@ -482,7 +433,6 @@ export function AddMeetingDialog({
     setNewName('')
     setNewMobile('')
     setNewRoleId('')
-    setIndividualMadeFor(null)
 
     fetch('/api/masters/contact-roles')
       .then(r => (r.ok ? r.json() : { rows: [] }))
@@ -491,15 +441,6 @@ export function AddMeetingDialog({
         setContactRoles(rows.filter(r => !r.is_system && r.is_active !== false))
       })
       .catch(() => setContactRoles([]))
-
-    setEntLoading(true)
-    // One list. No stage filter, no type filter — F6 removed both
-    // questions, so the form offers every active party at once. `mine=1`:
-    // only the caller's own (Daily Activity is for entering your own work).
-    fetch('/api/business-partners?status=all&mine=1')
-      .then(r => (r.ok ? r.json() : []))
-      .then((d: Entity[]) => { setEntities(Array.isArray(d) ? d : []); setEntLoading(false) })
-      .catch(() => { setEntLoading(false); toast('Failed to load accounts', 'error') })
 
     setLeadTypesState('loading')
     fetch('/api/masters/lead-types?active=true')
@@ -514,43 +455,6 @@ export function AddMeetingDialog({
       .catch(() => { setLeadTypesState('error'); toast('Failed to load account types', 'error') })
   }, [open])
 
-  /*
-   * Every active contact the caller owns (`mine=1`) — the people half of
-   * the one picker.
-   *
-   * `/api/contacts` enforces `contacts:view` and the caller's data scope
-   * itself. A rep who may log meetings but may not read the contact book gets
-   * a 403, which §26 answers by HIDING the Contacts group — the permission is
-   * never re-decided in the browser, and the meeting is still loggable against
-   * a company. A 403 is NOT a fault and must never be reported as one.
-   *
-   * A 403 and a 500 are deliberately not the same branch: one is "this is not
-   * yours to see", the other is "this broke and can be retried". Neither is
-   * "there are no contacts", which is a third and different statement.
-   *
-   * `live` guards the race between a Retry and the request it replaces.
-   */
-  useEffect(() => {
-    if (!open) { setPeopleLoad({ state: 'ready', contacts: [] }); return }
-    let live = true
-    setPeopleLoad({ state: 'loading' })
-    fetch('/api/contacts?mine=1', { signal: AbortSignal.timeout(CONTACTS_TIMEOUT_MS) })
-      .then(async r => {
-        if (!live) return
-        if (r.status === 403) { setPeopleLoad({ state: 'forbidden' }); return }
-        if (!r.ok) { setPeopleLoad({ state: 'error' }); return }
-        const d = (await r.json()) as LeadContact[]
-        if (live) setPeopleLoad({ state: 'ready', contacts: Array.isArray(d) ? d : [] })
-      })
-      .catch(() => { if (live) setPeopleLoad({ state: 'error' }) })
-    return () => { live = false }
-  }, [open, peopleReload])
-
-  /* A different person may have a different number of companies, so the
-     follow-up answer never survives a change of target. */
-  useEffect(() => { setPersonCompanyId('') }, [target])
-
-
   /* Location masters are only needed by the create panel, so they load
      when it opens rather than on every meeting. */
   useEffect(() => {
@@ -563,100 +467,19 @@ export function AddMeetingDialog({
       .catch(() => toast('Failed to load location data', 'error'))
   }, [creating, placeMap.size])
 
-  /* A party that is still in the funnel is marked in the list, so one
-     dropdown does not lose the Lead/Existing distinction the removed
-     selector used to carry — it just stops asking about it up front. */
-  const entityOptions: Record<string, string> = useMemo(
-    () =>
-      Object.fromEntries(
-        entities.map(e => {
-          return [`${COMPANY_PREFIX}${e.id}`, partyOptionLabel(e)]
-        })
-      ),
-    [entities]
-  )
-
-  /** Every active contact, labelled so two people with one name are distinct. */
-  const personOptions: Record<string, string> = useMemo(() => {
-    const out: Record<string, string> = {}
-    for (const c of people) {
-      out[`${CONTACT_PREFIX}${c.id}`] = personOptionLabel(c)
-    }
-    return out
-  }, [people])
+  const selectedPersonId = pair.contactId
+  /** The account the meeting is filed against, as the save payload wants it. */
+  const accountRow = picker.selectedAccount
+  const company = accountRow
+    ? { id: accountRow.id, name: accountRow.name, type: accountRow.type }
+    : null
 
   /**
-   * The one list, in two headed groups.
-   *
-   * Companies first: they are the commoner answer and the one the screen has
-   * always led with. The Contacts group is absent entirely when the caller may
-   * not read the contact book (§26 hides an area) and when the read failed —
-   * in the second case the message below the field says so, because an absent
-   * group and an empty one must not read the same.
+   * The account the ATTENDEES step is scoped to. `''` with no account at all
+   * (a standalone person, or a brand-new lead) - there are no linked contacts
+   * to offer and the step does not show.
    */
-  /**
-   * KIT GAP (see docs/kit-audit/kit-gaps.md): the kit's `searchable-select.tsx`
-   * takes a flat `options: Record<string, string>` and has no headed-group
-   * concept (`SearchableSelectGroup` doesn't exist in the kit). Until the kit
-   * adds grouping, the two groups are flattened into one list with the group
-   * name folded into each label, so the account/contact distinction still
-   * reads without needing a kit API this component doesn't have.
-   */
-  const targetOptions = useMemo(() => {
-    const flat: Record<string, string> = {}
-    for (const [value, label] of Object.entries(entityOptions)) flat[value] = label
-    if (peopleLoad.state === 'ready') {
-      for (const [value, label] of Object.entries(personOptions)) {
-        flat[value] = `${label} (contact)`
-      }
-    }
-    return flat
-  }, [entityOptions, personOptions, peopleLoad.state])
-
-  const selectedCompanyId = target.startsWith(COMPANY_PREFIX)
-    ? target.slice(COMPANY_PREFIX.length)
-    : ''
-  const selectedPersonId = target.startsWith(CONTACT_PREFIX)
-    ? target.slice(CONTACT_PREFIX.length)
-    : ''
-
-  /** The companies the chosen person belongs to. Primary first — the API sorts
-   *  them that way — so `[0]` is the right answer whenever there is one. */
-  const personCompanies: ContactCompany[] = useMemo(
-    () => (selectedPersonId ? people.find(c => c.id === selectedPersonId)?.companies ?? [] : []),
-    [people, selectedPersonId]
-  )
-
-  const personCompanyOptions: Record<string, string> = useMemo(
-    () => Object.fromEntries(personCompanies.map(c => [c.id, c.name])),
-    [personCompanies]
-  )
-
-  /*
-   * REBUILD-PLAN §3.4's consequence, applied here: a Contact may belong to
-   * many Companies, and with more than one there is NO single right answer, so
-   * the form asks instead of guessing. Guessing would write the wrong
-   * `entity_id`, which is what Orders, Deals and every report join through.
-   *
-   * With exactly one company the question has one answer and is not asked.
-   * With none there is no company at all and `entity_id` stays null.
-   */
-  const mustPickCompany = personCompanies.length > 1
-  const chosenPersonCompany: ContactCompany | null =
-    personCompanies.length === 0
-      ? null
-      : personCompanies.length === 1
-        ? personCompanies[0]
-        : personCompanies.find(c => c.id === personCompanyId) ?? null
-
-  /**
-   * The account the ATTENDEES step is scoped to: the company picked
-   * directly, or the one a person-pick resolved to (auto-filled with one
-   * link, or chosen among several). `null` with no company at all — a
-   * standalone person, or a brand-new lead, has no linked contacts to offer
-   * and the step does not show.
-   */
-  const resolvedCompanyId = selectedCompanyId || chosenPersonCompany?.id || individualMadeFor || ''
+  const resolvedCompanyId = pair.accountId
 
   /*
    * Attendees: load the resolved account's ACTIVE linked contacts, and seed
@@ -797,7 +620,9 @@ export function AddMeetingDialog({
       const r = await fetch(`/api/contacts/${selectedPersonId}/make-individual`, { method: 'POST' })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) { toast(d.error || 'Could not create an Individual account', 'error'); return }
-      setIndividualMadeFor(d.id)
+      const person = picker.selectedContact
+      setMadeAccounts(prev => [...prev, { id: d.id, name: d.name ?? person?.name ?? '', type: d.type ?? null, account_kind: 'Individual' }])
+      setPair({ accountId: d.id, contactId: selectedPersonId })
       toast('Individual account created', 'success')
     } catch {
       toast('Could not create an Individual account', 'error')
@@ -812,7 +637,7 @@ export function AddMeetingDialog({
   const canAdd =
     mode === 'create'
       ? !!npName.trim() && timesOk
-      : !!target && (!mustPickCompany || !!personCompanyId) && timesOk
+      : picker.complete && timesOk
 
   async function handleAdd() {
     if (!canAdd || saving) return
@@ -862,46 +687,38 @@ export function AddMeetingDialog({
       })
     } else if (selectedPersonId) {
       /*
-       * A PERSON was picked. The company they belong to, when they have one,
-       * still goes in `entity_id` exactly as a company pick writes it, so
-       * Orders, Deals, the day summary and every report join carry on
-       * unchanged.
+       * A CONTACT was named (with or without an account). The account, when
+       * there is one, goes in `entity_id` exactly as an account-only pick
+       * writes it, so Orders, Deals, the day summary and every report join
+       * carry on unchanged.
        *
-       * With NO company `entity_id` is null. That was checked against all five
-       * consumers rather than assumed — see the note in
-       * `src/lib/visit-contact.ts` — and every one of them already handles it.
+       * With NO account `entity_id` is null. That was checked against all five
+       * consumers rather than assumed - see the note in
+       * `src/lib/visit-contact.ts` - and every one of them already handles it.
        */
-      const person = people.find(c => c.id === selectedPersonId)
-      const company = chosenPersonCompany
       await onAdd({
         ...planLink,
         ...followUpLink,
         ...manual,
         ...attendeesLink,
-        /* With a company, the same rule a company pick uses — the party's own
-           type, and 'Other' for a party whose type is blank.
-           STANDALONE_VISIT_TYPE is only for a meeting with NO company. */
         visit_type: visitTypeForPerson(company),
         entity_id: company?.id ?? null,
-        entity_name: personMeetingName(person?.name, company),
+        entity_name: personMeetingName(picker.selectedContact?.name, company),
         contact_id: selectedPersonId,
         is_new_entity: false,
       })
     } else {
-      const selected = entities.find(e => e.id === selectedCompanyId)
       await onAdd({
         ...planLink,
         ...followUpLink,
         ...manual,
         ...attendeesLink,
         // F6: the party's own type, not a type the user was made to pick.
-        visit_type: visitTypeForCompany(selected?.type),
-        // The COMPANY's id, always — a contact id must never be written here.
-        entity_id: selectedCompanyId,
-        entity_name: selected?.name ?? '',
-        // No person was named, so the structured half is empty. Picking the
-        // person instead is the other branch above; there is no longer a
-        // second field that could set this one alongside a company pick.
+        visit_type: visitTypeForCompany(accountRow?.type),
+        // The ACCOUNT's id, always - a contact id must never be written here.
+        entity_id: pair.accountId,
+        entity_name: accountRow?.name ?? '',
+        // No person was named, so the structured half is empty.
         contact_id: null,
         is_new_entity: false,
       })
@@ -953,137 +770,37 @@ export function AddMeetingDialog({
           {mode === 'target' ? (
             <>
               {/*
-                ONE question, ONE field. Leads/companies and contacts sit in
-                the same picker, in two headed groups with an icon each, so a
-                person is never mistaken for a company — on the closed trigger
-                as well as in the open menu. Kit §16.3: this list is far past
-                six options in any real tenant, so it is always the searchable
-                picker and never a plain `Select`.
+                TWO fields, not one combined picker: the account (who buys) and
+                the optional contact (the person met). The pair narrows itself -
+                see `AccountContactFields`. The action sits next to the account
+                it extends.
               */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="da-target">Who did you meet</Label>
-                  {/* The action sits next to the control it extends. */}
+              <AccountContactFields
+                picker={picker}
+                idPrefix="da"
+                accountAction={
                   <Button variant="ghost" size="sm" type="button" onClick={() => setMode('create')}>
                     <PlusIcon />
                     New account
                   </Button>
-                </div>
-                {entLoading || peopleLoad.state === 'loading' ? (
-                  /* Kit §14 — a skeleton in the shape of the control that is
-                     coming, never a spinner and never a line of text the field
-                     then jumps over. */
-                  <Skeleton className="h-control w-full" />
-                ) : (
-                  <SearchableSelect
-                    id="da-target"
-                    className="max-w-none"
-                    options={targetOptions}
-                    value={target}
-                    onValueChange={setTarget}
-                    placeholder="Search an account or person"
-                    emptyMessage="Nothing matches that search."
-                  />
-                )}
-                {/*
-                  Kit §14.3 — a failed read does not share a branch with an
-                  empty one. "The contacts could not be loaded" and "there are
-                  no contacts" are different statements and only one of them is
-                  ever true. §26's answer to no permission is to remove the
-                  question, not to report a fault, so `forbidden` says nothing
-                  about contacts at all: the group is simply not offered and
-                  the meeting is logged against a company.
-                */}
-                {peopleLoad.state === 'error' ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <InlineFieldError className="mt-0">
-                      The contacts could not be loaded, so only accounts are listed
-                      here. The meeting can still be logged against one.
-                    </InlineFieldError>
+                }
+                contactOnlyAction={
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-light bg-surface-sunken px-3 py-2.5">
+                    <p className="text-meta text-text-muted">
+                      You can also make this person their own Individual account.
+                    </p>
                     <Button
                       variant="secondary"
                       size="sm"
                       type="button"
-                      onClick={() => setPeopleReload(n => n + 1)}
+                      onClick={handleMakeIndividual}
+                      disabled={makingIndividual}
                     >
-                      Retry
+                      {makingIndividual ? 'Creating…' : 'Make Individual account'}
                     </Button>
                   </div>
-                ) : (
-                  /* Kit §2.3 — helper text is `text-muted`. */
-                  /* The list holds only the caller's own parties (`mine=1`),
-                     so "none" is a normal state for a new rep, and the way
-                     forward is the New account action beside the label. */
-                  <p className="text-meta text-text-muted">
-                    {entities.length === 0 && people.length === 0
-                      ? 'You have no accounts of your own yet. Use New account to add the one you met.'
-                      : people.length > 0
-                        ? 'Pick your account, or the person you met.'
-                        : 'Pick the account you met.'}
-                  </p>
-                )}
-              </div>
-
-              {/*
-                The multi-company question, asked INLINE and only when there is
-                a real choice — not as a mode and not as a panel.
-
-                REBUILD-PLAN §3.4: a Contact may belong to many Companies, and
-                with more than one there is NO single right answer, so the form
-                asks rather than guessing. A guess would write the wrong
-                `entity_id`, which Orders, Deals and every report join through.
-                With exactly one company the question has one answer and is not
-                asked; with none there is no company and `entity_id` stays null.
-              */}
-              {mustPickCompany && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="da-person-company">Which account?</Label>
-                  {personCompanies.length > SEARCHABLE_ABOVE ? (
-                    <SearchableSelect
-                      id="da-person-company"
-                      className="max-w-none"
-                      options={personCompanyOptions}
-                      value={personCompanyId}
-                      onValueChange={setPersonCompanyId}
-                      placeholder="Search by name"
-                      emptyMessage="No account matches that search."
-                    />
-                  ) : (
-                    <Select value={personCompanyId} onValueChange={v => setPersonCompanyId(String(v))}>
-                      <SelectTrigger id="da-person-company" className="w-full max-w-none">
-                        <SelectValue placeholder="Select the account" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {personCompanies.map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <p className="text-meta text-text-muted">
-                    This person is linked to more than one account, so the meeting has to say
-                    which one it was with.
-                  </p>
-                </div>
-              )}
-
-              {!!selectedPersonId && personCompanies.length === 0 && !individualMadeFor && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-light bg-surface-sunken px-3 py-2.5">
-                  <p className="text-meta text-text-muted">
-                    This person is not linked to any account, so the meeting is logged against
-                    them alone. You can make them their own account instead.
-                  </p>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    onClick={handleMakeIndividual}
-                    disabled={makingIndividual}
-                  >
-                    {makingIndividual ? 'Creating…' : 'Make Individual account'}
-                  </Button>
-                </div>
-              )}
+                }
+              />
 
               {/*
                 ATTENDEES (§8, Stage 2) — shown once an account is resolved,

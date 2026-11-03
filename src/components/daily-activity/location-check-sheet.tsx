@@ -15,7 +15,9 @@ import { reverseGeocode } from './types'
  * is: attendance check-in/check-out, and a meeting's Start and Stop.
  *
  *  - The phone is asked only when this sheet opens, which only a tap does
- *    (rule 1). Nothing is read in the background (rule 11).
+ *    (rule 1). Nothing is read before that or after the sheet closes (rule 11);
+ *    while it is open the reading keeps refining for a short window, and a
+ *    network fix requested late can still land (see `giveUp`).
  *  - Before anything is saved the person sees the address found, and how
  *    accurate the reading was, with a warning past 100 metres (rule 10).
  *  - A refusal says how to allow it and offers the reading again (rule 3).
@@ -48,6 +50,27 @@ type ReadState =
   | { kind: 'unsupported' }
 
 const ACCURATE_ENOUGH_M = 100
+/** Even when a place is required, this many failed reads let the person go on without one. */
+const FAILED_READS_TO_SKIP = 2
+/** Keep refining a fix for this long after the sheet opens, then settle. */
+const REFINE_WINDOW_MS = 20000
+/** No fix by now: also ask for a network/Wi-Fi/cell location. */
+const FALLBACK_AFTER_MS = 6000
+/** The oldest network fix accepted: two minutes is still the same place. */
+const FALLBACK_MAX_AGE_MS = 120000
+/** Nothing at all by now: show the timeout state. */
+const GIVE_UP_MS = 25000
+/** Re-look-up the address only when the reading moves this far. */
+const REGEOCODE_MOVE_M = 50
+
+/** Great-circle distance in metres (haversine). */
+function distanceM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const rad = Math.PI / 180
+  const dLat = (lat2 - lat1) * rad
+  const dLng = (lng2 - lng1) * rad
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)))
+}
 
 /** Which platform's steps to show for Precise location; both when unknown. */
 function preciseSteps(): { android: boolean; ios: boolean } {
@@ -78,50 +101,157 @@ export function LocationCheckSheet({
   onConfirm: (reading: LocationReading | null) => Promise<boolean>
 }) {
   const [state, setState] = useState<ReadState>({ kind: 'reading' })
+  // The address arrives after the fix and never gates it (see `lookUpAddress`).
+  const [address, setAddress] = useState<string | null>(null)
+  const [addressPending, setAddressPending] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Full reads that ended with no fix (timeout or off). Counts across "Read again",
+  // resets when the sheet closes.
+  const [failedReads, setFailedReads] = useState(0)
   // A reading still in flight when the sheet closes, or replaced by "Read
   // again", must not land on the next one.
   const attempt = useRef(0)
+  const watchId = useRef<number | null>(null)
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+  // The spot the current address was asked for.
+  const geocoded = useRef<{ latitude: number; longitude: number } | null>(null)
+
+  const stop = useCallback(() => {
+    if (watchId.current != null) navigator.geolocation?.clearWatch(watchId.current)
+    watchId.current = null
+    timers.current.forEach(clearTimeout)
+    timers.current = []
+  }, [])
+
+  const lookUpAddress = useCallback((mine: number, latitude: number, longitude: number) => {
+    const last = geocoded.current
+    // Only a materially different spot is worth another (slow, rate-limited)
+    // lookup; a watch tick a few metres away keeps the address it has.
+    if (last && distanceM(last.latitude, last.longitude, latitude, longitude) <= REGEOCODE_MOVE_M) return
+    geocoded.current = { latitude, longitude }
+    setAddress(null)
+    setAddressPending(true)
+    void reverseGeocode(latitude, longitude).then(a => {
+      if (attempt.current !== mine || geocoded.current?.latitude !== latitude || geocoded.current?.longitude !== longitude) return
+      setAddress(a)
+      setAddressPending(false)
+    })
+  }, [])
 
   const read = useCallback(() => {
+    stop()
     const mine = ++attempt.current
     setState({ kind: 'reading' })
+    setAddress(null)
+    setAddressPending(false)
+    geocoded.current = null
     if (!window.isSecureContext || !navigator.geolocation) {
       setState({ kind: 'unsupported' })
       return
     }
-    navigator.geolocation.getCurrentPosition(
-      async pos => {
-        const { latitude, longitude, accuracy } = pos.coords
-        // The address is decoration; a geocoding miss still shows the reading.
-        const address = await reverseGeocode(latitude, longitude)
-        if (attempt.current === mine) setState({ kind: 'found', reading: { latitude, longitude, accuracy, address } })
-      },
+    const geo = navigator.geolocation
+    let best: number | null = null // accuracy of the reading on screen
+    let fallbackFired = false
+    let fallbackFailed = false
+    let lastErr: number | null = null
+    // Give-up runs once per attempt, however many late errors arrive: it counts
+    // ONE failed read and shows one failure state.
+    let gaveUp = false
+
+    const accept = (pos: GeolocationPosition) => {
+      if (attempt.current !== mine) return
+      const { latitude, longitude, accuracy } = pos.coords
+      // Accept the first fix at once; after that only a better one replaces it.
+      if (best != null && accuracy >= best) return
+      best = accuracy
+      setState({ kind: 'found', reading: { latitude, longitude, accuracy, address: null } })
+      lookUpAddress(mine, latitude, longitude)
+      if (accuracy <= ACCURATE_ENOUGH_M) stop()
+    }
+    const fail = (err: GeolocationPositionError): boolean => {
+      if (attempt.current !== mine) return true
+      if (err.code === err.PERMISSION_DENIED) {
+        stop()
+        setState({ kind: 'denied' })
+        return true
+      }
+      lastErr = err.code
+      return false
+    }
+    // A fix that arrives AFTER give-up (the network fallback cannot be cancelled)
+    // is accepted: `accept` switches the sheet to "found", because a place is good
+    // news and the person is still looking at the sheet. The failed read it
+    // already counted stays counted (it was a real failure at the time), and the
+    // `gaveUp` guard keeps a later fallback error from counting a second one.
+    const giveUp = () => {
+      if (attempt.current !== mine || best != null || gaveUp) return
+      gaveUp = true
+      stop()
+      setFailedReads(n => n + 1)
+      setState({ kind: lastErr === 2 ? 'off' : 'timeout' })
+    }
+    const fireFallback = () => {
+      if (fallbackFired || attempt.current !== mine) return
+      fallbackFired = true
+      // Network/Wi-Fi/cell location for when GPS is slow: a fix up to two
+      // minutes old is the same place in practice, not "the last stop"
+      // (rule 9 is about not reusing the previous visit's reading).
+      geo.getCurrentPosition(
+        accept,
+        err => {
+          if (fail(err)) return
+          fallbackFailed = true
+          if (lastErr === 2 && best == null) giveUp()
+        },
+        { enableHighAccuracy: false, maximumAge: FALLBACK_MAX_AGE_MS, timeout: GIVE_UP_MS }
+      )
+    }
+
+    watchId.current = geo.watchPosition(
+      accept,
       err => {
-        if (attempt.current !== mine) return
-        setState({
-          kind: err.code === err.PERMISSION_DENIED ? 'denied' : err.code === err.POSITION_UNAVAILABLE ? 'off' : 'timeout',
-        })
+        if (fail(err)) return
+        if (err.code === err.POSITION_UNAVAILABLE) {
+          fireFallback()
+          if (fallbackFailed && best == null) giveUp()
+        }
       },
-      // maximumAge 0: the place at the moment of the tap (rule 9), never a
-      // cached fix from the last stop — and "Read again" really reads again.
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      // maximumAge 0: the place at the moment of the tap (rule 9) — and "Read
+      // again" really reads again.
+      { enableHighAccuracy: true, maximumAge: 0 }
     )
-  }, [])
+    timers.current = [
+      setTimeout(fireFallback, FALLBACK_AFTER_MS),
+      // Once a fix is on screen, stop refining at the window's end; with none
+      // yet, keep waiting for the give-up timer.
+      setTimeout(() => { if (best != null) stop() }, REFINE_WINDOW_MS),
+      setTimeout(() => { giveUp(); stop() }, GIVE_UP_MS),
+    ]
+  }, [stop, lookUpAddress])
 
   useEffect(() => {
     if (open) read()
-    else attempt.current++
-  }, [open, read])
+    else { attempt.current++; stop(); setFailedReads(0) }
+  }, [open, read, stop])
 
-  const reading = state.kind === 'found' ? state.reading : null
-  const canConfirm =
-    state.kind === 'found' ||
-    state.kind === 'unsupported' ||
-    (!requireLocation && (state.kind === 'off' || state.kind === 'timeout'))
+  useEffect(() => stop, [stop])
+
+  const reading = state.kind === 'found' ? { ...state.reading, address } : null
+  const noFix = state.kind === 'off' || state.kind === 'timeout'
+  // A required place never leaves someone stuck: after repeated failed reads
+  // they may continue without one (a refusal in settings, `denied`, still blocks).
+  const canSkipPlace = noFix && (!requireLocation || failedReads >= FAILED_READS_TO_SKIP)
+  const canConfirm = state.kind === 'found' || state.kind === 'unsupported' || canSkipPlace
+
+  const skipText = !canSkipPlace
+    ? null
+    : requireLocation
+      ? ` Or ${confirmLabel.toLowerCase()} without a place. Your manager will see this was recorded with no location.`
+      : ` Or ${confirmLabel.toLowerCase()} without a place.`
 
   async function confirm() {
     if (!canConfirm || saving) return
+    stop()
     setSaving(true)
     try {
       if (await onConfirm(reading)) onOpenChange(false)
@@ -157,7 +287,10 @@ export function LocationCheckSheet({
             <div className="flex items-start gap-2">
               <MapPinIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-text-secondary" />
               <p className="text-body text-text-primary">
-                {state.reading.address ?? 'No address found for this spot. The place is still recorded.'}
+                {address ??
+                  (addressPending
+                    ? 'Finding the address…'
+                    : 'No address found for this spot. The place is still recorded.')}
               </p>
             </div>
             {isApproximateLocation(state.reading.accuracy) ? (
@@ -201,7 +334,7 @@ export function LocationCheckSheet({
             <p className="text-body text-text-primary">Your phone&apos;s location is turned off.</p>
             <p className="text-body text-text-secondary">
               Turn on Location, then tap Read again.
-              {requireLocation ? null : ` Or ${confirmLabel.toLowerCase()} without a place.`}
+              {skipText}
             </p>
           </>
         ) : state.kind === 'timeout' ? (
@@ -209,7 +342,7 @@ export function LocationCheckSheet({
             <p className="text-body text-text-primary">Your location could not be found in time.</p>
             <p className="text-body text-text-secondary">
               Move to an open spot and tap Read again.
-              {requireLocation ? null : ` Or ${confirmLabel.toLowerCase()} without a place.`}
+              {skipText}
             </p>
           </>
         ) : (

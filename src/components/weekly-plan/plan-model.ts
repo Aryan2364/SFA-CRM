@@ -84,7 +84,15 @@ export function carriedNote(notes: string | null | undefined): string {
 export const PLACEHOLDER_TYPE = '—'
 
 /** One planned line. §5.1: a line is a PARTY, not a place. */
-export type PlanEntry = PlanLineDraft
+export type PlanEntry = PlanLineDraft & {
+  /**
+   * The PERSON on an account line. `partyId`/`partyType` stay the ACCOUNT
+   * ('company'); a contact-only line is `partyType 'contact'` with the person in
+   * `partyId` and no `contactId`. Optional so existing drafts still compile.
+   */
+  contactId?: string
+  contactName?: string
+}
 export type DayData = { [dateStr: string]: PlanEntry[] }
 
 /** A checklist row. `id` is null until it has been saved. */
@@ -101,6 +109,9 @@ export type PlanItem = {
   others_goal: number | null
   party_id: string | null
   party_type: string | null
+  /** The person on an account line; absent from servers without the column. */
+  contact_id?: string | null
+  contact_name?: string | null
   expected_order_value: number | null
 }
 
@@ -136,6 +147,8 @@ export type PlanPartyOption = {
   companyType: string
   /** For a Contact, the company it hangs off; for a Company, its stage. */
   subtitle: string
+  /** A company-type option's kind, from the picker feed. An Individual IS the person. */
+  accountKind?: 'Company' | 'Individual'
 }
 
 let _entryId = 0
@@ -156,7 +169,13 @@ export function planItemsToDayData(items: PlanItem[], weekDays: string[]): DayDa
     dd[item.plan_date].push({
       id: newEntryId(),
       partyId: item.party_id ?? '',
-      partyType: item.party_type === 'company' || item.party_type === 'contact' ? item.party_type : '',
+      // A legacy line has party_type NULL and its party is an account, so a
+      // party with no type is read as a company everywhere downstream.
+      partyType: item.party_type === 'company' || item.party_type === 'contact'
+        ? item.party_type
+        : item.party_id ? 'company' : '',
+      contactId: item.contact_id ?? '',
+      contactName: item.contact_name ?? '',
       dist: item.existing_dealers_goal ?? 0,
       dealer: item.new_dealers_goal ?? 0,
       // Was hardcoded to 0 — the data-loss bug. See readOthers above.
@@ -190,6 +209,9 @@ export function dayDataToPlanItems(dayData: DayData) {
         plan_date: date,
         party_id: entry.partyId,
         party_type: entry.partyType || null,
+        // Only an account line carries a person; a contact-only line has the
+        // person as its party already.
+        contact_id: entry.partyType === 'company' && entry.contactId ? entry.contactId : null,
         // '' means the optional field was left blank, which is null — not 0.
         expected_order_value: entry.expectedOrderValue.trim() === ''
           ? null

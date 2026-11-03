@@ -139,6 +139,14 @@ export type PlannedItem = {
   /** The party's own `companies.type`, so a meeting started from the plan
    *  is filed under the same lead type the party has. */
   party_visit_type: string | null
+  /** The ACCOUNT on the line (null for a contact-only line) and its name. */
+  account_id?: string | null
+  account_name?: string | null
+  /** The person on the line (also set for a contact-only line). */
+  contact_id?: string | null
+  contact_name?: string | null
+  /** "Person · Company" - what a meeting started from this line is named. */
+  entity_name?: string | null
   expected_order_value: number | null
   user_id: string
   user_name: string
@@ -193,6 +201,8 @@ export type MissedTodo = {
    *  `PATCH /api/deals/[deal_id]/follow-ups/[id]`. */
   deal_id: string | null
   party_id: string | null
+  /** The person on a contact-only plan line (party_id is null then). */
+  contact_id?: string | null
   party_name: string
   visit_type: string | null
   original_date: string
@@ -278,13 +288,27 @@ export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export function getPosition(): Promise<{ latitude: number; longitude: number; accuracy?: number } | { denied: true } | null> {
   return new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return }
+    const ok = (pos: GeolocationPosition) =>
+      resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy })
     navigator.geolocation.getCurrentPosition(
-      pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-      err => resolve(err?.code === 1 ? { denied: true } : null),
-      { timeout: 8000 }
+      ok,
+      err => {
+        if (err?.code === 1) { resolve({ denied: true }); return }
+        // Slow or no GPS (low network, indoors): settle for the network/Wi-Fi
+        // fix, which may be up to two minutes old — the same place in practice.
+        navigator.geolocation.getCurrentPosition(
+          ok,
+          err2 => resolve(err2?.code === 1 ? { denied: true } : null),
+          { enableHighAccuracy: false, maximumAge: 120000, timeout: 8000 }
+        )
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     )
   })
 }
+
+/** Longest the client waits for the address; it is decoration, never a blocker. */
+export const REVERSE_GEOCODE_TIMEOUT_MS = 5000
 
 export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
   /*
@@ -301,17 +325,22 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string |
    * The address is decoration; the flag is computed from the numbers. So
    * a failure here still resolves to null and the start/stop proceeds.
    */
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), REVERSE_GEOCODE_TIMEOUT_MS)
   try {
     const r = await fetch('/api/daily-activity/reverse-geocode', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ latitude: lat, longitude: lng }),
+      signal: ctrl.signal,
     })
     if (!r.ok) return null
     const d = (await r.json()) as { address?: string | null }
     return d.address ?? null
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 

@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo } from 'react'
-import { PlusIcon } from 'lucide-react'
+import { XIcon } from 'lucide-react'
 
 import { Board, type BoardCard, type BoardColumn } from '@/components/ui/board'
 import { Button } from '@/components/ui/button'
+import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { Truncate } from '@/components/ui/truncate'
 
 /**
@@ -60,10 +61,27 @@ export type PlanBoardLine = {
   type: string
   /** Free text already on the row. Read-only here — see plan-line-dialog. */
   agenda: string
+  /** The person the visit is with, when the line is for an account. Empty otherwise. */
+  person?: string
   /** Pre-formatted, or empty. */
   expected: string
   /** True when the row has no party and is showing its journey instead. */
   isFallback: boolean
+}
+
+/** The card's two supporting facts: the person, then the agenda. Never a Type badge. */
+function cardFacts(line: PlanBoardLine): BoardCard['facts'] {
+  const who = line.person ? (
+    <span key="person" className="block text-label text-text-secondary">with {line.person}</span>
+  ) : null
+  const what = line.agenda ? (
+    <span key="agenda" className="block text-label text-text-secondary">{line.agenda}</span>
+  ) : line.isFallback ? (
+    <span key="noparty" className="inline-block rounded bg-surface-sunken px-1.5 py-0.5 text-meta font-medium text-text-muted">No party yet</span>
+  ) : null
+  if (who && what) return [who, what]
+  const one = who ?? what
+  return one ? [one] : undefined
 }
 
 export function PlanBoard({
@@ -74,6 +92,7 @@ export function PlanBoard({
   onOpenLine,
   onMoveLine,
   onAddToDay,
+  addDisabledReason,
 }: {
   /** Exactly seven `YYYY-MM-DD` strings, Monday first. */
   days: string[]
@@ -83,7 +102,13 @@ export function PlanBoard({
   onOpenLine: (lineId: string) => void
   /** Rejects by throwing; the board reverts the card and toasts. */
   onMoveLine: (lineId: string, toDay: string) => Promise<void>
-  onAddToDay: (day: string) => void
+  /**
+   * The "+" in every day's heading. Leave it out while permissions are still
+   * loading (not known yet is not not allowed): no "+" is drawn at all.
+   */
+  onAddToDay?: (day: string) => void
+  /** Why the "+" is disabled (no permission, or the plan is locked). */
+  addDisabledReason?: string
 }) {
   const columns: BoardColumn[] = useMemo(
     () =>
@@ -93,8 +118,16 @@ export function PlanBoard({
         // The true total. Every line for the day is in `lines`, so the count
         // and the cards cannot disagree.
         total: lines.filter(l => l.date === day).length,
+        ...(onAddToDay
+          ? {
+              onAdd: () => onAddToDay(day),
+              // "Tue 28 Oct" -> "Add a visit on Tue 28".
+              addLabel: `Add a visit on ${dayLabel(day).split(' ').slice(0, 2).join(' ')}`,
+              addDisabledReason,
+            }
+          : {}),
       })),
-    [days, lines, dayLabel],
+    [days, lines, dayLabel, onAddToDay, addDisabledReason],
   )
 
   const cards: BoardCard[] = useMemo(
@@ -103,24 +136,9 @@ export function PlanBoard({
         id: line.id,
         columnId: line.date,
         title: line.title,
-        facts: [
-          <span key="type" className="flex items-start gap-2">
-            <span
-              className={
-                line.type
-                  ? 'shrink-0 rounded bg-primary-subtle px-1.5 py-0.5 text-meta font-medium text-primary'
-                  : 'shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 text-meta font-medium text-text-muted'
-              }
-            >
-              {line.type || (line.isFallback ? 'No party yet' : '—')}
-            </span>
-            {line.agenda && (
-              <span className="min-w-0 flex-1 text-label text-text-secondary">
-                {line.agenda}
-              </span>
-            )}
-          </span>,
-        ],
+        // The person sits under the account ("with Amit"); there is no Type
+        // badge. The second fact is the agenda, or an honest "No party yet".
+        facts: cardFacts(line),
         meta: line.expected || undefined,
         moveDisabledReason: canEdit
           ? undefined
@@ -131,18 +149,6 @@ export function PlanBoard({
 
   return (
     <>
-      {/* The kit Board has no per-column action (its sync dropped it), so the add
-          control sits above the board. The line dialog has a Day field, so one
-          button reaches every day. Hidden, not disabled, when the plan is locked:
-          the banner above already says why. */}
-      {canEdit && (
-        <div className="flex shrink-0 justify-end pb-2">
-          <Button variant="secondary" size="sm" onClick={() => onAddToDay(days[0])}>
-            <PlusIcon />
-            Add a line
-          </Button>
-        </div>
-      )}
       <Board
         columns={columns}
         cards={cards}
@@ -171,12 +177,28 @@ export function PlanDayList({
   canEdit,
   onOpenLine,
   onAdd,
+  onRemoveLine,
+  dayLabel,
+  permissionReason,
 }: {
   day: string
   lines: PlanBoardLine[]
   canEdit: boolean
   onOpenLine: (lineId: string) => void
-  onAdd: () => void
+  /** Optional: when given, a full-width "Add a line" button ends the list. The
+   *  phone editor omits it and uses the screen's floating add button instead. */
+  onAdd?: () => void
+  /** Optional: when given (and canEdit), each card carries a remove button. */
+  onRemoveLine?: (lineId: string) => void
+  /** Names the day in the remove button's label, e.g. "Tue 28". */
+  dayLabel?: string
+  /**
+   * Set when the plan is editable by status but this person lacks the
+   * permission: the remove button then shows disabled with this reason on tap
+   * (section 26). A plan locked by status shows no remove button; its banner
+   * already says why.
+   */
+  permissionReason?: string
 }) {
   const forDay = lines.filter(l => l.date === day)
 
@@ -188,39 +210,59 @@ export function PlanDayList({
         </p>
       ) : (
         forDay.map(line => (
-          <button
-            key={line.id}
-            type="button"
-            onClick={() => onOpenLine(line.id)}
-            className="flex min-h-11 w-full flex-col gap-2 rounded-xl border border-border-light bg-surface p-3 text-left transition-[background-color] duration-200 hover:bg-surface-control active:bg-surface-control-pressed"
-          >
-            <span className="block text-body font-medium text-text-primary">
-              <Truncate>{line.title}</Truncate>
-            </span>
-            <span className="flex items-start gap-2">
-              <span
-                className={
-                  line.type
-                    ? 'shrink-0 rounded bg-primary-subtle px-1.5 py-0.5 text-meta font-medium text-primary'
-                    : 'shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 text-meta font-medium text-text-muted'
-                }
-              >
-                {line.type || (line.isFallback ? 'No party yet' : '—')}
+          <div key={line.id} className="relative">
+            <button
+              type="button"
+              onClick={() => onOpenLine(line.id)}
+              className={[
+                'flex min-h-11 w-full flex-col gap-1 rounded-xl border border-border-light bg-surface p-3 text-left transition-[background-color] duration-200 hover:bg-surface-control active:bg-surface-control-pressed',
+                (canEdit || permissionReason) && onRemoveLine ? 'pr-14' : '',
+              ].join(' ')}
+            >
+              <span className="block text-body font-medium text-text-primary">
+                <Truncate>{line.title}</Truncate>
               </span>
-              {line.agenda && (
-                <span className="min-w-0 flex-1 text-label text-text-secondary">
-                  {line.agenda}
+              {line.person && (
+                <span className="block text-label text-text-secondary">
+                  <Truncate>{`with ${line.person}`}</Truncate>
                 </span>
               )}
-            </span>
-            {line.expected && (
-              <span className="text-meta text-text-muted">{line.expected}</span>
+              {line.agenda && (
+                <span className="text-label text-text-secondary">{line.agenda}</span>
+              )}
+              {line.expected && (
+                <span className="text-meta text-text-muted">{line.expected}</span>
+              )}
+            </button>
+            {!canEdit && permissionReason && onRemoveLine && (
+              <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                <PermissionTooltip allowed={false} reason={permissionReason}>
+                  <button
+                    type="button"
+                    disabled
+                    aria-label={`Remove ${line.title} from ${dayLabel ?? 'this day'}`}
+                    className="flex size-11 items-center justify-center rounded-lg text-text-secondary opacity-50"
+                  >
+                    <XIcon className="size-5" aria-hidden />
+                  </button>
+                </PermissionTooltip>
+              </div>
             )}
-          </button>
+            {canEdit && onRemoveLine && (
+              <button
+                type="button"
+                onClick={() => onRemoveLine(line.id)}
+                aria-label={`Remove ${line.title} from ${dayLabel ?? 'this day'}`}
+                className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-lg text-text-secondary active:bg-surface-control-pressed"
+              >
+                <XIcon className="size-5" aria-hidden />
+              </button>
+            )}
+          </div>
         ))
       )}
 
-      {canEdit && (
+      {canEdit && onAdd && (
         <Button variant="secondary" onClick={onAdd} className="min-h-11 w-full">
           Add a line
         </Button>

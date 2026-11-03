@@ -4,7 +4,8 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { readItemsDiff } from '@/lib/weekly-plan-diff'
-import { readOthers, carriedNote, toItemRows } from '../_items'
+import { readOthers, carriedNote, toItemRowsWithContacts } from '../_items'
+import { attachPlanItemContacts, planItemContactAvailable, readPlanItemContacts, checkPlanItemRefs, writePlanItemContacts } from '@/lib/plan-item-contact'
 import { loadGoals, migrateWeekGoal, saveGoals } from '../_goals'
 import { loadPartyLabels } from '../_diff'
 import {
@@ -78,6 +79,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       loadGoals(params.id, tid),
     ])
 
+    const contactMap = await readPlanItemContacts(tid, plan.weekly_plan_items.map(i => i.id))
     const { users_weekly_plans_user_idTousers, weekly_plan_items, ...rest } = plan
     const serialised = serialize(
       { ...rest, weekly_plan_items },
@@ -98,6 +100,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       // deleted reads as blank rather than as a uuid.
       weekly_plan_items: serialised.weekly_plan_items.map((item, i) => ({
         ...item,
+        contact_id: contactMap?.get(weekly_plan_items[i].id)?.id ?? null,
+        contact_name: contactMap?.get(weekly_plan_items[i].id)?.name ?? null,
         party_label: weekly_plan_items[i].party_id
           ? labels.get(weekly_plan_items[i].party_id!) ?? null
           : null,
@@ -185,6 +189,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       refused whole. `updated_at` is what it writes when there are no plan
       fields to change, so the claim always has something to set.
     */
+    const refs = await checkPlanItemRefs(items, tid, params.id)
+    if (refs.error) return NextResponse.json({ error: refs.error }, { status: 400 })
+    const cleanItems = refs.items
+    // Asked before the transaction: a failed statement inside one aborts it.
+    const contactColumn = await planItemContactAvailable()
+
     let savedVersion: string | null = null
     try {
       await prisma.$transaction(async tx => {
@@ -206,8 +216,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         // errored on zero matches), and plan_date is @db.Date so the incoming
         // "YYYY-MM-DD" strings must become Date objects.
         await tx.weekly_plan_items.deleteMany({ where: { weekly_plan_id: params.id, tenant_id: tid } })
-        const rows = toItemRows(items, tid, params.id)
+        const { rows, contacts } = toItemRowsWithContacts(cleanItems, tid, params.id)
         if (rows.length) await tx.weekly_plan_items.createMany({ data: rows })
+        if (contactColumn) await writePlanItemContacts(tid, contacts, tx)
 
         // §5.1 checklist. Unlike items this is reconciled, not replaced — see
         // `_goals.ts`: the ids are the Weekly Review's tick targets.
@@ -236,8 +247,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     })
     if (!data) return NextResponse.json(null)
 
+    const saved = serialize(data, 'weekly_plans') as Record<string, unknown> & { weekly_plan_items: { id: string }[] }
     return NextResponse.json({
-      ...(serialize(data, 'weekly_plans') as Record<string, unknown>),
+      ...saved,
+      weekly_plan_items: await attachPlanItemContacts(tid, saved.weekly_plan_items),
       weekly_goals: await loadGoals(params.id, tid),
       // The version this save left, for the Submit that follows it.
       version: savedVersion,

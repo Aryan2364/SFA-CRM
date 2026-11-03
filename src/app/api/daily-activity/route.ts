@@ -9,6 +9,7 @@ import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 import { firstForeignTenantRef } from '@/lib/tenant-fk'
 import { findScopedDeal } from '@/app/api/deals/_access'
 import { findScopedContact } from '@/app/api/contacts/_access'
+import { findScopedCompany } from '@/app/api/companies/_access'
 import {
   attachVisitContacts,
   readVisitContacts,
@@ -303,6 +304,37 @@ export async function POST(req: NextRequest) {
       find: id => prisma.villages.findFirst({ where: { id, tenant_id: tid }, select: { id: true } }) },
   ])
   if (miss) return NextResponse.json({ error: miss }, { status: 400 })
+
+  /*
+   * May the caller work on the account / person this meeting is filed
+   * against? Tenant membership (above) is not enough: without this, any rep
+   * with meetings.create could log a meeting on a colleague's unshared
+   * account. 'write' honours data scope and 'work' shares (a 'view' share is
+   * refused); an unreachable account answers the same 404 as the companies
+   * routes, so existence is not revealed. A contact named WITHOUT an account
+   * must be readable by the caller; one named with an account is already
+   * proven linked to it by resolveVisitContact, and the account check covers it.
+   */
+  // A deal-only 'work' member has no share on the account itself, but may log a
+  // meeting at that deal's own account (the deal block below enforces the same
+  // write check and the company match). So when a deal is linked and the caller
+  // can write it, at this very account, the account check is satisfied by it.
+  let dealCoversAccount = false
+  if (!new_prospect && entity_id && deal_id !== undefined && deal_id !== null && deal_id !== '') {
+    if (await checkPermission(user, 'deals', 'view')) {
+      const d = await findScopedDeal(user, tid, String(deal_id), 'write')
+      dealCoversAccount = Boolean(d && d.company_id && d.company_id === entity_id)
+    }
+  }
+  if (!new_prospect && entity_id) {
+    if (!dealCoversAccount) {
+      const acct = await findScopedCompany(user, tid, String(entity_id), 'write')
+      if (!acct) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+    }
+  } else if (!new_prospect && contact_id) {
+    const c = await findScopedContact(user, tid, String(contact_id), 'read')
+    if (!c) return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
+  }
 
   let resolvedContactId: string | null = null
   if (contact_id) {

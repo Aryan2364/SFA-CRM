@@ -17,7 +17,7 @@ import {
   type KeyboardCoordinateGetter,
   type ScreenReaderInstructions,
 } from "@dnd-kit/core"
-import { EllipsisIcon } from "lucide-react"
+import { EllipsisIcon, PlusIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { useLayout } from "@/lib/layout"
@@ -122,6 +122,29 @@ type BoardColumn = {
    * rendered. Section 35.4: a column showing 25 of 48 says so.
    */
   total: number
+  /**
+   * The column's add action: an icon-only "+" at the right of the
+   * heading, after the total. Absent, nothing renders. It is a column
+   * property, so every column the caller gives it to looks identical
+   * (section 35.4 rule 5); give it to all of them or to none.
+   */
+  onAdd?: () => void
+  /**
+   * The accessible name of the "+" - say what it adds and where, for
+   * example "Add a visit on Tue 28". An icon-only control has no other
+   * name. Defaults to "Add to <label>".
+   */
+  addLabel?: string
+  /**
+   * Set when the user may not add here. The "+" stays, disabled, and
+   * the reason is reachable through `PermissionTooltip` (section 26),
+   * not hidden: somebody who cannot find a button cannot tell whether
+   * it does not exist. Word it as who may ("Only managers can add a
+   * visit"). While permissions are still loading, leave it unset and
+   * do not pass `onAdd` yet (section 26.1: not known yet is not not
+   * allowed, so no reason is shown).
+   */
+  addDisabledReason?: string
 }
 
 type BoardCard = {
@@ -618,14 +641,36 @@ function BoardColumnView({
             that says so differs by ground. Section 2.3 - the neutral
             text tokens are measured on white and mean nothing on brand.
           */}
-          <p
-            className={cn(
-              "shrink-0 text-meta tabular-nums",
-              level <= 1 ? "text-on-brand-muted" : "text-text-muted",
-            )}
-          >
-            {column.total}
-          </p>
+          <div className="flex shrink-0 items-center gap-1">
+            <p
+              className={cn(
+                "shrink-0 text-meta tabular-nums",
+                level <= 1 ? "text-on-brand-muted" : "text-text-muted",
+              )}
+            >
+              {column.total}
+            </p>
+            {column.onAdd ? (
+              // Section 6.3.2: an icon button on a header band. `tap-area`
+              // (inside Button) grows the touch target to 44px on a coarse
+              // pointer without changing the 36px it draws at.
+              <PermissionTooltip
+                allowed={column.addDisabledReason ? false : true}
+                reason={column.addDisabledReason ?? ""}
+              >
+                <Button
+                  variant="on-brand"
+                  size="icon"
+                  className="-my-1.5 -mr-1.5 shrink-0"
+                  disabled={Boolean(column.addDisabledReason)}
+                  onClick={column.onAdd}
+                  aria-label={column.addLabel ?? `Add to ${column.label}`}
+                >
+                  <PlusIcon />
+                </Button>
+              </PermissionTooltip>
+            ) : null}
+          </div>
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon, MessageSquareIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
@@ -15,6 +15,12 @@ import {
 import { EmptyState } from '@/components/ui/empty-state'
 import { PermissionTooltip } from '@/components/ui/permission-tooltip'
 import { useMeStatus } from '@/hooks/useMe'
+import { useToast } from '@/contexts/ToastContext'
+import {
+  AccountContactFields,
+  useAccountContactPicker,
+  type AccountContactValue,
+} from '@/components/parties/account-contact-fields'
 import RemarksPanel from '@/components/ui/RemarksPanel'
 import { ManagerChanges, changeCountLabel } from '@/components/weekly-plan/manager-changes'
 import { PlanBoard, PlanDayList } from '@/components/weekly-plan/plan-board'
@@ -31,78 +37,7 @@ import {
   formatDayColumn,
   formatDayLong,
   formatWeekRange,
-  type PlanPartyOption,
 } from '@/components/weekly-plan/plan-model'
-
-// ---- Searchable Party Combobox (§5.1 — replaces the Place picker) ----
-function PartyCombobox({ value, onChange, options, disabled }: {
-  value: string
-  onChange: (option: PlanPartyOption | null) => void
-  options: PlanPartyOption[]
-  disabled: boolean
-}) {
-  const selected = options.find(o => o.id === value) ?? null
-  const [query, setQuery] = useState(selected?.name ?? '')
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => { setQuery(selected?.name ?? '') }, [selected?.name])
-
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-        setQuery(selected?.name ?? '')
-      }
-    }
-    document.addEventListener('mousedown', onMouseDown)
-    return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [selected?.name])
-
-  const filtered = query.trim() && query !== selected?.name
-    ? options.filter(o => o.name.toLowerCase().includes(query.toLowerCase()))
-    : options
-
-  return (
-    <div ref={containerRef} className="relative w-full">
-      <input
-        id="plan-line-party"
-        type="text" disabled={disabled} value={query}
-        onChange={e => { setQuery(e.target.value); setOpen(true) }}
-        onFocus={() => setOpen(true)}
-        placeholder="Search account or contact…"
-        className="w-full border border-border-light rounded-lg px-3 py-2 text-[16px] sm:text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:bg-surface-sunken disabled:text-text-muted"
-      />
-      {!disabled && open && (
-        <div className="absolute z-30 left-0 right-0 top-full mt-0.5 bg-surface border border-border-light rounded-lg shadow-lg max-h-56 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-text-muted">No parties found</p>
-          ) : (
-            filtered.slice(0, 200).map(o => (
-              <button key={`${o.type}:${o.id}`} type="button"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => { onChange(o); setQuery(o.name); setOpen(false) }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-primary-subtle transition ${o.id === value ? 'bg-primary-subtle' : ''}`}>
-                <span className="flex items-center gap-2">
-                  <span className={`shrink-0 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                    o.type === 'company' ? 'bg-primary-subtle text-primary' : 'bg-success-bg text-success'
-                  }`}>
-                    {o.type === 'company' ? 'Account' : 'Contact'}
-                  </span>
-                  <span className={`min-w-0 truncate ${o.id === value ? 'text-primary font-medium' : 'text-text-secondary'}`}>
-                    {o.name}
-                  </span>
-                  {o.subtitle && <span className="ml-auto shrink-0 text-xs text-text-muted">{o.subtitle}</span>}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 
 /** `userId` is never null here: the page renders this only once
  *  /api/auth/me has answered and the answer carries a user record.
@@ -113,16 +48,96 @@ function MyPlanTab({ canCreate, canEditPlan }: { userId: string; canCreate: bool
   const {
     plan, loading, loadError, saving, logs, logsOpen, setLogsOpen, remarksOpen, setRemarksOpen,
     monday, weekDays, navigateWeek, loadPlan, loadLogs,
-    parties, undoSecondsLeft, reopenModal, setReopenModal, reopenMessage, setReopenMessage,
+    partyById, dayData, undoSecondsLeft, reopenModal, setReopenModal, reopenMessage, setReopenMessage,
     reopening, goals, editing, setEditing, prioritiesOpen, setPrioritiesOpen,
     confirmDrop, setConfirmDrop, setSelectedDay, todayStr, mobileDay,
     returnedAsSuggestion, latestManagerEdit, partylessCount,
     handleSaveDraft, saveDraft, handleSubmit, handleUndo, handleRequestReopen,
     statusEditable, canWrite, canEdit, canSubmit, isSubmittedAwaitingReview, canRequestReopen,
-    lines, countsByDay, dayOptions, openAdd, openEdit, changeLineDay, selectPartyInDialog,
-    updateExpectedInDialog, saveLine, removeLine, moveLine, dialogParty,
+    lines, countsByDay, dayOptions, openAdd, openEdit, changeLineDay,
+    updateExpectedInDialog, saveLine, removeLine, moveLine,
     updateGoalText, toggleGoal, addGoal, removeGoal,
   } = usePlanEditor({ canCreate, canEditPlan })
+
+  const { toast } = useToast()
+
+  /*
+   * The line dialog's account + person, from the shared picker. The draft keeps
+   * the pair the way the plan stores it: an account line holds the account in
+   * `partyId` ('company') and the person in `contactId`; a person-only line
+   * holds the person in `partyId` ('contact'). Fed by the default lists and
+   * loaded only while the dialog is open.
+   */
+  const lineEntry = editing?.entry
+  // A party with no type (a legacy line) is an account, as plan-model reads it.
+  const pairValue: AccountContactValue =
+    lineEntry?.partyType === 'contact'
+      ? { accountId: '', contactId: lineEntry.partyId }
+      : lineEntry?.partyId
+        ? { accountId: lineEntry.partyId, contactId: lineEntry.contactId ?? '' }
+        : { accountId: '', contactId: '' }
+  // A saved person-only line stays saveable (see useAccountContactPicker).
+  const storedContact =
+    lineEntry?.partyType === 'contact' && lineEntry.partyId
+      ? { id: lineEntry.partyId, name: partyById.get(lineEntry.partyId)?.name || lineEntry.contactName || 'Saved person' }
+      : null
+  const picker = useAccountContactPicker({
+    value: pairValue,
+    allowContactOnly: true,
+    enabled: editing !== null,
+    storedContact,
+    onChange: next => {
+      const partyId = next.accountId || next.contactId
+      const personName = next.contactId
+        ? partyById.get(next.contactId)?.name ?? picker.contactRows.find(c => c.id === next.contactId)?.name ?? ''
+        : ''
+      // One account a day, the same rule the drag and the phone add apply. Checked
+      // here, not inside the state updater: an updater runs twice in StrictMode and
+      // would toast twice.
+      if (editing && partyId && (dayData[editing.date] ?? []).some(e => e.id !== editing.entry.id && e.partyId === partyId)) {
+        toast('That account is already planned for that day', 'error')
+        return
+      }
+      setEditing(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          entry: next.accountId
+            ? { ...prev.entry, partyId: next.accountId, partyType: 'company', contactId: next.contactId, contactName: personName }
+            : next.contactId
+              ? { ...prev.entry, partyId: next.contactId, partyType: 'contact', contactId: '', contactName: '' }
+              : { ...prev.entry, partyId: '', partyType: '', contactId: '', contactName: '' },
+        }
+      })
+    },
+  })
+  // The person's name may only be known once the picker has loaded them.
+  const pickedName = picker.selectedContact?.name ?? ''
+  useEffect(() => {
+    if (!pickedName) return
+    setEditing(prev =>
+      prev && prev.entry.partyType === 'company' && prev.entry.contactId && prev.entry.contactName !== pickedName
+        && picker.selectedContact?.id === prev.entry.contactId
+        ? { ...prev, entry: { ...prev.entry, contactName: pickedName } }
+        : prev,
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedName])
+
+  /*
+   * Why the "+" on each day is off, in words. Permission first (the same
+   * create/edit split the routes check), then the plan's own status. Never set
+   * while permissions are loading: this tab renders only after /me answered.
+   */
+  const addDisabledReason = !canWrite
+    ? plan
+      ? 'Only someone who can edit weekly plans can add a visit.'
+      : 'Only someone who can create weekly plans can add a visit.'
+    : !statusEditable && plan
+      ? ['Approved', 'On Hold'].includes(plan.status)
+        ? `This plan is ${plan.status}. Request reopen to change it.`
+        : `This plan is ${plan.status}. Reopen it to change it.`
+      : undefined
 
   const reopenLink = (colorClass: string) => (
     <PermissionTooltip allowed={canEditPlan} reason={PLAN_EDIT_REASON}>
@@ -156,8 +171,8 @@ function MyPlanTab({ canCreate, canEditPlan }: { userId: string; canCreate: bool
           {/*
             No add button here. Adding a line is a per-DAY action and it lives
             on the day's own column heading, next to the count of what is
-            already there. Below 768px, where there are no columns, the day
-            list carries its own.
+            already there (the "+" the board draws). Below 768px, where there
+            are no columns, the day list carries its own.
           */}
           {plan && (
             <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:flex-nowrap">
@@ -291,6 +306,7 @@ function MyPlanTab({ canCreate, canEditPlan }: { userId: string; canCreate: bool
               onOpenLine={openEdit}
               onMoveLine={moveLine}
               onAddToDay={openAdd}
+              addDisabledReason={addDisabledReason}
             />
           </div>
 
@@ -358,18 +374,13 @@ function MyPlanTab({ canCreate, canEditPlan }: { userId: string; canCreate: bool
         dayOptions={dayOptions}
         onDateChange={changeLineDay}
         draft={editing?.entry ?? null}
-        companyType={dialogParty?.companyType ?? null}
+        canEdit={canEdit}
+        lockedReason={addDisabledReason}
         canRemove={canEdit}
-        partyField={
-          <PartyCombobox
-            value={editing?.entry.partyId ?? ''}
-            onChange={selectPartyInDialog}
-            options={parties}
-            disabled={!canEdit}
-          />
-        }
+        partyComplete={picker.complete}
+        partyFields={<AccountContactFields picker={picker} disabled={!canEdit} idPrefix="plan-line" />}
         onExpectedValueChange={updateExpectedInDialog}
-        onSave={saveLine}
+        onSave={() => { if (canEdit && picker.complete) saveLine() }}
         onRemove={removeLine}
         onClose={() => setEditing(null)}
       />

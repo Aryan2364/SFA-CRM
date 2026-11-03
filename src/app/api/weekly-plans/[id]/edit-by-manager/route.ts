@@ -4,7 +4,8 @@ import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { computeItemsDiff, isEmptyDiff } from '@/lib/weekly-plan-diff'
-import { toItemRows } from '../../_items'
+import { toItemRowsWithContacts } from '../../_items'
+import { planItemContactAvailable, readPlanItemContacts, checkPlanItemRefs, writePlanItemContacts } from '@/lib/plan-item-contact'
 import { loadPartyLabels, toDiffLines, writesToDiffLines } from '../../_diff'
 import { EDIT_ALLOWED_FROM } from '@/components/weekly-plan/approval-types'
 import {
@@ -76,16 +77,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       where: { weekly_plan_id: params.id, tenant_id: tid },
       orderBy: [{ plan_date: 'asc' }, { created_at: 'asc' }],
     })
-    const rows = toItemRows(items, tid, params.id)
+    const refs = await checkPlanItemRefs(items, tid, params.id)
+    if (refs.error) return NextResponse.json({ error: refs.error }, { status: 400 })
+    const cleanItems = refs.items
+    const contactColumn = await planItemContactAvailable()
+    const { rows, contacts } = toItemRowsWithContacts(cleanItems, tid, params.id)
+    const previousContacts = await readPlanItemContacts(tid, previous.map(p => p.id))
     const labels = await loadPartyLabels(
-      [...previous, ...rows]
-        .map(r => r.party_id)
-        .filter((id): id is string => Boolean(id)),
+      [
+        ...[...previous, ...rows].map(r => r.party_id),
+        ...contacts.map(c => c.contactId),
+      ].filter((id): id is string => Boolean(id)),
       tid,
     )
     const diff = computeItemsDiff(
-      await toDiffLines(previous, tid, labels),
-      writesToDiffLines(rows, labels),
+      await toDiffLines(
+        previous, tid, labels,
+        new Map(Array.from(previousContacts ?? []).map(([id, c]) => [id, c.name])),
+      ),
+      writesToDiffLines(rows, labels, new Map(contacts.map(c => [c.id, c.contactId]))),
     )
 
     // Replace items. deleteMany is required anyway (the original .delete() never
@@ -118,6 +128,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
         await tx.weekly_plan_items.deleteMany({ where: { weekly_plan_id: params.id, tenant_id: tid } })
         if (rows.length) await tx.weekly_plan_items.createMany({ data: rows })
+        if (contactColumn) await writePlanItemContacts(tid, contacts, tx)
 
         await tx.weekly_plan_audit_logs.create({
           data: {

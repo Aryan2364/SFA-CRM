@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronRightIcon, EllipsisVerticalIcon, PencilIcon, ThumbsDownIcon, TrophyIcon } from 'lucide-react'
 import { PhoneFollowUps } from './phone-follow-ups'
+import { PhoneSharedWith } from '@/components/sharing/phone-shared-with'
 import type { FollowUp } from '@/components/deals/follow-ups-section'
 
 import { usePhoneAppBar } from '@/components/shell/phone-app-bar'
@@ -58,6 +59,8 @@ type Deal = {
   contact: { id: string; name: string } | null
   stage: { id: string; name: string } | null
   access?: 'owner-scope' | 'work' | 'view'
+  can_share?: boolean
+  sharing_available?: boolean
 }
 
 type Meeting = {
@@ -252,6 +255,15 @@ export function PhoneDealDetailPage({ id }: { id: string }) {
       <div className="flex flex-col gap-2">
         <RelatedRow label="Meetings" count={related.meetings} onClick={() => setMeetingsSheetOpen(true)} />
         <RelatedRow label="Follow-ups" count={related.followUps} onClick={() => setFollowUpsSheetOpen(true)} />
+        {deal.sharing_available ? (
+          <div className="overflow-hidden rounded-lg border border-border-light bg-surface">
+            <PhoneSharedWith
+              endpoint={`/api/deals/${deal.id}/members`}
+              canShare={deal.can_share === true}
+              noun="opportunity"
+            />
+          </div>
+        ) : null}
       </div>
 
       <ActionBar>

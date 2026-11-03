@@ -339,6 +339,71 @@ async function main() {
   await prisma.expenses.deleteMany({ where: { id: owned.id } })
   if (expB) await prisma.expenses.deleteMany({ where: { id: expB.id } })
 
+  // ===== meetings on an account the caller may not work on ================
+  section('POST /api/daily-activity checks the caller may work on entity_id')
+  const acctRows = await prisma.companies.createManyAndReturn({
+    data: [
+      { tenant_id: SEED.tenantA, type: 'Dealer', stage: 'Existing', name: 'Scratch Unshared Account', owner_user_id: SEED.adminA },
+      { tenant_id: SEED.tenantA, type: 'Dealer', stage: 'Existing', name: 'Scratch Own Account', owner_user_id: SEED.subA },
+    ],
+  })
+  const [foreignAcct, ownAcct] = acctRows
+  const post = entity_id => call('/api/daily-activity', SUB, 'POST', { visit_type: 'Dealer', entity_id, entity_name: 'Scratch Acct Meeting', visit_date: today })
+  const rLive = async r => { const b = await r.json().catch(() => ({})); if (b.id) await prisma.daily_visits.delete({ where: { id: b.id } }).catch(() => {}); return b }
+  const rOwn = await post(ownAcct.id)
+  ok('own account -> 201', rOwn.status === 201, rOwn.status)
+  await rLive(rOwn)
+  const r0 = await post(foreignAcct.id)
+  ok('foreign-owned unshared account -> 404', r0.status === 404, r0.status)
+  await rLive(r0)
+  let sharingTables = true
+  try {
+    await prisma.$executeRaw`INSERT INTO account_members (tenant_id, company_id, user_id, access, added_by) VALUES (${SEED.tenantA}::uuid, ${foreignAcct.id}::uuid, ${SEED.subA}::uuid, 'view', ${SEED.adminA}::uuid)`
+  } catch { sharingTables = false }
+  if (!sharingTables) console.log('  SKIP  account_members table missing locally (apply docs/local-db-updates.sql item 4)')
+  else {
+    const rv = await post(foreignAcct.id)
+    ok("'view' share -> 404 (read-only, cannot log a meeting)", rv.status === 404, rv.status)
+    await rLive(rv)
+    await prisma.$executeRaw`UPDATE account_members SET access = 'work' WHERE company_id = ${foreignAcct.id}::uuid AND user_id = ${SEED.subA}::uuid`
+    const rw = await post(foreignAcct.id)
+    ok("'work' share -> 201", rw.status === 201, rw.status)
+    await rLive(rw)
+    await prisma.$executeRaw`DELETE FROM account_members WHERE company_id = ${foreignAcct.id}::uuid`
+
+    // A member of the DEAL only (no share on its account) may log a meeting at
+    // that deal's account when the meeting is linked to the deal.
+    section('deal-only member logs a meeting at the deal account')
+    let dealTables = true
+    let dealRow = null
+    try {
+      dealRow = await prisma.deals.create({
+        data: { tenant_id: SEED.tenantA, name: 'Scratch Deal-only Opp', owner_user_id: SEED.adminA, company_id: foreignAcct.id },
+      })
+      await prisma.$executeRaw`INSERT INTO deal_members (tenant_id, deal_id, user_id, access, added_by) VALUES (${SEED.tenantA}::uuid, ${dealRow.id}::uuid, ${SEED.subA}::uuid, 'view', ${SEED.adminA}::uuid)`
+    } catch { dealTables = false }
+    if (!dealTables) console.log('  SKIP  deal_members table missing locally (apply docs/local-db-updates.sql item 4)')
+    else {
+      const postDeal = () => call('/api/daily-activity', SUB, 'POST', { visit_type: 'Dealer', entity_id: foreignAcct.id, deal_id: dealRow.id, entity_name: 'Scratch Deal Meeting', visit_date: today })
+      const dv = await postDeal()
+      ok("deal-only 'view' member cannot log the meeting (not 201)", dv.status !== 201, dv.status)
+      await rLive(dv)
+      await prisma.$executeRaw`UPDATE deal_members SET access = 'work' WHERE deal_id = ${dealRow.id}::uuid AND user_id = ${SEED.subA}::uuid`
+      const dw = await postDeal()
+      ok("deal-only 'work' member logs a meeting at the deal's account -> 201", dw.status === 201, dw.status)
+      await rLive(dw)
+      const noDeal = await post(foreignAcct.id)
+      ok('...but without the deal link the same account is still 404', noDeal.status === 404, noDeal.status)
+      await rLive(noDeal)
+    }
+    if (dealRow) {
+      await prisma.deal_meetings.deleteMany({ where: { deal_id: dealRow.id } }).catch(() => {})
+      await prisma.$executeRaw`DELETE FROM deal_members WHERE deal_id = ${dealRow.id}::uuid`.catch(() => {})
+      await prisma.deals.delete({ where: { id: dealRow.id } }).catch(() => {})
+    }
+  }
+  await prisma.companies.deleteMany({ where: { id: { in: [foreignAcct.id, ownAcct.id] } } })
+
   // ===== isolation =========================================================
   section('tenant B untouched')
   ok('tenant B product name never changed',

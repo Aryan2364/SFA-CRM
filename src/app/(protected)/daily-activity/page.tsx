@@ -286,8 +286,11 @@ function DailyActivityInner() {
           // The party's own type; an untyped party is 'Other', never a guessed
           // 'Dealer'. `||`, not `??`: an untyped company stores '' (NOT NULL).
           visit_type: item.party_visit_type || item.party_type || OTHER_VISIT_TYPE,
-          entity_id: item.party_id,
-          entity_name: item.party_name,
+          // The ACCOUNT (null for a contact-only line) and the person, so a
+          // meeting planned with "Ramesh at ACME" is filed under both.
+          entity_id: item.account_id ?? (item.party_type === 'contact' ? null : item.party_id),
+          entity_name: item.entity_name ?? item.party_name,
+          ...(item.contact_id ? { contact_id: item.contact_id } : {}),
           is_new_entity: false,
           weekly_plan_item_id: item.id,
         }),

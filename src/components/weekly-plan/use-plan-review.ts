@@ -29,6 +29,12 @@ export type DraftLine = {
   plan_date: string
   party_id: string | null
   party_type: string | null
+  /** Carried through so a manager edit does not drop the person on a line. */
+  contact_id?: string | null
+  /** The journey and travel mode: not editable here, carried so a manager edit keeps them. */
+  from_place?: string | null
+  to_place?: string | null
+  mode_of_travel?: string | null
   party_label: string | null
   dealer: number
   distributor: number
@@ -49,6 +55,10 @@ export function toDraft(item: PlanItem): DraftLine {
     plan_date: item.plan_date,
     party_id: item.party_id,
     party_type: item.party_type,
+    contact_id: item.contact_id ?? null,
+    from_place: item.from_place ?? null,
+    to_place: item.to_place ?? null,
+    mode_of_travel: item.mode_of_travel ?? null,
     party_label: item.party_label,
     dealer: item.new_dealers_goal ?? 0,
     distributor: item.existing_dealers_goal ?? 0,
@@ -65,6 +75,10 @@ export function toPayload(lines: DraftLine[]) {
     plan_date: l.plan_date,
     party_id: l.party_id,
     party_type: l.party_type,
+    contact_id: l.contact_id ?? null,
+    from_place: l.from_place || null,
+    to_place: l.to_place || null,
+    mode_of_travel: l.mode_of_travel || null,
     new_dealers_goal: l.dealer,
     existing_dealers_goal: l.distributor,
     others_goal: l.others,

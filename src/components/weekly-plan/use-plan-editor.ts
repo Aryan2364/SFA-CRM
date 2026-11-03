@@ -120,6 +120,7 @@ export function usePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; 
             id: c.id, type: 'company', name: c.name ?? '',
             companyType: (c.type ?? '').trim() || PLACEHOLDER_TYPE,
             subtitle: c.stage ?? '',
+            accountKind: c.account_kind === 'Individual' ? 'Individual' : 'Company',
           })
         }
       }
@@ -446,6 +447,9 @@ export function usePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; 
           title: party?.name || (hasParty ? 'Party not in your list' : journey || 'Untitled line'),
           type: party?.companyType && party.companyType !== PLACEHOLDER_TYPE ? party.companyType : '',
           agenda: entry.note,
+          // An Individual account IS its person ("Ramesh Patel HUF" with
+          // Ramesh Patel), so the "with" line would only repeat the title.
+          person: entry.partyType === 'company' && party?.accountKind !== 'Individual' ? entry.contactName : '',
           expected: entry.expectedOrderValue.trim()
             ? `₹${Number(entry.expectedOrderValue).toLocaleString('en-IN')}`
             : '',
@@ -516,17 +520,93 @@ export function usePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; 
     return (dayData[date] ?? []).some(e => e.id !== exceptEntryId && e.partyId === partyId)
   }
 
-  function selectPartyInDialog(option: PlanPartyOption | null) {
-    setEditing(prev => {
-      if (!prev) return prev
-      if (option && duplicateOn(prev.date, option.id, prev.entry.id)) {
-        toast(`${option.name} is already planned for this day`, 'error')
-        return prev
+  /**
+   * Set a line's account and person together. `accountId` is the ACCOUNT
+   * (party_type 'company'); with no account, `contactId` becomes a contact-only
+   * line. Used by the phone quick-add; honours the same one-account-a-day rule.
+   * Returns false (after a toast) when refused.
+   */
+  function setLinePartyAndContact(
+    lineId: string,
+    { accountId, contactId, contactName }: { accountId?: string | null; contactId?: string | null; contactName?: string },
+  ): boolean {
+    const found = entryIndex.get(lineId)
+    if (!found || !canEdit) return false
+    const next = partyFields(accountId, contactId, contactName)
+    if (!next.partyId) return false
+    if (duplicateOn(found.date, next.partyId, lineId)) {
+      toast('That account is already planned for that day', 'error')
+      return false
+    }
+    setDayData(prev => {
+      const out: DayData = {}
+      for (const [day, entries] of Object.entries(prev)) {
+        out[day] = entries.map(e => (e.id === lineId ? { ...e, ...next } : e))
       }
+      return out
+    })
+    return true
+  }
+
+  /** The entry fields for an account/person pair; names come from the picker list. */
+  function partyFields(accountId?: string | null, contactId?: string | null, contactName?: string) {
+    const person = contactId ? partyById.get(contactId) : undefined
+    if (accountId) {
       return {
-        ...prev,
-        entry: { ...prev.entry, partyId: option?.id ?? '', partyType: option?.type ?? '' },
+        partyId: accountId, partyType: 'company' as const,
+        contactId: contactId ?? '', contactName: contactName || person?.name || '',
       }
+    }
+    return {
+      partyId: contactId ?? '', partyType: contactId ? ('contact' as const) : ('' as const),
+      contactId: '', contactName: '',
+    }
+  }
+
+  /**
+   * Add a line straight to a day with no dialog. Returns the new line's id, or
+   * null when refused (locked plan, nothing chosen, or the account is already
+   * planned that day - with a toast saying so).
+   */
+  function addLine(
+    date: string,
+    { accountId, contactId, contactName }: { accountId?: string | null; contactId?: string | null; contactName?: string },
+  ): string | null {
+    if (!canEdit) return null
+    const fields = partyFields(accountId, contactId, contactName)
+    if (!fields.partyId) return null
+    if (duplicateOn(date, fields.partyId, '')) {
+      toast('That account is already planned for that day', 'error')
+      return null
+    }
+    const entry: PlanEntry = { ...blankEntry(), ...fields }
+    setDayData(prev => ({ ...prev, [date]: [...(prev[date] ?? []), entry] }))
+    return entry.id
+  }
+
+  /** Phone: remove one line by id, no dialog. Refused when the plan is locked. */
+  function removeLineById(lineId: string): boolean {
+    if (!canEdit || !entryIndex.has(lineId)) return false
+    setDayData(prev => {
+      const next: DayData = {}
+      for (const [day, entries] of Object.entries(prev)) {
+        next[day] = entries.filter(e => e.id !== lineId)
+      }
+      return next
+    })
+    return true
+  }
+
+  /** Phone: set a line's expected value by id. Same validation as the dialog field. */
+  function setLineExpected(lineId: string, raw: string) {
+    if (!canEdit) return
+    if (raw !== '' && !/^\d*\.?\d{0,2}$/.test(raw)) return
+    setDayData(prev => {
+      const out: DayData = {}
+      for (const [day, entries] of Object.entries(prev)) {
+        out[day] = entries.map(e => (e.id === lineId ? { ...e, expectedOrderValue: raw } : e))
+      }
+      return out
     })
   }
 
@@ -650,7 +730,6 @@ export function usePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; 
     setMonday(d => addDays(d, delta * 7))
   }
 
-  const dialogParty = editing?.entry.partyId ? partyById.get(editing.entry.partyId) : undefined
   const mobileDay = selectedDay && weekDays.includes(selectedDay) ? selectedDay : weekDays[0]
 
   return {
@@ -662,8 +741,9 @@ export function usePlanEditor({ canCreate, canEditPlan }: { canCreate: boolean; 
     returnedAsSuggestion, latestManagerEdit, partylessCount,
     handleSaveDraft, saveDraft, handleSubmit, handleUndo, handleRequestReopen,
     statusEditable, canWrite, canEdit, canSubmit, isSubmittedAwaitingReview, canRequestReopen,
-    lines, countsByDay, dayOptions, openAdd, openEdit, changeLineDay, selectPartyInDialog,
-    updateExpectedInDialog, saveLine, removeLine, moveLine, dialogParty,
+    lines, countsByDay, dayOptions, openAdd, openEdit, changeLineDay,
+    updateExpectedInDialog, saveLine, removeLine, moveLine,
+    setLinePartyAndContact, addLine, removeLineById, setLineExpected,
     updateGoalText, toggleGoal, addGoal, removeGoal, dayData,
   }
 }

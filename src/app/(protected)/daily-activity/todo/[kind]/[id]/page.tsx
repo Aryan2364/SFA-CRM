@@ -67,6 +67,8 @@ type Todo = {
   /** The party the meeting would be with, when the to-do names one. */
   partyId: string | null
   partyName: string | null
+  /** The person on a plan line (the only party a contact-only line has). */
+  contactId?: string | null
   visitType: string
   heading: string
   dueDate: string
@@ -151,8 +153,11 @@ function fromPlan(p: PlannedItem): Todo {
   return {
     kind: 'plan',
     id: p.id,
-    partyId: p.party_id && p.party_name ? p.party_id : null,
-    partyName: p.party_name,
+    // The ACCOUNT. A contact-only line (a person with no account) has none; its
+    // person travels in `contactId` and still starts a meeting.
+    partyId: p.account_id ?? (p.party_type === 'contact' ? null : p.party_id && p.party_name ? p.party_id : null),
+    partyName: p.entity_name ?? p.party_name,
+    contactId: p.contact_id ?? null,
     // The party's own type; an untyped party is 'Other', never a guessed
     // 'Dealer'. `||`, not `??`: an untyped company stores '' (NOT NULL).
     visitType: p.party_visit_type || p.party_type || OTHER_VISIT_TYPE,
@@ -173,7 +178,8 @@ function fromMissed(m: MissedTodo): Todo {
     kind: m.kind,
     id: m.id,
     partyId: m.party_id,
-    partyName: m.party_id ? m.party_name : null,
+    partyName: m.party_id || m.contact_id ? m.party_name : null,
+    contactId: m.contact_id ?? null,
     visitType: m.visit_type || OTHER_VISIT_TYPE,
     heading: m.party_name,
     dueDate: m.original_date,
@@ -321,7 +327,7 @@ function TodoPhone() {
   // meetings.create, the start PATCH meetings.edit, and Couldn't meet
   // meetings.view. A to-do with no party only opens the form, so it needs
   // create alone. undefined = /me not answered yet (kit §26.1).
-  const startNeedsEdit = !!todo?.partyId
+  const startNeedsEdit = !!(todo?.partyId || todo?.contactId)
   const canStart: boolean | undefined = me
     ? !!perms?.meetings?.create && (!startNeedsEdit || !!perms?.meetings?.edit)
     : undefined
@@ -343,7 +349,7 @@ function TodoPhone() {
 
   function pressStart() {
     if (!todo) return
-    if (!todo.partyId || (todo.kind === 'plan' && todo.missed)) {
+    if (!(todo.partyId || todo.contactId) || (todo.kind === 'plan' && todo.missed)) {
       router.push(logMeetingHref(todo))
       return
     }
@@ -351,7 +357,7 @@ function TodoPhone() {
   }
 
   async function createAndStart(reading: LocationReading | null): Promise<boolean> {
-    if (!todo?.partyId || !todo.partyName) return false
+    if (!(todo?.partyId || todo?.contactId) || !todo.partyName) return false
     let created: Visit
     try {
       const r = await fetch('/api/daily-activity', {
@@ -362,6 +368,7 @@ function TodoPhone() {
           visit_type: todo.visitType,
           entity_id: todo.partyId,
           entity_name: todo.partyName,
+          ...(todo.contactId ? { contact_id: todo.contactId } : {}),
           is_new_entity: false,
           ...(todo.kind === 'plan' ? { weekly_plan_item_id: todo.id } : {}),
           ...(todo.kind === 'followup' ? { deal_follow_up_id: todo.id } : {}),
@@ -472,7 +479,7 @@ function TodoPhone() {
       ) : null}
 
       {actionable ? (
-        todo.partyId && !(todo.kind === 'plan' && todo.missed) ? (
+        (todo.partyId || todo.contactId) && !(todo.kind === 'plan' && todo.missed) ? (
           <p className="text-body text-text-secondary">
             To record where this meeting happens, allow location when you tap Start meeting.
           </p>

@@ -73,13 +73,14 @@ function toNumberOrNull(value: unknown): number | null {
  */
 const MISSING_PARTY = 'Party no longer available'
 
-function toLine(item: ItemLike, labels: Map<string, string>): DiffLine {
+function toLine(item: ItemLike, labels: Map<string, string>, contactLabel: string | null = null): DiffLine {
   return {
     // `plan_date` is `@db.Date`. It becomes a "YYYY-MM-DD" string HERE, before
     // anything compares it — PLAN.md §8.4.
     plan_date: dateOnlyString(item.plan_date),
     party_label: item.party_id ? labels.get(item.party_id) ?? MISSING_PARTY : null,
     party_type: item.party_id ? item.party_type ?? null : null,
+    contact_label: contactLabel,
     new_dealers_goal: item.new_dealers_goal ?? 0,
     existing_dealers_goal: item.existing_dealers_goal ?? 0,
     // A legacy row's Others count is still stranded in `notes`; `readOthers`
@@ -93,9 +94,11 @@ function toLine(item: ItemLike, labels: Map<string, string>): DiffLine {
 
 /** Flatten stored rows, resolving party names in one pair of queries. */
 export async function toDiffLines(
-  items: ItemLike[],
+  items: (ItemLike & { id?: string })[],
   tenantId: string,
   labels?: Map<string, string>,
+  /** item id -> the person's name, from `readPlanItemContacts`. */
+  contactNames?: Map<string, string>,
 ): Promise<DiffLine[]> {
   const resolved =
     labels ??
@@ -103,13 +106,18 @@ export async function toDiffLines(
       items.map(i => i.party_id).filter((id): id is string => Boolean(id)),
       tenantId,
     ))
-  return items.map(i => toLine(i, resolved))
+  return items.map(i => toLine(i, resolved, (i.id && contactNames?.get(i.id)) || null))
 }
 
 /** The same flattening for rows `toItemRows` has produced but not yet written. */
 export function writesToDiffLines(
   rows: WeeklyPlanItemWrite[],
   labels: Map<string, string>,
+  /** row id -> contact id, from `toItemRowsWithContacts`. */
+  contactIds?: Map<string, string | null>,
 ): DiffLine[] {
-  return rows.map(r => toLine(r, labels))
+  return rows.map(r => {
+    const cid = contactIds?.get(r.id)
+    return toLine(r, labels, cid ? labels.get(cid) ?? null : null)
+  })
 }

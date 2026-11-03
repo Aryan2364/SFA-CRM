@@ -12,7 +12,7 @@ import { foreignCompanyRef, ownerOutsideScope } from './_access'
 import { visibleDealScope } from '@/lib/deal-visibility'
 import { buildCompanyWhere } from './_where'
 import {
-  addLink, findSelfAccountForContact, getSelfRole, readAccountKinds,
+  addLink, attachAccountKinds, findSelfAccountForContact, getSelfRole, readAccountKinds,
   isAccountKind, typeAppliesToKind, writeAccountKind, type AccountKind,
 } from '@/lib/account-kind'
 import {
@@ -99,7 +99,10 @@ export async function GET(req: NextRequest) {
         }),
         paged ? prisma.companies.count({ where }) : Promise.resolve(0),
       ])
-      return NextResponse.json(paged ? { rows, total, page, limit } : rows)
+      // `account_kind` lets a picker mark Individual accounts (and lock the
+      // contact to their Self person); defaults to Company while unset.
+      const withKind = await attachAccountKinds(rows, tid)
+      return NextResponse.json(paged ? { rows: withKind, total, page, limit } : withKind)
     }
 
     const [rows, total] = await Promise.all([

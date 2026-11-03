@@ -14,21 +14,21 @@ import { PickerSheetField, StaticPickerSheetField, type PickerOption } from '@/c
 import { NextMeetingDialog } from '@/components/daily-activity/next-meeting-dialog'
 import { PhoneAttendees, useMeetingAttendees } from '@/components/daily-activity/phone-attendees'
 import {
-  COMPANY_PREFIX,
-  CONTACT_PREFIX,
   NO_LEAD_TYPE,
   loadPlaceOptions,
-  partyOptionLabel,
   personMeetingName,
-  personOptionLabel,
   to24h,
   visitTypeForCompany,
   visitTypeForPerson,
-  type ContactCompany,
-  type LeadContact,
   type PlaceChoice,
 } from '@/components/daily-activity/add-meeting-dialog'
-import { toDateStr, type Entity } from '@/components/daily-activity/types'
+import { toDateStr } from '@/components/daily-activity/types'
+import {
+  AccountContactFields,
+  useAccountContactPicker,
+  type AccountContactValue,
+  type PickerAccount,
+} from '@/components/parties/account-contact-fields'
 import { TimePicker, type TimeValue } from '@/components/ui/time-picker'
 import { Banner, BannerDescription, BannerTitle } from '@/components/ui/banner'
 import { Button } from '@/components/ui/button'
@@ -48,13 +48,15 @@ import { Textarea } from '@/components/ui/textarea'
  * (`add-meeting-dialog.tsx`), with the same questions, rules and payload, laid
  * out as one phone screen:
  *
- * - "Who did you meet" is ONE picker over the caller's own accounts AND
- *   contacts (`/api/business-partners?status=all&mine=1`, `/api/contacts?mine=1`).
+ * - "Who did you meet" is TWO fields, Account and Contact
+ *   (`AccountContactFields`, shared with the dialog) over the caller's own
+ *   accounts and contacts (`/api/business-partners?status=all&mine=1`,
+ *   `/api/contacts?mine=1`).
  *   There is NO visit-type question: `visit_type` is the chosen party's own
  *   type, 'Other' for an untyped party, 'Contact' for a person with no company
  *   (`visitTypeForCompany` / `visitTypeForPerson`, shared with the dialog).
- * - A person who belongs to several accounts is asked "Which account?"; one
- *   with none can be made their own Individual account.
+ * - A person who belongs to several accounts narrows the account field and is
+ *   asked to pick one; one with none can be made their own Individual account.
  * - "New account" creates a lead from the form (`new_prospect`): name, mobile,
  *   place and an optional Account type, exactly as the dialog does.
  * - "Who was there" (attendees) once an account is resolved.
@@ -76,9 +78,6 @@ import { Textarea } from '@/components/ui/textarea'
  * A future date is refused by the route, so the date input's `max` is today.
  */
 
-type Load<T> = { state: 'loading' } | { state: 'ready'; rows: T[] } | { state: 'error' } | { state: 'forbidden' }
-
-const PEOPLE_TIMEOUT_MS = 15_000
 const MAX_RESULTS = 50
 
 export default function LogMeetingPage() {
@@ -118,19 +117,23 @@ function LogMeetingForm() {
   const [happened, setHappened] = useState(false)
   const [mode, setMode] = useState<'target' | 'create'>('target')
 
-  // Who did you meet: option ids are namespaced `c:<company id>` / `p:<contact id>`.
-  const [target, setTarget] = useState<PickerOption | null>(null)
-  const [personCompany, setPersonCompany] = useState<PickerOption | null>(null)
-  const [individualMadeFor, setIndividualMadeFor] = useState<string | null>(null)
+  // Who did you meet: an account and, optionally, a contact ('' = none).
+  const [pair, setPair] = useState<AccountContactValue>({ accountId: '', contactId: '' })
+  // Individual accounts made here / the ?account= party, which the accounts
+  // feed may not list yet.
+  const [madeAccounts, setMadeAccounts] = useState<PickerAccount[]>([])
+  const [presetEntity, setPresetEntity] = useState<PickerAccount | null>(null)
+  const extraAccounts = useMemo(() => (presetEntity ? [presetEntity, ...madeAccounts] : madeAccounts), [presetEntity, madeAccounts])
+  const picker = useAccountContactPicker({
+    value: pair,
+    onChange: choosePair,
+    accountsUrl: '/api/business-partners?status=all&mine=1',
+    contactsUrl: '/api/contacts?mine=1',
+    allowContactOnly: true,
+    extraAccounts,
+  })
   const [makingIndividual, setMakingIndividual] = useState(false)
   const [deal, setDeal] = useState<PickerOption | null>(null)
-
-  const [entities, setEntities] = useState<Load<Entity>>({ state: 'loading' })
-  const [entitiesReload, setEntitiesReload] = useState(0)
-  const [people, setPeople] = useState<Load<LeadContact>>({ state: 'loading' })
-  const [peopleReload, setPeopleReload] = useState(0)
-  // The ?account= party, when it is not one of the caller's own list.
-  const [presetEntity, setPresetEntity] = useState<Entity | null>(null)
 
   // New account (lead) panel.
   const [npName, setNpName] = useState('')
@@ -158,73 +161,26 @@ function LogMeetingForm() {
   const isPast = date < todayStr || happened
 
   const creating = mode === 'create'
-  const selectedCompanyId = target?.id.startsWith(COMPANY_PREFIX) ? target.id.slice(COMPANY_PREFIX.length) : ''
-  const selectedPersonId = target?.id.startsWith(CONTACT_PREFIX) ? target.id.slice(CONTACT_PREFIX.length) : ''
-  const entityRows = useMemo(() => (entities.state === 'ready' ? entities.rows : []), [entities])
-  const peopleRows = useMemo(() => (people.state === 'ready' ? people.rows : []), [people])
-
-  const personCompanies: ContactCompany[] = useMemo(
-    () => (selectedPersonId ? peopleRows.find(c => c.id === selectedPersonId)?.companies ?? [] : []),
-    [peopleRows, selectedPersonId]
-  )
-  // A contact in several accounts: ask, never guess (the dialog's rule).
-  const mustPickCompany = personCompanies.length > 1
-  const chosenPersonCompany: ContactCompany | null =
-    personCompanies.length === 0
-      ? null
-      : personCompanies.length === 1
-        ? personCompanies[0]
-        : personCompanies.find(c => c.id === personCompany?.id) ?? null
-  const resolvedCompanyId = selectedCompanyId || chosenPersonCompany?.id || individualMadeFor || ''
+  const selectedPersonId = pair.contactId
+  const accountRow = picker.selectedAccount
+  const company = accountRow ? { id: accountRow.id, name: accountRow.name, type: accountRow.type } : null
+  const resolvedCompanyId = pair.accountId
   // The account the meeting is filed against (an Opportunity must be at it).
-  const dealCompanyId = selectedCompanyId || chosenPersonCompany?.id || ''
+  const dealCompanyId = pair.accountId
 
   const attendees = useMeetingAttendees(creating ? '' : resolvedCompanyId, selectedPersonId)
 
   const changed =
-    !!target || !!deal || !!notes.trim() || happened || (creating && (!!npName.trim() || !!npMobile.trim() || !!npPlace || !!npType))
+    !!pair.accountId || !!pair.contactId || !!deal || !!notes.trim() || happened || (creating && (!!npName.trim() || !!npMobile.trim() || !!npPlace || !!npType))
   const { requestLeave, warning } = usePhoneFormGuard(changed)
-
-  // The caller's own accounts.
-  useEffect(() => {
-    let live = true
-    setEntities({ state: 'loading' })
-    fetch('/api/business-partners?status=all&mine=1')
-      .then(async r => {
-        if (!live) return
-        if (!r.ok) { setEntities({ state: 'error' }); return }
-        const d = (await r.json()) as Entity[]
-        setEntities({ state: 'ready', rows: Array.isArray(d) ? d : [] })
-      })
-      .catch(() => { if (live) setEntities({ state: 'error' }) })
-    return () => { live = false }
-  }, [entitiesReload])
-
-  // The caller's own contacts. A 403 hides the people half of the picker; it
-  // is not a fault. A failure is said, and can be retried.
-  useEffect(() => {
-    let live = true
-    setPeople({ state: 'loading' })
-    fetch('/api/contacts?mine=1', { signal: AbortSignal.timeout(PEOPLE_TIMEOUT_MS) })
-      .then(async r => {
-        if (!live) return
-        if (r.status === 403) { setPeople({ state: 'forbidden' }); return }
-        if (!r.ok) { setPeople({ state: 'error' }); return }
-        const d = (await r.json()) as LeadContact[]
-        if (live) setPeople({ state: 'ready', rows: Array.isArray(d) ? d : [] })
-      })
-      .catch(() => { if (live) setPeople({ state: 'error' }) })
-    return () => { live = false }
-  }, [peopleReload])
 
   // Prefill the account from ?account= once the list is known.
   const accountApplied = useRef(false)
   useEffect(() => {
-    if (!presetAccountId || accountApplied.current || entities.state === 'loading') return
+    if (!presetAccountId || accountApplied.current || picker.accountsState === 'loading') return
     accountApplied.current = true
-    const own = entityRows.find(e => e.id === presetAccountId)
-    if (own) {
-      setTarget({ id: `${COMPANY_PREFIX}${own.id}`, label: partyOptionLabel(own) })
+    if (picker.accountOptions.some(e => e.id === presetAccountId)) {
+      setPair({ accountId: presetAccountId, contactId: '' })
       return
     }
     ;(async () => {
@@ -233,13 +189,13 @@ function LogMeetingForm() {
         if (!r.ok) return
         const c = await r.json()
         if (!c?.id) return
-        setPresetEntity({ id: c.id, name: c.name, type: c.type, stage: c.stage })
-        setTarget({ id: `${COMPANY_PREFIX}${c.id}`, label: c.name })
+        setPresetEntity({ id: c.id, name: c.name, type: c.type, stage: c.stage, account_kind: c.account_kind })
+        setPair({ accountId: c.id, contactId: '' })
       } catch {
         /* best-effort prefill only */
       }
     })()
-  }, [presetAccountId, entities.state, entityRows])
+  }, [presetAccountId, picker.accountsState, picker.accountOptions])
 
   // Prefill the opportunity from ?deal= once its account is the one chosen.
   const dealApplied = useRef(false)
@@ -280,28 +236,6 @@ function LogMeetingForm() {
     return () => { live = false }
   }, [creating, placesReload])
 
-  const fetchTargets = useCallback(
-    async (q: string): Promise<PickerOption[]> => {
-      const needle = q.trim().toLowerCase()
-      const parties = presetEntity && !entityRows.some(e => e.id === presetEntity.id) ? [presetEntity, ...entityRows] : entityRows
-      // Each half is capped on its own, so a long list of accounts never
-      // pushes the people out of view when nothing has been typed yet.
-      const companies: PickerOption[] = []
-      for (const e of parties) {
-        if (needle && !e.name.toLowerCase().includes(needle)) continue
-        companies.push({ id: `${COMPANY_PREFIX}${e.id}`, label: partyOptionLabel(e), sublabel: e.type || undefined })
-      }
-      const contacts: PickerOption[] = []
-      for (const c of peopleRows) {
-        const label = personOptionLabel(c)
-        if (needle && !label.toLowerCase().includes(needle)) continue
-        contacts.push({ id: `${CONTACT_PREFIX}${c.id}`, label, sublabel: 'Contact' })
-      }
-      return [...companies.slice(0, MAX_RESULTS), ...contacts.slice(0, MAX_RESULTS)]
-    },
-    [entityRows, peopleRows, presetEntity]
-  )
-
   const fetchPlaces = useCallback(
     async (q: string): Promise<PickerOption[]> => {
       const needle = q.trim().toLowerCase()
@@ -330,11 +264,10 @@ function LogMeetingForm() {
     [leadTypes.rows]
   )
 
-  function chooseTarget(o: PickerOption) {
-    setTarget(o)
-    setPersonCompany(null)
-    setIndividualMadeFor(null)
-    setDeal(null)
+  // Every change of the pair clears what depended on the old one.
+  function choosePair(next: AccountContactValue) {
+    if (next.accountId !== pair.accountId) setDeal(null)
+    setPair(next)
     setFieldError({})
   }
 
@@ -345,7 +278,8 @@ function LogMeetingForm() {
       const r = await fetch(`/api/contacts/${selectedPersonId}/make-individual`, { method: 'POST' })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) { toast(d.error || 'Could not create an Individual account', 'error'); return }
-      setIndividualMadeFor(d.id)
+      setMadeAccounts(prev => [...prev, { id: d.id, name: d.name ?? picker.selectedContact?.name ?? '', type: d.type ?? null, account_kind: 'Individual' }])
+      choosePair({ accountId: d.id, contactId: selectedPersonId })
       toast('Individual account created', 'success')
     } catch {
       toast('Could not create an Individual account', 'error')
@@ -362,8 +296,9 @@ function LogMeetingForm() {
     if (creating) {
       if (!npName.trim()) errs.name = "Enter the account's name"
     } else {
-      if (!target) errs.target = 'Choose the account or person you met'
-      else if (mustPickCompany && !personCompany) errs.company = 'Choose which account the meeting was with'
+      if (!pair.accountId && !pair.contactId) errs.target = 'Choose the account or person you met'
+      else if (picker.accountChoiceRequired) errs.company = 'Choose which account the meeting was with'
+      else if (!picker.complete) errs.company = 'Pick an account to continue'
     }
     setFieldError(errs)
 
@@ -407,27 +342,24 @@ function LogMeetingForm() {
         },
       }
     } else if (selectedPersonId) {
-      const person = peopleRows.find(c => c.id === selectedPersonId)
-      const company = chosenPersonCompany
       body = {
         ...manual,
         ...attendeesLink,
         ...dealLink,
         visit_type: visitTypeForPerson(company),
         entity_id: company?.id ?? null,
-        entity_name: personMeetingName(person?.name, company),
+        entity_name: personMeetingName(picker.selectedContact?.name, company),
         contact_id: selectedPersonId,
         is_new_entity: false,
       }
     } else {
-      const selected = entityRows.find(e => e.id === selectedCompanyId) ?? (presetEntity?.id === selectedCompanyId ? presetEntity : undefined)
       body = {
         ...manual,
         ...attendeesLink,
         ...dealLink,
-        visit_type: visitTypeForCompany(selected?.type),
-        entity_id: selectedCompanyId,
-        entity_name: selected?.name ?? target?.label ?? '',
+        visit_type: visitTypeForCompany(accountRow?.type),
+        entity_id: pair.accountId,
+        entity_name: accountRow?.name ?? '',
         contact_id: null,
         is_new_entity: false,
       }
@@ -527,8 +459,6 @@ function LogMeetingForm() {
     )
   }
 
-  const listsLoading = entities.state === 'loading' || people.state === 'loading'
-  const noOwn = entityRows.length === 0 && peopleRows.length === 0
   const noLeadTypes = leadTypes.state === 'ready' && leadTypes.rows.length === 0
 
   return (
@@ -554,69 +484,28 @@ function LogMeetingForm() {
 
         {!creating ? (
           <>
-            <PhoneFormField label="Who did you meet" required>
-              {listsLoading ? (
-                <Skeleton className="h-11 w-full" />
-              ) : entities.state === 'error' ? (
-                <div className="flex flex-col gap-2">
-                  <InlineFieldError className="mt-0">Your accounts could not be loaded.</InlineFieldError>
-                  <Button variant="secondary" type="button" onClick={() => setEntitiesReload(n => n + 1)}>Try again</Button>
-                </div>
-              ) : (
-                <PickerSheetField
-                  label="Who did you meet"
-                  placeholder="Search an account or person"
-                  value={target}
-                  onChange={chooseTarget}
-                  fetchOptions={fetchTargets}
-                />
-              )}
-              {fieldError.target ? <p className="text-meta text-danger">{fieldError.target}</p> : null}
-              {people.state === 'error' ? (
-                <div className="flex flex-col gap-2">
-                  <InlineFieldError className="mt-0">
-                    The contacts could not be loaded, so only accounts are listed here. The meeting can still be logged against one.
-                  </InlineFieldError>
-                  <Button variant="secondary" type="button" onClick={() => setPeopleReload(n => n + 1)}>Retry</Button>
-                </div>
-              ) : !listsLoading && entities.state === 'ready' ? (
-                <p className="text-meta text-text-muted">
-                  {noOwn
-                    ? 'You have no accounts of your own yet. Use New account to add the one you met.'
-                    : peopleRows.length > 0
-                      ? 'Pick your account, or the person you met.'
-                      : 'Pick the account you met.'}
-                </p>
-              ) : null}
-              <Button variant="secondary" type="button" className="w-full" onClick={() => { setMode('create'); setFieldError({}) }}>
-                <PlusIcon />
-                New account
-              </Button>
-            </PhoneFormField>
-
-            {mustPickCompany ? (
-              <PhoneFormField label="Which account?" required hint="This person is linked to more than one account, so the meeting has to say which one it was with.">
-                <StaticPickerSheetField
-                  label="Which account?"
-                  placeholder="Select the account"
-                  value={personCompany}
-                  onChange={o => { setPersonCompany(o); setDeal(null); setFieldError({}) }}
-                  options={personCompanies.map(c => ({ id: c.id, label: c.name }))}
-                />
-                {fieldError.company ? <p className="text-meta text-danger">{fieldError.company}</p> : null}
-              </PhoneFormField>
-            ) : null}
-
-            {selectedPersonId && personCompanies.length === 0 && !individualMadeFor ? (
-              <div className="flex flex-col gap-2 rounded-lg border border-border-light bg-surface-sunken p-3">
-                <p className="text-meta text-text-muted">
-                  This person is not linked to any account, so the meeting is logged against them alone. You can make them their own account instead.
-                </p>
-                <Button variant="secondary" type="button" onClick={makeIndividual} disabled={makingIndividual}>
-                  {makingIndividual ? 'Creating…' : 'Make Individual account'}
+            <AccountContactFields
+              picker={picker}
+              idPrefix="lm"
+              accountLabelText="Account"
+              contactLabelText="Contact"
+              accountRequired
+              accountError={fieldError.target ?? fieldError.company}
+              accountAction={
+                <Button variant="secondary" type="button" className="w-full" onClick={() => { setMode('create'); setFieldError({}) }}>
+                  <PlusIcon />
+                  New account
                 </Button>
-              </div>
-            ) : null}
+              }
+              contactOnlyAction={
+                <div className="flex flex-col gap-2 rounded-lg border border-border-light bg-surface-sunken p-3">
+                  <p className="text-meta text-text-muted">You can also make this person their own Individual account.</p>
+                  <Button variant="secondary" type="button" onClick={makeIndividual} disabled={makingIndividual}>
+                    {makingIndividual ? 'Creating\u2026' : 'Make Individual account'}
+                  </Button>
+                </div>
+              }
+            />
 
             {resolvedCompanyId ? <PhoneAttendees attendees={attendees} /> : null}
           </>

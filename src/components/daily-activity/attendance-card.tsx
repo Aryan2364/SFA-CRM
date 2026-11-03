@@ -155,31 +155,37 @@ export function AttendanceCard({
 
   async function mark(kind: 'in' | 'out') {
     setActing(kind)
-    const pos = await getPosition()
-    const body: Record<string, unknown> = {}
-    if (pos && !('denied' in pos)) {
-      body.latitude = pos.latitude
-      body.longitude = pos.longitude
-      body.accuracy = pos.accuracy ?? null
-      body.address = await reverseGeocode(pos.latitude, pos.longitude)
+    try {
+      const pos = await getPosition()
+      // Desktop proceeds without a place when the read fails.
+      const body: Record<string, unknown> = {}
+      if (pos && !('denied' in pos)) {
+        body.latitude = pos.latitude
+        body.longitude = pos.longitude
+        body.accuracy = pos.accuracy ?? null
+        body.address = await reverseGeocode(pos.latitude, pos.longitude)
+      }
+      const res = await fetch(`/api/attendance/check-${kind}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast(data.error ?? `Check-${kind} failed`, 'error')
+      } else {
+        // Updated in place — same node, no remount, no flicker. The clock
+        // effect above re-runs off the new check_in_time (F1).
+        setNow(Date.now())
+        setRecord(data)
+        toast(kind === 'in' ? 'Marked present' : 'Working day closed', 'success')
+        onChanged?.()
+      }
+    } catch {
+      toast('The connection dropped. Check your connection and try again.', 'error')
+    } finally {
+      setActing(null)
     }
-    const res = await fetch(`/api/attendance/check-${kind}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const data = await res.json()
-    if (!res.ok) {
-      toast(data.error ?? `Check-${kind} failed`, 'error')
-    } else {
-      // Updated in place — same node, no remount, no flicker. The clock
-      // effect above re-runs off the new check_in_time (F1).
-      setNow(Date.now())
-      setRecord(data)
-      toast(kind === 'in' ? 'Marked present' : 'Working day closed', 'success')
-      onChanged?.()
-    }
-    setActing(null)
   }
 
   if (record === undefined) {
@@ -266,6 +272,12 @@ export function AttendanceCard({
                 <LogInIcon className="size-3.5 shrink-0 text-text-muted" />
                 <span>In {formatTime(record!.check_in_time!)}</span>
               </div>
+              {!inLoc && (
+                <div className="flex items-start gap-2 pl-[1.375rem]">
+                  <MapPinIcon className="mt-0.5 size-3.5 shrink-0 text-text-muted" />
+                  <span>No location</span>
+                </div>
+              )}
               {inLoc && (
                 <div className="flex items-start gap-2 pl-[1.375rem]">
                   <MapPinIcon className="mt-0.5 size-3.5 shrink-0 text-text-muted" />
@@ -289,6 +301,12 @@ export function AttendanceCard({
                     <LogOutIcon className="size-3.5 shrink-0 text-text-muted" />
                     <span>Out {formatTime(record!.check_out_time!)}</span>
                   </div>
+                  {!outLoc && (
+                    <div className="flex items-start gap-2 pl-[1.375rem]">
+                      <MapPinIcon className="mt-0.5 size-3.5 shrink-0 text-text-muted" />
+                      <span>No location</span>
+                    </div>
+                  )}
                   {outLoc && (
                     <div className="flex items-start gap-2 pl-[1.375rem]">
                       <MapPinIcon className="mt-0.5 size-3.5 shrink-0 text-text-muted" />

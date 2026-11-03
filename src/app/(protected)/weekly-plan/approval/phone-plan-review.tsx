@@ -552,6 +552,7 @@ function ManagerLineDialog({
                       ...line,
                       party_id: option.id,
                       party_type: found?.type ?? null,
+                      contact_id: null,
                       party_label: option.label,
                     })
                   }}

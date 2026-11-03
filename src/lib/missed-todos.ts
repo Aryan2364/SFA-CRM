@@ -1,4 +1,5 @@
 import { prisma } from './db'
+import { readPlanItemContacts } from './plan-item-contact'
 import { businessDate, businessDaysAgo, recentBusinessDays } from './business-date'
 import { listCouldntMeet, partiesWithRepeatedCouldntMeetForUsers } from './todo-outcomes'
 
@@ -34,6 +35,29 @@ import { listCouldntMeet, partiesWithRepeatedCouldntMeetForUsers } from './todo-
 
 const MISSED_WINDOW_BUSINESS_DAYS = 7
 
+/**
+ * Meetings that named these people (`daily_visits.contact_id` is a raw column,
+ * see visit-contact.ts). Empty when the column is not there yet.
+ */
+async function readContactVisits(
+  tenantId: string, userIds: string[], contactIds: string[]
+): Promise<{ user_id: string; contact_id: string; visit_date: string }[]> {
+  try {
+    const rows = await prisma.$queryRaw<{ user_id: string; contact_id: string; visit_date: string }[]>`
+      SELECT user_id::text AS user_id, contact_id::text AS contact_id, to_char(visit_date, 'YYYY-MM-DD') AS visit_date
+        FROM daily_visits
+       WHERE tenant_id = ${tenantId}::uuid
+         AND user_id = ANY(${userIds}::uuid[])
+         AND contact_id = ANY(${contactIds}::uuid[])
+    `
+    return rows
+  } catch (err) {
+    const m = (err as { message?: unknown })?.message
+    if (typeof m === 'string' && /contact_id/.test(m) && /does not exist|undefined column/i.test(m)) return []
+    throw err
+  }
+}
+
 export type MissedTodo = {
   kind: 'plan' | 'followup' | 'next-meeting'
   id: string
@@ -42,6 +66,8 @@ export type MissedTodo = {
    *  to. Move's PATCH route is nested under it (`/api/deals/[id]/follow-ups/[fid]`). */
   deal_id: string | null
   party_id: string | null
+  /** The person on a plan line (the only party a contact-only line has). */
+  contact_id?: string | null
   party_name: string
   /** The party's own `companies.type`, for Start to file the meeting the
    *  same way a same-day card would. Null for a plan line (Start never
@@ -79,34 +105,68 @@ export async function listMissedTodos(
       weekly_plans: { tenant_id: tenantId, user_id: { in: userIds }, status: 'Approved' },
     },
     select: {
-      id: true, plan_date: true, party_id: true,
+      id: true, plan_date: true, party_id: true, party_type: true,
       weekly_plans: { select: { user_id: true } },
     },
   })
   if (planItems.length) {
-    const partyIds = planItems.map(p => p.party_id!).filter(Boolean)
-    const [parties, metPairs] = await Promise.all([
-      prisma.companies.findMany({
-        where: { tenant_id: tenantId, id: { in: partyIds } },
-        select: { id: true, name: true },
-      }),
-      prisma.daily_visits.findMany({
-        where: { tenant_id: tenantId, user_id: { in: userIds }, entity_id: { in: partyIds } },
-        select: { user_id: true, entity_id: true, visit_date: true },
-      }),
+    // A line is an ACCOUNT (party_type 'company'/null, optionally with a person
+    // in the raw `contact_id` column) or a person alone (party_type 'contact',
+    // party_id = the contact).
+    const isPerson = (p: { party_type: string | null }) => p.party_type === 'contact'
+    const itemContacts = await readPlanItemContacts(tenantId, planItems.map(p => p.id))
+    const partyIds = planItems.filter(p => !isPerson(p)).map(p => p.party_id!).filter(Boolean)
+    const contactIds = [...new Set([
+      ...planItems.filter(isPerson).map(p => p.party_id!),
+      ...planItems.map(p => itemContacts?.get(p.id)?.id).filter((x): x is string => Boolean(x)),
+    ])]
+    const [parties, people, metPairs, metContacts] = await Promise.all([
+      partyIds.length
+        ? prisma.companies.findMany({
+            where: { tenant_id: tenantId, id: { in: partyIds } },
+            select: { id: true, name: true },
+          })
+        : [],
+      contactIds.length
+        ? prisma.contacts.findMany({
+            where: { tenant_id: tenantId, id: { in: contactIds } },
+            select: { id: true, name: true },
+          })
+        : [],
+      partyIds.length
+        ? prisma.daily_visits.findMany({
+            where: { tenant_id: tenantId, user_id: { in: userIds }, entity_id: { in: partyIds } },
+            select: { user_id: true, entity_id: true, visit_date: true },
+          })
+        : [],
+      // A person with no account is "met" by a meeting naming them.
+      contactIds.length ? readContactVisits(tenantId, userIds, contactIds) : [],
     ])
     const partyName = new Map(parties.map(p => [p.id, p.name]))
+    const personName = new Map(people.map(p => [p.id, p.name]))
     for (const p of planItems) {
       const planDate = p.plan_date.toISOString().slice(0, 10)
-      const resolved = metPairs.some(
-        v => v.user_id === p.weekly_plans.user_id && v.entity_id === p.party_id &&
-          v.visit_date.toISOString().slice(0, 10) >= planDate
-      )
+      const person = isPerson(p)
+      const contactId = person ? p.party_id! : itemContacts?.get(p.id)?.id ?? null
+      const resolved = person
+        ? metContacts.some(
+            v => v.user_id === p.weekly_plans.user_id && v.contact_id === contactId && v.visit_date >= planDate
+          )
+        : metPairs.some(
+            v => v.user_id === p.weekly_plans.user_id && v.entity_id === p.party_id &&
+              v.visit_date.toISOString().slice(0, 10) >= planDate
+          )
       if (resolved) continue
-      const name = partyName.get(p.party_id!) ?? 'Unnamed'
+      const account = person ? undefined : partyName.get(p.party_id!)
+      const who = contactId ? personName.get(contactId) : undefined
+      // "Person · Company" when both are known, whichever one exists otherwise.
+      const name = [who, account].filter(Boolean).join(' · ') || 'Unnamed'
       out.push({
         kind: 'plan', id: p.id, user_id: p.weekly_plans.user_id, deal_id: null,
-        party_id: p.party_id, party_name: name, visit_type: null,
+        // The ACCOUNT only: null for a contact-only line, whose person rides in
+        // `contact_id`.
+        party_id: person ? null : p.party_id, contact_id: contactId,
+        party_name: name, visit_type: null,
         original_date: planDate, label: `Planned visit: ${name}`,
       })
     }
@@ -257,7 +317,7 @@ export async function countOutcomesByUser(
     couldntMeetRows.map(r => couldntMeetKey(r.todo_kind === 'next_meeting' ? 'next-meeting' : r.todo_kind, r.todo_ref))
   )
 
-  type Candidate = { user_id: string; kind: string; ref: string; original_date: string; party_id: string | null }
+  type Candidate = { user_id: string; kind: string; ref: string; original_date: string; party_id: string | null; person?: boolean }
   const candidates: Candidate[] = []
 
   const planItems = await prisma.weekly_plan_items.findMany({
@@ -265,12 +325,13 @@ export async function countOutcomesByUser(
       tenant_id: tenantId, plan_date: range, party_id: { not: null },
       weekly_plans: { tenant_id: tenantId, user_id: { in: userIds }, status: 'Approved' },
     },
-    select: { id: true, plan_date: true, party_id: true, weekly_plans: { select: { user_id: true } } },
+    select: { id: true, plan_date: true, party_id: true, party_type: true, weekly_plans: { select: { user_id: true } } },
   })
   for (const p of planItems) {
     candidates.push({
       user_id: p.weekly_plans.user_id, kind: 'plan', ref: p.id,
       original_date: p.plan_date.toISOString().slice(0, 10), party_id: p.party_id,
+      person: p.party_type === 'contact',
     })
   }
 
@@ -304,9 +365,23 @@ export async function countOutcomesByUser(
       })
     : []
 
+  const personIds = [...new Set(candidates.filter(c => c.person && c.party_id).map(c => c.party_id!))]
+  const personVisits = personIds.length ? await readContactVisits(tenantId, userIds, personIds) : []
+
   for (const cand of candidates) {
     const bucket = get(cand.user_id)
-    const metVisit = cand.party_id
+    if (cand.person) {
+      // A contact-only line is met by any meeting naming that person on/after the day.
+      const hit = personVisits
+        .filter(v => v.user_id === cand.user_id && v.contact_id === cand.party_id && v.visit_date >= cand.original_date)
+        .sort((a, b) => a.visit_date.localeCompare(b.visit_date))[0]
+      if (hit) {
+        if (hit.visit_date === cand.original_date) bucket.met++
+        else bucket.metLate++
+        continue
+      }
+    }
+    const metVisit = cand.party_id && !cand.person
       ? visits
           .filter(v => v.user_id === cand.user_id && v.entity_id === cand.party_id &&
             v.visit_date.toISOString().slice(0, 10) >= cand.original_date)

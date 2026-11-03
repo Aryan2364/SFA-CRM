@@ -3,6 +3,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { attachPlanItemContacts } from '@/lib/plan-item-contact'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       plan_status: plan.status,
-      items: serialize(items, 'weekly_plan_items'),
+      items: await attachPlanItemContacts(getTenantId(), serialize(items, 'weekly_plan_items') as { id: string }[]),
     })
   } catch (err) {
     return NextResponse.json({ error: dbErrorMessage(err) }, { status: 500 })

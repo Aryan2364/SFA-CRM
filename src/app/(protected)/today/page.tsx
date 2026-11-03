@@ -748,7 +748,11 @@ function ActivityPhone() {
         ) : !checkedOutAt ? (
           <div className="flex flex-col gap-1">
             <p className="text-body text-text-primary">Checked in at {formatTime(checkedInAt)}</p>
-            {checkInAddress ? <p className="text-label text-text-secondary">{checkInAddress}</p> : null}
+            {checkInAddress ? (
+              <p className="text-label text-text-secondary">{checkInAddress}</p>
+            ) : attendance?.check_in_latitude == null ? (
+              <p className="text-label text-text-secondary">No location</p>
+            ) : null}
           </div>
         ) : (
           <p className="text-body text-text-primary">

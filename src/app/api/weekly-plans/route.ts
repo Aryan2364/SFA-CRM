@@ -3,7 +3,8 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
-import { toItemRows } from './_items'
+import { toItemRowsWithContacts } from './_items'
+import { checkPlanItemRefs, writePlanItemContacts } from '@/lib/plan-item-contact'
 import { saveGoals } from './_goals'
 import { readPlanVersion } from './_transition'
 
@@ -18,6 +19,12 @@ export async function POST(req: NextRequest) {
   const tid = getTenantId()
 
   try {
+    // Account / contact ids in the body are checked against this tenant (FKs are
+    // not tenant-safe) and a contact must belong to the account it sits under.
+    const refs = await checkPlanItemRefs(items, tid, null)
+    if (refs.error) return NextResponse.json({ error: refs.error }, { status: 400 })
+    const cleanItems = refs.items
+
     // Look up manager
     const dbUser = await prisma.users.findUnique({
       where: { id: user.userId },
@@ -44,8 +51,9 @@ export async function POST(req: NextRequest) {
     // toItemRows whitelists the columns. The old `{ ...item }` spread put
     // whatever the client sent into createMany, where an unknown key is a Prisma
     // throw rather than an ignored field.
-    const rows = toItemRows(items, tid, plan.id)
+    const { rows, contacts } = toItemRowsWithContacts(cleanItems, tid, plan.id)
     if (rows.length) await prisma.weekly_plan_items.createMany({ data: rows })
+    await writePlanItemContacts(tid, contacts)
 
     await saveGoals(plan.id, tid, goals)
 

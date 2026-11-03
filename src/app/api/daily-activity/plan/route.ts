@@ -3,6 +3,7 @@ import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getTenantId } from '@/lib/tenant'
 import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
+import { attachPlanItemContacts } from '@/lib/plan-item-contact'
 import { intersectScope, scopedUserIds, scopeWhere } from '@/lib/scope'
 
 export const dynamic = 'force-dynamic'
@@ -86,32 +87,82 @@ export async function GET(req: NextRequest) {
     })
     if (items.length === 0) return NextResponse.json({ items: [] })
 
-    // Resolve party names in one query. `party_type` is a free-text column;
-    // only 'company' has a table behind it today, and anything else keeps a
-    // null name rather than guessing.
-    const partyIds = items
-      .filter(i => i.party_id && (i.party_type === 'company' || i.party_type == null))
-      .map(i => i.party_id!)
-    const parties = partyIds.length
-      ? await prisma.companies.findMany({
-          where: { tenant_id: tenantId, id: { in: partyIds } },
-          select: { id: true, name: true, type: true },
+    // Resolve names in two queries. `party_type` is free text: 'company' (or
+    // null, on old rows) means `party_id` is an ACCOUNT and `contact_id` (raw
+    // column, may be null / unavailable) is the person on it; 'contact' means a
+    // person with no account - `party_id` IS the contact.
+    const rows = await attachPlanItemContacts(
+      tenantId,
+      serialize(items, 'weekly_plan_items') as (Record<string, unknown> & { id: string })[],
+    )
+    const isContactOnly = (r: Record<string, unknown>) => r.party_type === 'contact'
+    const accountIds = rows
+      .filter(r => r.party_id && !isContactOnly(r))
+      .map(r => r.party_id as string)
+    const contactIds = rows
+      .flatMap(r => [isContactOnly(r) ? r.party_id : r.contact_id])
+      .filter((id): id is string => typeof id === 'string' && id !== '')
+    const [accounts, people] = await Promise.all([
+      accountIds.length
+        ? prisma.companies.findMany({
+            where: { tenant_id: tenantId, id: { in: accountIds } },
+            select: { id: true, name: true, type: true },
+          })
+        : [],
+      contactIds.length
+        ? prisma.contacts.findMany({
+            where: { tenant_id: tenantId, id: { in: contactIds } },
+            select: { id: true, name: true, is_active: true },
+          })
+        : [],
+    ])
+    const accountById = new Map(accounts.map(a => [a.id, a]))
+    const personById = new Map(people.map(p => [p.id, p]))
+    // "Start" hands contact_id to the meeting, and resolveVisitContact refuses a
+    // contact that is inactive or no longer linked to the account. Hand over only
+    // what it will accept, or Start dead-ends in a 400.
+    const linkable = rows.filter(r => !isContactOnly(r) && r.party_id && r.contact_id)
+    const links = linkable.length
+      ? await prisma.company_contacts.findMany({
+          where: {
+            tenant_id: tenantId,
+            company_id: { in: linkable.map(r => r.party_id as string) },
+            contact_id: { in: linkable.map(r => r.contact_id as string) },
+          },
+          select: { company_id: true, contact_id: true },
         })
       : []
-    const partyById = new Map(parties.map(p => [p.id, p]))
-
-    // serialize() first — expected_order_value is a Decimal and plan_date a
-    // DATE; both are corrupt by the time JSON.stringify sees them otherwise.
-    const rows = serialize(items, 'weekly_plan_items') as Record<string, unknown>[]
+    const linkSet = new Set(links.map(l => `${l.company_id}:${l.contact_id}`))
 
     return NextResponse.json({
       items: rows.map(r => {
         const owner = byPlan.get(r.weekly_plan_id as string)
-        const party = r.party_id ? partyById.get(r.party_id as string) : undefined
+        const contactOnly = isContactOnly(r)
+        const account = r.party_id && !contactOnly ? accountById.get(r.party_id as string) : undefined
+        const contactId = contactOnly ? (r.party_id as string | null) : r.contact_id
+        const found = contactId ? personById.get(contactId as string) : undefined
+        // Inactive, or (on an account line) no longer linked: drop it.
+        const person =
+          found && found.is_active !== false &&
+          (contactOnly || !account || linkSet.has(`${account.id}:${found.id}`))
+            ? found
+            : undefined
+        // "Person · Company" is what a meeting started from this line is named.
+        const entityName =
+          [person?.name, account?.name].filter(Boolean).join(' · ') || null
         return {
           ...r,
-          party_name: party?.name ?? null,
-          party_visit_type: party?.type ?? null,
+          // The meeting handoff: entity_id is the ACCOUNT (null for a person
+          // with none), contact_id the person.
+          account_id: account ? account.id : null,
+          account_name: account?.name ?? null,
+          contact_id: (person ? person.id : null) as string | null,
+          contact_name: person?.name ?? null,
+          entity_name: entityName,
+          // party_name keeps its old meaning for the card, now also resolving a
+          // contact-only party instead of leaving it null.
+          party_name: entityName,
+          party_visit_type: account?.type ?? null,
           user_id: owner?.user_id ?? null,
           user_name: owner?.user_name ?? '',
         }

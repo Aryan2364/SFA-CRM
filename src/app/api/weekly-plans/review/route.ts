@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { checkPermission, forbidden } from '@/lib/permissions'
 import { getVisibleUserIds } from '@/lib/visibility'
 import { migrateWeekGoal } from '../_goals'
+import { readPlanItemContacts } from '@/lib/plan-item-contact'
 import { canReview, readPlanVersionsByOwner, reviewableUserIds } from '../_transition'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -79,9 +80,15 @@ export async function GET(req: NextRequest) {
 
     // `users!user_id(id, name, contact)` arrived under the key `users`; the
     // introspected relation field has a disambiguated name, so rename it back.
-    const rows = serialize(data, 'weekly_plans') as Record<string, unknown>[]
+    const rows = serialize(data, 'weekly_plans') as (Record<string, unknown> & { weekly_plan_items: { id: string }[] })[]
+    const contactMap = await readPlanItemContacts(tenantId, rows.flatMap(r => r.weekly_plan_items.map(i => i.id)))
     const result = rows.map(({ users_weekly_plans_user_idTousers, ...rest }, i) => ({
       ...rest,
+      weekly_plan_items: rest.weekly_plan_items.map(it => ({
+        ...it,
+        contact_id: contactMap?.get(it.id)?.id ?? null,
+        contact_name: contactMap?.get(it.id)?.name ?? null,
+      })),
       users: users_weekly_plans_user_idTousers ?? null,
       canDecide,
       canReview: mayReview(data[i].user_id),

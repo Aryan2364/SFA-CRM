@@ -25,8 +25,12 @@ import { DECISIONS, EDIT_ALLOWED_FROM, type PlanItem } from './approval-types'
 import { DecisionDialog } from './decision-dialog'
 import { SaveEditDialog } from './save-edit-dialog'
 import { ManagerChanges, changeCountLabel } from './manager-changes'
-import { PartyCombobox } from './party-combobox'
-import { dayLabel, usePlanReview } from './use-plan-review'
+import {
+  AccountContactFields,
+  useAccountContactPicker,
+  type AccountContactValue,
+} from '@/components/parties/account-contact-fields'
+import { dayLabel, usePlanReview, type DraftLine } from './use-plan-review'
 
 /**
  * §5.2's reviewer surface: one plan, everything needed to decide on it, and the
@@ -87,6 +91,9 @@ export function ReadLine({ item }: { item: PlanItem }) {
       <span className="text-body font-medium text-text-primary">
         {item.party_label ?? 'No party'}
       </span>
+      {item.contact_name && (
+        <span className="text-label text-text-secondary">with {item.contact_name}</span>
+      )}
       <span className="text-label text-text-secondary">{parts.join(' · ')}</span>
       {item.expected_order_value != null && (
         <span className="text-label text-text-secondary">
@@ -97,6 +104,61 @@ export function ReadLine({ item }: { item: PlanItem }) {
         <span className="w-full text-label text-text-secondary">{item.notes}</span>
       )}
     </li>
+  )
+}
+
+/**
+ * One editable line's account and person. A picker hook per line, so it is a
+ * component: the same shared fields the owner's plan uses, fed by the default
+ * account and contact lists. The pair is stored as the API reads it: an account
+ * line holds the account in `party_id` and the person in `contact_id`; a
+ * contact-only line holds the person in `party_id` and no `contact_id`.
+ */
+function LinePartyEditor({
+  line,
+  onChange,
+}: {
+  line: DraftLine
+  onChange: (change: Partial<DraftLine>) => void
+}) {
+  const value: AccountContactValue =
+    line.party_type === 'contact'
+      ? { accountId: '', contactId: line.party_id ?? '' }
+      : { accountId: line.party_id ?? '', contactId: line.contact_id ?? '' }
+  // The line's own account may not be in the manager's list; keep it shown.
+  const known =
+    line.party_id && line.party_type !== 'contact' && line.party_label
+      ? [{ id: line.party_id, name: line.party_label }]
+      : undefined
+  const picker = useAccountContactPicker({
+    value,
+    allowContactOnly: true,
+    extraAccounts: known,
+    onChange: next => {
+      if (next.accountId) {
+        onChange({
+          party_id: next.accountId,
+          party_type: 'company',
+          contact_id: next.contactId || null,
+          party_label:
+            picker.accountOptions.find(a => a.id === next.accountId)?.name ?? line.party_label,
+        })
+      } else if (next.contactId) {
+        onChange({
+          party_id: next.contactId,
+          party_type: 'contact',
+          contact_id: null,
+          party_label: picker.contactRows.find(c => c.id === next.contactId)?.name ?? line.party_label,
+        })
+      } else {
+        onChange({ party_id: null, party_type: null, contact_id: null, party_label: null })
+      }
+    },
+  })
+  return (
+    <div className="space-y-3">
+      <AccountContactFields picker={picker} idPrefix={`plan-${line.key}`} />
+    </div>
   )
 }
 
@@ -116,7 +178,7 @@ export function PlanReviewPanel({
   const [tab, setTab] = useState('plan')
   const {
     plan, failed, load, editing, setEditing, lines, setLines, decision, setDecision,
-    saveOpen, setSaveOpen, editNote, setEditNote, busy, parties, dates, verbLock,
+    saveOpen, setSaveOpen, editNote, setEditNote, busy, dates, verbLock,
     byDay, draftsByDay, lastEdit, patch, addLine, runDecision, saveEdit, discardEdit,
   } = usePlanReview({ planId, onClose, onChanged })
 
@@ -263,27 +325,16 @@ export function PlanReviewPanel({
                                   >
                                     <div className="flex items-start gap-2">
                                       <div className="min-w-0 flex-1">
-                                        <span className="mb-1 block text-[11px] font-medium text-text-muted">
-                                          Party
-                                        </span>
-                                        <PartyCombobox
-                                          value={line.party_id}
-                                          label={line.party_label}
-                                          options={parties}
-                                          onChange={option =>
-                                            patch(line.key, {
-                                              party_id: option?.id ?? null,
-                                              party_type: option?.type ?? null,
-                                              party_label: option?.name ?? null,
-                                            })
-                                          }
+                                        <LinePartyEditor
+                                          line={line}
+                                          onChange={change => patch(line.key, change)}
                                         />
                                       </div>
                                       <Button
                                         variant="ghost"
                                         size="icon"
                                         aria-label="Remove line"
-                                        className="mt-5 text-danger"
+                                        className="mt-8 text-danger"
                                         onClick={() =>
                                           setLines(prev =>
                                             prev.filter(l => l.key !== line.key),
