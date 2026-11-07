@@ -10,8 +10,8 @@
  * copy and can rename or deactivate rows like any other master; changing the
  * template never touches an existing firm.
  *
- * Not in prisma/schema.prisma (agents cannot push), so they are read through
- * raw SQL. A database without the tables yet seeds nothing, exactly as before.
+ * Read through raw SQL so the copy is one statement per table, and a database
+ * without the tables yet seeds nothing, exactly as before.
  */
 import { prisma } from '@/lib/db'
 

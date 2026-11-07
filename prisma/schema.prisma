@@ -65,6 +65,8 @@ model daily_visits {
   is_manual_entry     Boolean   @default(false)
   location_flagged    Boolean   @default(false)
   weekly_plan_item_id String?   @db.Uuid
+  accuracy_m          Float?    @db.Real
+  end_accuracy_m      Float?    @db.Real
   users               users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   /// Declared for symmetry with `deals.contacts` and to carry the FK. NOTHING
   /// includes this relation while the column is unpushed — reads go through
@@ -477,6 +479,8 @@ model weekly_plan_items {
   party_type            String?
   expected_order_value  Decimal?     @db.Decimal(12, 2)
   others_goal           Int?         @default(0)
+  contact_id            String?      @db.Uuid
+  contacts              contacts?    @relation(fields: [contact_id], references: [id], onUpdate: NoAction)
   weekly_plans          weekly_plans @relation(fields: [weekly_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
@@ -509,21 +513,23 @@ model weekly_plans {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model attendance {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id           String    @db.Uuid
-  user_id             String    @db.Uuid
-  date                DateTime  @db.Date
-  check_in_time       DateTime? @db.Timestamptz(6)
-  check_in_latitude   Float?
-  check_in_longitude  Float?
-  check_in_address    String?
-  check_out_time      DateTime? @db.Timestamptz(6)
-  check_out_latitude  Float?
-  check_out_longitude Float?
-  check_out_address   String?
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
-  users               users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id            String    @db.Uuid
+  user_id              String    @db.Uuid
+  date                 DateTime  @db.Date
+  check_in_time        DateTime? @db.Timestamptz(6)
+  check_in_latitude    Float?
+  check_in_longitude   Float?
+  check_in_address     String?
+  check_out_time       DateTime? @db.Timestamptz(6)
+  check_out_latitude   Float?
+  check_out_longitude  Float?
+  check_out_address    String?
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime  @default(now()) @db.Timestamptz(6)
+  check_in_accuracy_m  Float?    @db.Real
+  check_out_accuracy_m Float?    @db.Real
+  users                users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenant_id, user_id, date])
 }
@@ -601,6 +607,8 @@ model company_addresses {
   taluka_id         String?    @db.Uuid
   village_id        String?    @db.Uuid
   pincode           String?
+  latitude          Decimal?   @db.Decimal(10, 7)
+  longitude         Decimal?   @db.Decimal(10, 7)
   is_primary        Boolean    @default(false)
   created_at        DateTime   @default(now()) @db.Timestamptz(6)
   updated_at        DateTime   @default(now()) @db.Timestamptz(6)
@@ -621,6 +629,9 @@ model company_contacts {
   contact_id        String    @db.Uuid
   is_primary        Boolean   @default(false)
   created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  role_id           String?   @db.Uuid
+  is_active         Boolean   @default(true)
+  is_self           Boolean   @default(false)
   business_partners companies @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   contacts          contacts  @relation(fields: [contact_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -647,29 +658,31 @@ model contact_types {
 // written only through src/lib/party-landline.ts. Once added (same SQL as on
 // `companies`), run `npm run prisma:sync` to bring it into this model.
 model contacts {
-  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id            String             @db.Uuid
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id            String              @db.Uuid
   name                 String
   mobile               String
   alternate_mobile     String?
   whatsapp             String?
   email                String?
   designation          String?
-  contact_type_id      String?            @db.Uuid
-  owner_user_id        String?            @db.Uuid
-  birthday             DateTime?          @db.Date
-  anniversary          DateTime?          @db.Date
+  contact_type_id      String?             @db.Uuid
+  owner_user_id        String?             @db.Uuid
+  birthday             DateTime?           @db.Date
+  anniversary          DateTime?           @db.Date
   notes                String?
-  is_complete          Boolean            @default(false)
+  is_complete          Boolean             @default(false)
   completeness_missing String?
-  is_active            Boolean            @default(true)
-  created_at           DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime           @default(now()) @db.Timestamptz(6)
+  is_active            Boolean             @default(true)
+  created_at           DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime            @default(now()) @db.Timestamptz(6)
+  landline             String?
   company_contacts     company_contacts[]
-  contact_types        contact_types?     @relation(fields: [contact_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users                users?             @relation(fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  contact_types        contact_types?      @relation(fields: [contact_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                users?              @relation(fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   daily_visits         daily_visits[]
   deals                deals[]
+  weekly_plan_items    weekly_plan_items[]
 
   @@index([tenant_id])
 }
@@ -734,6 +747,8 @@ model companies {
   district_id                               String?             @db.Uuid
   taluka_id                                 String?             @db.Uuid
   village_id                                String?             @db.Uuid
+  latitude                                  Decimal?            @db.Decimal(10, 7)
+  longitude                                 Decimal?            @db.Decimal(10, 7)
   is_active                                 Boolean             @default(true)
   created_at                                DateTime            @default(now()) @db.Timestamptz(6)
   updated_at                                DateTime            @default(now()) @db.Timestamptz(6)
@@ -752,6 +767,9 @@ model companies {
   is_complete                               Boolean             @default(false)
   owner_user_id                             String?             @db.Uuid
   website                                   String?
+  landline                                  String?
+  account_kind                              String              @default("Company")
+  next_follow_up_time                       DateTime?           @db.Time(6)
   users_companies_created_by_user_idTousers users?              @relation("companies_created_by_user_idTousers", fields: [created_by_user_id], references: [id], onUpdate: NoAction, map: "business_partners_created_by_user_id_fkey")
   companies                                 companies?          @relation("companiesTocompanies", fields: [distributor_id], references: [id], onUpdate: NoAction, map: "business_partners_distributor_id_fkey")
   other_companies                           companies[]         @relation("companiesTocompanies")
@@ -773,6 +791,7 @@ model company_types {
   sort_order Int      @default(0)
   is_active  Boolean  @default(true)
   created_at DateTime @default(now()) @db.Timestamptz(6)
+  applies_to String   @default("Company")
 }
 
 model deal_stages {
@@ -820,6 +839,7 @@ model deal_follow_ups {
   visit_id     String?   @db.Uuid
   created_at   DateTime  @default(now()) @db.Timestamptz(6)
   updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  due_time     DateTime? @db.Time(6)
   deals        deals     @relation(fields: [deal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([deal_id])
@@ -1025,4 +1045,121 @@ model push_subscriptions {
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([tenant_id, user_id], map: "push_subscriptions_user_idx")
+}
+
+model account_members {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  company_id String    @db.Uuid
+  user_id    String    @db.Uuid
+  access     String
+  added_by   String    @db.Uuid
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_by String?   @db.Uuid
+  updated_at DateTime? @db.Timestamptz(6)
+  removed_by String?   @db.Uuid
+  removed_at DateTime? @db.Timestamptz(6)
+
+  // Partial indexes in the database, not modelled here (Prisma ignores them):
+  //   account_members_active_uq
+  //   account_members_user_idx
+}
+
+model contact_roles {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  is_system  Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "contact_roles_tenant_idx")
+}
+
+model deal_members {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  deal_id    String    @db.Uuid
+  user_id    String    @db.Uuid
+  access     String
+  added_by   String    @db.Uuid
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_by String?   @db.Uuid
+  updated_at DateTime? @db.Timestamptz(6)
+  removed_by String?   @db.Uuid
+  removed_at DateTime? @db.Timestamptz(6)
+
+  // Partial indexes in the database, not modelled here (Prisma ignores them):
+  //   deal_members_active_uq
+  //   deal_members_user_idx
+}
+
+model default_districts {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  state_id       String         @db.Uuid
+  name           String
+  lgd_code       Int?           @unique
+  is_active      Boolean        @default(true)
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  default_states default_states @relation(fields: [state_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([state_id, name])
+}
+
+model default_states {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String              @unique
+  sort_order        Int                 @default(0)
+  is_active         Boolean             @default(true)
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  default_districts default_districts[]
+}
+
+model meeting_attendees {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  visit_id   String   @db.Uuid
+  contact_id String   @db.Uuid
+  is_main    Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  // Partial indexes in the database, not modelled here (Prisma ignores them):
+  //   meeting_attendees_one_main_uq
+
+  @@unique([tenant_id, visit_id, contact_id], map: "meeting_attendees_visit_contact_uq")
+  @@index([tenant_id, contact_id], map: "meeting_attendees_contact_idx")
+}
+
+model todo_outcomes {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  user_id    String    @db.Uuid
+  todo_kind  String
+  todo_ref   String
+  party_id   String?   @db.Uuid
+  due_date   DateTime  @db.Date
+  outcome    String    @default("couldnt_meet")
+  reason_id  String?   @db.Uuid
+  note       String?
+  new_date   DateTime? @db.Date
+  latitude   Float?
+  longitude  Float?
+  address    String?
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  accuracy_m Float?    @db.Real
+
+  @@index([tenant_id, party_id], map: "todo_outcomes_tenant_party_idx")
+  @@index([tenant_id, user_id, due_date], map: "todo_outcomes_tenant_user_due_idx")
+}
+
+model todo_unmet_reasons {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "todo_unmet_reasons_tenant_idx")
 }
