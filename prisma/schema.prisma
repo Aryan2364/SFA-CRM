@@ -9,7 +9,7 @@ datasource db {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model contextual_remarks {
-  id                       String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                       String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                String               @db.Uuid
   context_type             String
   context_id               String               @db.Uuid
@@ -30,7 +30,7 @@ model contextual_remarks {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model daily_visits {
-  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id           String    @db.Uuid
   user_id             String    @db.Uuid
   visit_date          DateTime  @db.Date
@@ -78,7 +78,7 @@ model daily_visits {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model departments {
-  id           String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id    String         @db.Uuid
   name         String
   is_active    Boolean        @default(true)
@@ -90,7 +90,7 @@ model departments {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model designations {
-  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id     String      @db.Uuid
   department_id String      @db.Uuid
   name          String
@@ -104,7 +104,7 @@ model designations {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model districts {
-  id                String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id         String              @db.Uuid
   state_id          String              @db.Uuid
   name              String
@@ -120,7 +120,7 @@ model districts {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model expenses {
-  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id    String   @db.Uuid
   user_id      String   @db.Uuid
   expense_date DateTime @db.Date
@@ -145,7 +145,7 @@ model lead_temperatures {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model notifications {
-  id                                      String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                                      String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                               String              @db.Uuid
   recipient_id                            String              @db.Uuid
   actor_id                                String?             @db.Uuid
@@ -167,7 +167,7 @@ model notifications {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model order_items {
-  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id       String    @db.Uuid
   order_id        String    @db.Uuid
   product_id      String?   @db.Uuid
@@ -186,7 +186,7 @@ model order_items {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model orders {
-  id                    String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id             String        @db.Uuid
   user_id               String        @db.Uuid
   visit_id              String?       @unique @db.Uuid
@@ -214,7 +214,7 @@ model orders {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model product_categories {
-  id                    String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id             String                  @db.Uuid
   name                  String
   is_active             Boolean                 @default(true)
@@ -228,7 +228,7 @@ model product_categories {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model product_subcategories {
-  id                 String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id          String             @db.Uuid
   category_id        String             @db.Uuid
   name               String
@@ -241,7 +241,7 @@ model product_subcategories {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model products {
-  id                    String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                    String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id             String                @db.Uuid
   name                  String
   category_id           String                @db.Uuid
@@ -259,7 +259,7 @@ model products {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model remark_reads {
-  id                 String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id          String             @db.Uuid
   remark_id          String             @db.Uuid
   user_id            String             @db.Uuid
@@ -301,7 +301,7 @@ model roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model states {
-  id                String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id         String              @db.Uuid
   name              String
   is_active         Boolean             @default(true)
@@ -315,7 +315,7 @@ model states {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model talukas {
-  id                String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id         String              @db.Uuid
   district_id       String              @db.Uuid
   name              String
@@ -346,7 +346,7 @@ model tenants {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model user_territory_mappings {
-  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id    String   @db.Uuid
   user_id      String   @db.Uuid
   state_ids    String[] @default([]) @db.Uuid
@@ -362,7 +362,7 @@ model user_territory_mappings {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model user_visibility {
-  id                                          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                                          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                                   String   @db.Uuid
   viewer_user_id                              String   @db.Uuid
   target_user_id                              String   @db.Uuid
@@ -378,7 +378,7 @@ model user_visibility {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model users {
-  id                                                    String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                                                    String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                                             String                    @db.Uuid
   name                                                  String
   email                                                 String
@@ -427,7 +427,7 @@ model users {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model villages {
-  id                String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id         String              @db.Uuid
   taluka_id         String              @db.Uuid
   name              String
@@ -441,7 +441,7 @@ model villages {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model weekly_plan_audit_logs {
-  id              String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id       String       @db.Uuid
   weekly_plan_id  String       @db.Uuid
   actor_user_id   String?      @db.Uuid
@@ -461,7 +461,7 @@ model weekly_plan_audit_logs {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model weekly_plan_items {
-  id                    String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id             String       @db.Uuid
   weekly_plan_id        String       @db.Uuid
   plan_date             DateTime     @db.Date
@@ -483,7 +483,7 @@ model weekly_plan_items {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model weekly_plans {
-  id                                           String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                                           String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id                                    String                   @db.Uuid
   user_id                                      String                   @db.Uuid
   week_start_date                              DateTime                 @db.Date
@@ -509,7 +509,7 @@ model weekly_plans {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model attendance {
-  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id           String    @db.Uuid
   user_id             String    @db.Uuid
   date                DateTime  @db.Date

@@ -822,7 +822,7 @@ pg18 binaries to dump or restore against 17.x.
 | 1 | **RDS instance size / class?** | 6.2 connection pool cap | User | **ANSWERED: `db.t4g.micro`** (1 GB RAM, ~112 `max_connections`). Pool `max: 10` is correct — keep it. Small box; first thing to outgrow. |
 | 2 | **Is the RDS schema loaded yet** — empty, partial, or full? | 6.1 `db pull` source | Server agent | **OPEN** — RDS confirmed to hold no *data*; whether DDL is loaded is unconfirmed. Not blocking (pull from the old database). |
 | 3 | **Is there production data to copy** from the old database, or start clean? | Phase E | User | **ANSWERED: YES — sfacrm starts with a full copy of the old live production data.** Phase E is fully in scope, including the expense-photo copy. See the fork warning in section 11. |
-| 4 | **Has `CREATE EXTENSION "uuid-ossp"` been run on RDS?** Needs `rds_superuser`. | 6.1 | Server agent | **OPEN for RDS.** Confirmed present on the old live database — RDS needs it too |
+| 4 | **Has `CREATE EXTENSION "uuid-ossp"` been run on RDS?** Needs `rds_superuser`. | 6.1 | Server agent | **ANSWERED (2026-11-07): no, and it is not needed.** RDS has neither `uuid-ossp` nor `pgcrypto`; every `id` defaults to `gen_random_uuid()`, built into Postgres. See section "2." under the load notes |
 | 5 | **Confirm RLS is NOT enabled on RDS** (or the app role is `BYPASSRLS`). 0 policies means RLS on returns zero rows for every query. | All | Server agent | **OPEN** |
 | 6 | Are RDS automated backups on, with a sensible retention window? | Sign-off | User | **OPEN** |
 | 7 | ~~Do `point_config` / `point_events` / `point_config_history` exist?~~ | `points.ts` | — | **ANSWERED: yes, all three exist with live data.** The points feature is live, not dead. Also `tenant_point_settings`. |
@@ -1004,6 +1004,12 @@ column definition. Measured both ways: extension in `extensions` → `db pull` r
 `public` → defaults render bare and the normalized diff is identical to the committed file.
 *Known, accepted divergence from source:* source keeps `uuid-ossp` in `extensions`, RDS keeps it
 in `public`.
+
+> **Superseded (2026-11-07, checked on production).** RDS did not end up this way: `plpgsql` is its
+> only extension, `uuid_generate_v4()` does not exist there, and all 59 tables with an `id` column
+> default to `gen_random_uuid()`. `prisma/schema.prisma` now says the same. New tables use
+> `gen_random_uuid()`. This also replaces the `search_path` note above and the `uuid-ossp` part of
+> the load step below.
 
 **3. ⚠️ A SINGLE-TRANSACTION TRIGGER TEST IS A FALSE NEGATIVE.** `now()` returns **transaction
 start** time, so an INSERT and UPDATE in one transaction produce identical timestamps *by
