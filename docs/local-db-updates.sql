@@ -135,7 +135,7 @@ CREATE INDEX IF NOT EXISTS weekly_plan_items_contact_idx
 --     template table shared by all firms, read only when a firm is created.
 --     Safe to re-run.
 CREATE TABLE IF NOT EXISTS default_states (
-  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name       text NOT NULL UNIQUE,
   sort_order integer NOT NULL DEFAULT 0,
   is_active  boolean NOT NULL DEFAULT true,
@@ -162,7 +162,7 @@ ON CONFLICT (name) DO NOTHING;
 --     1 Nov 2026; lgd_code is LGD's district code, kept for future updates.
 --     Run item 12 first. Safe to re-run.
 CREATE TABLE IF NOT EXISTS default_districts (
-  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   state_id   uuid NOT NULL REFERENCES default_states(id) ON DELETE CASCADE,
   name       text NOT NULL,
   lgd_code   integer NULL UNIQUE,
