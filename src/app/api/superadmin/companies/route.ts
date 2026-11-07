@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma, serialize, dbErrorMessage } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { SEEDED_MASTERS } from '@/lib/masters-registry'
+import { seedDefaultLocations } from '@/lib/default-locations'
 import bcrypt from 'bcryptjs'
 import { PASSWORD_TOO_SHORT, passwordTooShort } from '@/lib/password-policy'
 
@@ -128,6 +129,10 @@ export async function POST(req: NextRequest) {
       })
     )
   )
+
+  // States and districts come from the default_states / default_districts
+  // tables, not from code — see src/lib/default-locations.ts.
+  await seedDefaultLocations(tid)
 
   // Create admin user. The password is never stored in cleartext — same library
   // and cost factor as /api/masters/users and /api/auth/reset-password.
